@@ -116,6 +116,7 @@ class OccasionApp extends StatelessWidget {
         },
       ),
       GoRoute(path: '/auth', builder: (context, state) => const _AuthPage()),
+      GoRoute(path: '/login', builder: (context, state) => const _AuthPage()),
     ],
   );
 

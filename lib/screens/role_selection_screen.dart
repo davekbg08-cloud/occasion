@@ -33,22 +33,48 @@ class RoleSelectionScreen extends StatelessWidget {
                 style: TextStyle(color: Colors.grey[400], fontSize: 15),
               ),
               const SizedBox(height: 56),
-              _RoleButton(
+              _RoleCard(
                 icon: Icons.storefront_rounded,
                 title: 'Vendeur',
-                subtitle:
+                description:
                     'Publiez vos articles avec un abonnement mensuel de 20000 FC.',
                 accentColor: Colors.blue,
-                onTap: () => _selectRole(context, UserRole.seller),
+                onTap: () => context.push(
+                  '/phone-auth',
+                  extra: UserRole.seller,
+                ),
               ),
               const SizedBox(height: 20),
-              _RoleButton(
+              _RoleCard(
                 icon: Icons.shopping_bag_rounded,
                 title: 'Acheteur',
-                subtitle:
+                description:
                     'Parcourez les articles gratuitement, sans abonnement mensuel.',
                 accentColor: Colors.green,
-                onTap: () => _selectRole(context, UserRole.buyer),
+                onTap: () => context.push(
+                  '/phone-auth',
+                  extra: UserRole.buyer,
+                ),
+              ),
+              const SizedBox(height: 48),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Déjà un compte ? ',
+                    style: TextStyle(color: Colors.grey[500]),
+                  ),
+                  GestureDetector(
+                    onTap: () => context.push('/login'),
+                    child: const Text(
+                      'Se connecter',
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -56,24 +82,20 @@ class RoleSelectionScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _selectRole(BuildContext context, UserRole role) {
-    context.go('/phone-auth', extra: role);
-  }
 }
 
-class _RoleButton extends StatelessWidget {
-  const _RoleButton({
+class _RoleCard extends StatelessWidget {
+  const _RoleCard({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    required this.description,
     required this.accentColor,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
+  final String description;
   final Color accentColor;
   final VoidCallback onTap;
 
@@ -114,7 +136,7 @@ class _RoleButton extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    subtitle,
+                    description,
                     style: TextStyle(color: Colors.grey[400], fontSize: 13),
                   ),
                 ],
