@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../providers/auth_provider.dart';
+import '../models/user.dart';
 
-class RoleSelectionScreen extends ConsumerWidget {
+class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -40,7 +39,7 @@ class RoleSelectionScreen extends ConsumerWidget {
                 subtitle:
                     'Publiez vos articles avec un abonnement mensuel de 20000 FC.',
                 accentColor: Colors.blue,
-                onTap: () => _selectRole(context, ref, UserRole.seller),
+                onTap: () => _selectRole(context, UserRole.seller),
               ),
               const SizedBox(height: 20),
               _RoleButton(
@@ -49,7 +48,7 @@ class RoleSelectionScreen extends ConsumerWidget {
                 subtitle:
                     'Parcourez les articles gratuitement, sans abonnement mensuel.',
                 accentColor: Colors.green,
-                onTap: () => _selectRole(context, ref, UserRole.buyer),
+                onTap: () => _selectRole(context, UserRole.buyer),
               ),
             ],
           ),
@@ -58,9 +57,8 @@ class RoleSelectionScreen extends ConsumerWidget {
     );
   }
 
-  void _selectRole(BuildContext context, WidgetRef ref, UserRole role) {
-    ref.read(authNotifierProvider.notifier).selectRole(role);
-    context.go('/phone-auth');
+  void _selectRole(BuildContext context, UserRole role) {
+    context.go('/phone-auth', extra: role);
   }
 }
 

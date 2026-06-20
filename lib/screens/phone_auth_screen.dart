@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../models/user.dart';
 import '../providers/auth_provider.dart';
 
 class PhoneAuthScreen extends ConsumerStatefulWidget {
-  const PhoneAuthScreen({super.key});
+  const PhoneAuthScreen({super.key, required this.role});
+
+  final UserRole role;
 
   @override
   ConsumerState<PhoneAuthScreen> createState() => _PhoneAuthScreenState();
@@ -23,27 +26,23 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
   }
 
   Future<void> _login() async {
-    final auth = ref.read(authNotifierProvider);
-    final role = auth.selectedRole ?? UserRole.buyer;
-
     await ref
         .read(authNotifierProvider.notifier)
         .login(
-          role: role,
+          role: widget.role,
           displayName: _nameController.text,
           phoneNumber: _phoneController.text,
         );
 
     if (!mounted) return;
 
-    context.go(role == UserRole.seller ? '/subscription' : '/home');
+    context.go(widget.role == UserRole.seller ? '/subscription' : '/home');
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authNotifierProvider);
-    final role = auth.selectedRole ?? UserRole.buyer;
-    final roleLabel = role == UserRole.seller ? 'vendeur' : 'acheteur';
+    final roleLabel = widget.role == UserRole.seller ? 'vendeur' : 'acheteur';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Connexion')),
@@ -75,7 +74,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
             enabled: !auth.isLoading,
             keyboardType: TextInputType.phone,
             decoration: const InputDecoration(
-              labelText: 'Telephone',
+              labelText: 'Téléphone',
               hintText: '+243 000 000 000',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.phone_outlined),

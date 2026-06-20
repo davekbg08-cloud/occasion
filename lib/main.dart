@@ -64,7 +64,11 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/phone-auth',
-        builder: (context, state) => const PhoneAuthScreen(),
+        builder: (context, state) {
+          final role = state.extra as UserRole? ?? UserRole.buyer;
+
+          return PhoneAuthScreen(role: role);
+        },
       ),
       GoRoute(
         path: '/status',
