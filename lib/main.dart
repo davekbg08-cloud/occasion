@@ -135,7 +135,7 @@ class OccasionApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Gestion Money RDC',
+      title: 'Occasion Marketplace',
       theme: ThemeData.dark().copyWith(
         colorScheme: const ColorScheme.dark(primary: Colors.blue),
         scaffoldBackgroundColor: Colors.black,
