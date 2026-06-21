@@ -21,7 +21,7 @@ class ProfileScreen extends ConsumerWidget {
         subscription.isActive &&
         !subscription.isExpired;
     final subscriptionSubtitle = hasActiveSubscription
-        ? "Actif jusqu'au ${subscription!.expiryDate.toString().split(' ').first}"
+        ? "Actif jusqu'au ${subscription.expiryDate.toString().split(' ').first}"
         : 'Aucun abonnement vendeur actif';
 
     return Scaffold(
@@ -93,6 +93,20 @@ class ProfileScreen extends ConsumerWidget {
                 icon: Icons.location_on,
                 title: 'Adresses de livraison',
                 onTap: () {},
+              ),
+              _ProfileTile(
+                icon: Icons.block,
+                title: 'Utilisateurs bloques',
+                onTap: user == null
+                    ? () {}
+                    : () => context.push('/blocked-users', extra: user.id),
+              ),
+              _ProfileTile(
+                icon: Icons.delete_outline,
+                title: 'Supprimer mon compte',
+                onTap: user == null
+                    ? () {}
+                    : () => context.push('/delete-account', extra: user.id),
               ),
               const Divider(),
               ListTile(

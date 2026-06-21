@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/user.dart';
-import '../providers/auth_provider.dart';
+import '../providers/auth_provider.dart' hide UserRole;
 
 class PhoneAuthScreen extends ConsumerStatefulWidget {
   const PhoneAuthScreen({super.key, required this.role});

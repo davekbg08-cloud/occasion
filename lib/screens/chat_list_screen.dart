@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../models/chat.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/moderation_provider.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
@@ -31,6 +32,16 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatNotifierProvider);
     final me = ref.watch(authNotifierProvider).currentUser;
+    final blockedIds = me == null
+        ? const <String>{}
+        : ref
+              .watch(blockedUserIdsProvider(me.id))
+              .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
+    final visibleChats = me == null
+        ? chatState.chats
+        : chatState.chats
+              .where((chat) => !blockedIds.contains(chat.otherUserId(me.id)))
+              .toList();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -45,9 +56,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           child: Divider(height: 1, color: Colors.grey[800]),
         ),
       ),
-      body: chatState.isLoading && chatState.chats.isEmpty
+      body: chatState.isLoading && visibleChats.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : chatState.error != null && chatState.chats.isEmpty
+          : chatState.error != null && visibleChats.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -58,14 +69,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 ),
               ),
             )
-          : chatState.chats.isEmpty
+          : visibleChats.isEmpty
           ? const _EmptyChats()
           : ListView.separated(
-              itemCount: chatState.chats.length,
+              itemCount: visibleChats.length,
               separatorBuilder: (context, index) =>
                   Divider(height: 1, color: Colors.grey[850], indent: 72),
               itemBuilder: (context, index) {
-                final chat = chatState.chats[index];
+                final chat = visibleChats[index];
                 return _ChatTile(
                   chat: chat,
                   currentUserId: me?.id ?? '',

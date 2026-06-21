@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import '../providers/moderation_provider.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_card.dart';
 
@@ -12,6 +14,12 @@ class ProductListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final productsAsync = ref.watch(productNotifierProvider);
+    final currentUser = ref.watch(authNotifierProvider).currentUser;
+    final blockedIds = currentUser == null
+        ? const <String>{}
+        : ref
+              .watch(blockedUserIdsProvider(currentUser.id))
+              .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
     final cartCount = ref.watch(
       cartNotifierProvider.select(
         (items) => items.fold(0, (sum, item) => sum + item.quantity),
@@ -64,7 +72,15 @@ class ProductListScreen extends ConsumerWidget {
       ),
       body: productsAsync.when(
         data: (products) {
-          if (products.isEmpty) {
+          final visibleProducts = products
+              .where(
+                (product) =>
+                    product.sellerId == null ||
+                    !blockedIds.contains(product.sellerId),
+              )
+              .toList();
+
+          if (visibleProducts.isEmpty) {
             return const Center(child: Text('Aucun produit disponible'));
           }
 
@@ -72,9 +88,9 @@ class ProductListScreen extends ConsumerWidget {
             onRefresh: () => ref.refresh(productNotifierProvider.future),
             child: ListView.builder(
               padding: const EdgeInsets.all(8),
-              itemCount: products.length,
+              itemCount: visibleProducts.length,
               itemBuilder: (context, index) {
-                return ProductCard(product: products[index]);
+                return ProductCard(product: visibleProducts[index]);
               },
             ),
           );

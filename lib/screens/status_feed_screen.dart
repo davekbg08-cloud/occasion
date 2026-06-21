@@ -4,9 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
+import '../models/report.dart';
 import '../models/status.dart';
 import '../providers/auth_provider.dart';
+import '../providers/moderation_provider.dart';
 import '../providers/status_provider.dart';
+import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
   const StatusFeedScreen({super.key});
@@ -36,34 +39,40 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
   @override
   Widget build(BuildContext context) {
     final statusState = ref.watch(statusNotifierProvider);
-    final isSeller = ref.watch(
-      authNotifierProvider.select(
-        (auth) => auth.currentUser?.isSeller ?? false,
-      ),
-    );
+    final currentUser = ref.watch(authNotifierProvider).currentUser;
+    final isSeller = currentUser?.isSeller ?? false;
+    final blockedIds = currentUser == null
+        ? const <String>{}
+        : ref
+              .watch(blockedUserIdsProvider(currentUser.id))
+              .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
+    final visibleStatuses = statusState.statuses
+        .where((status) => !blockedIds.contains(status.sellerId))
+        .toList();
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: statusState.isLoading && statusState.statuses.isEmpty
+      body: statusState.isLoading && visibleStatuses.isEmpty
           ? const Center(child: CircularProgressIndicator(color: Colors.white))
-          : statusState.error != null && statusState.statuses.isEmpty
+          : statusState.error != null && visibleStatuses.isEmpty
           ? _ErrorFeed(message: statusState.error!)
-          : statusState.statuses.isEmpty
+          : visibleStatuses.isEmpty
           ? _EmptyFeed(isSeller: isSeller)
           : Stack(
               children: [
                 PageView.builder(
                   controller: _pageController,
                   scrollDirection: Axis.vertical,
-                  itemCount: statusState.statuses.length,
+                  itemCount: visibleStatuses.length,
                   onPageChanged: (index) {
                     setState(() => _currentPage = index);
                   },
                   itemBuilder: (context, index) {
-                    final status = statusState.statuses[index];
+                    final status = visibleStatuses[index];
                     return _StatusPage(
                       status: status,
                       isActive: index == _currentPage,
+                      currentUserId: currentUser?.id ?? '',
                     );
                   },
                 ),
@@ -109,10 +118,15 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
 }
 
 class _StatusPage extends StatefulWidget {
-  const _StatusPage({required this.status, required this.isActive});
+  const _StatusPage({
+    required this.status,
+    required this.isActive,
+    required this.currentUserId,
+  });
 
   final Status status;
   final bool isActive;
+  final String currentUserId;
 
   @override
   State<_StatusPage> createState() => _StatusPageState();
@@ -178,7 +192,10 @@ class _StatusPageState extends State<_StatusPage> {
           left: 16,
           right: 84,
           bottom: 24,
-          child: _SellerInfo(status: widget.status),
+          child: _SellerInfo(
+            status: widget.status,
+            currentUserId: widget.currentUserId,
+          ),
         ),
         Positioned(
           right: 12,
@@ -220,9 +237,10 @@ class _StatusPageState extends State<_StatusPage> {
 }
 
 class _SellerInfo extends StatelessWidget {
-  const _SellerInfo({required this.status});
+  const _SellerInfo({required this.status, required this.currentUserId});
 
   final Status status;
+  final String currentUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +299,19 @@ class _SellerInfo extends StatelessWidget {
               ),
               child: const Text('Contacter'),
             ),
+            if (currentUserId.isNotEmpty && currentUserId != status.sellerId)
+              IconButton(
+                tooltip: 'Signaler ou bloquer',
+                onPressed: () => showReportOrBlockSheet(
+                  context,
+                  currentUserId: currentUserId,
+                  targetUserId: status.sellerId,
+                  targetUserName: status.sellerName,
+                  targetType: ReportTargetType.status,
+                  contentId: status.id,
+                ),
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+              ),
           ],
         ),
         if (status.caption?.isNotEmpty == true) ...[

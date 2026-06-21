@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'firebase_options.dart';
 import 'models/chat.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
+import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/delete_account_screen.dart';
 import 'screens/id_scan_screen.dart';
 import 'screens/payment_screen.dart';
 import 'screens/phone_auth_screen.dart';
@@ -25,18 +28,10 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _initializeFirebase();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   configureServices();
   await NotificationService.init(appNavigatorKey);
   runApp(const ProviderScope(child: OccasionApp()));
-}
-
-Future<void> _initializeFirebase() async {
-  try {
-    await Firebase.initializeApp();
-  } catch (error) {
-    debugPrint('Firebase non initialise : $error');
-  }
 }
 
 class OccasionApp extends StatelessWidget {
@@ -117,6 +112,22 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(path: '/auth', builder: (context, state) => const _AuthPage()),
       GoRoute(path: '/login', builder: (context, state) => const _AuthPage()),
+      GoRoute(
+        path: '/blocked-users',
+        builder: (context, state) {
+          final userId = state.extra as String? ?? '';
+
+          return BlockedUsersScreen(currentUserId: userId);
+        },
+      ),
+      GoRoute(
+        path: '/delete-account',
+        builder: (context, state) {
+          final userId = state.extra as String? ?? '';
+
+          return DeleteAccountScreen(userId: userId);
+        },
+      ),
     ],
   );
 

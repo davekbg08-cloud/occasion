@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/report.dart';
 import '../models/product_model.dart';
+import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import 'report_block_sheet.dart';
 
 class ProductCard extends ConsumerWidget {
   const ProductCard({super.key, required this.product});
@@ -47,6 +50,13 @@ class ProductCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final currentUser = ref.watch(authNotifierProvider).currentUser;
+    final currentUserId = currentUser?.id;
+    final canModerate =
+        currentUserId != null &&
+        product.sellerId != null &&
+        currentUserId != product.sellerId;
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Padding(
@@ -90,6 +100,22 @@ class ProductCard extends ConsumerWidget {
                                 color: Colors.blue,
                                 size: 16,
                               ),
+                            ),
+                          if (canModerate)
+                            IconButton(
+                              tooltip: 'Signaler ou bloquer',
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () => showReportOrBlockSheet(
+                                context,
+                                currentUserId: currentUserId,
+                                targetUserId: product.sellerId!,
+                                targetUserName: product.sellerName ?? 'Vendeur',
+                                targetType: ReportTargetType.product,
+                                contentId: product.id,
+                              ),
+                              icon: const Icon(Icons.more_vert, size: 18),
                             ),
                         ],
                       ),

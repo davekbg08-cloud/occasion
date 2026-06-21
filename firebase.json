@@ -13,5 +13,26 @@
         "firebase-debug.*.log"
       ]
     }
-  ]
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "medconnect-e81ba",
+          "appId": "1:341398935670:android:cfd99ea3900bc1113ba757",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "medconnect-e81ba",
+          "configurations": {
+            "android": "1:341398935670:android:cfd99ea3900bc1113ba757",
+            "ios": "1:341398935670:ios:6729499cf24578a63ba757",
+            "web": "1:341398935670:web:59b3f9d9f56f95723ba757"
+          }
+        }
+      }
+    }
+  }
 }

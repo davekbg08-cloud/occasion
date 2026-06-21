@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../models/report.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/report_block_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.chat});
@@ -83,6 +85,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     final messages = ref.watch(chatMessagesProvider(widget.chat.id));
     final otherName = chat.otherUserName(myId);
+    final otherId = chat.otherUserId(myId);
     final initial = otherName.isEmpty
         ? '?'
         : otherName.characters.first.toUpperCase();
@@ -116,6 +119,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          if (me != null && otherId.isNotEmpty)
+            IconButton(
+              tooltip: 'Signaler ou bloquer',
+              onPressed: () => showReportOrBlockSheet(
+                context,
+                currentUserId: me.id,
+                targetUserId: otherId,
+                targetUserName: otherName,
+                targetType: ReportTargetType.user,
+              ),
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+            ),
+        ],
       ),
       body: Column(
         children: [
