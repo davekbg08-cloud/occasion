@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'annonce/screens/create_annonce_screen.dart';
 import 'firebase_options.dart';
 import 'models/chat.dart';
 import 'providers/auth_provider.dart';
@@ -21,6 +22,7 @@ import 'screens/profile_screen.dart';
 import 'screens/role_selection_screen.dart';
 import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'search/screens/search_screen.dart';
 import 'services/notification_service.dart';
 import 'services/service_locator.dart';
 
@@ -76,6 +78,14 @@ class OccasionApp extends StatelessWidget {
       GoRoute(
         path: '/products',
         builder: (context, state) => const ProductListScreen(),
+      ),
+      GoRoute(
+        path: '/create-annonce',
+        builder: (context, state) => const CreateAnnonceScreen(),
+      ),
+      GoRoute(
+        path: '/search',
+        builder: (context, state) => const SearchScreen(),
       ),
       GoRoute(
         path: '/chat-list',
