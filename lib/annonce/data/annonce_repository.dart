@@ -17,9 +17,9 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
     firebase_auth.FirebaseAuth? auth,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance,
-        _auth = auth ?? firebase_auth.FirebaseAuth.instance;
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance,
+       _auth = auth ?? firebase_auth.FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
@@ -34,25 +34,29 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     final userId = currentUser?.uid ?? annonce.userId;
 
     if (userId.trim().isEmpty || userId == 'current_user') {
-      throw Exception('Utilisateur non connecté. Connecte-toi avant de publier.');
+      throw Exception(
+        'Utilisateur non connecté. Connecte-toi avant de publier.',
+      );
     }
 
     final docRef = _annoncesRef.doc();
     final imageUrls = await _uploadImages(annonceId: docRef.id, images: images);
 
-    final data = annonce
-        .copyWith(
-          id: docRef.id,
-          userId: userId,
-          imageUrls: imageUrls,
-          isActive: true,
-          views: 0,
-          favoritesCount: 0,
-        )
-        .toJson();
+    final prepared = annonce.copyWith(
+      id: docRef.id,
+      userId: userId,
+      imageUrls: imageUrls,
+      isActive: true,
+      status: 'active',
+      views: 0,
+      favoritesCount: 0,
+    );
+    prepared.validate();
 
-    data['createdAt'] = FieldValue.serverTimestamp();
-    data['updatedAt'] = FieldValue.serverTimestamp();
+    final data = prepared.toJson();
+
+    data['dateCreation'] = FieldValue.serverTimestamp();
+    data['dateModification'] = FieldValue.serverTimestamp();
 
     await docRef.set(data);
 
@@ -63,11 +67,11 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   @override
   Future<List<Annonce>> getAnnonces({String? search, String? category}) async {
     Query<Map<String, dynamic>> query = _annoncesRef
-        .where('isActive', isEqualTo: true)
-        .orderBy('createdAt', descending: true);
+        .where('statut', isEqualTo: 'active')
+        .orderBy('dateCreation', descending: true);
 
     if (category != null && category.trim().isNotEmpty) {
-      query = query.where('category', isEqualTo: category.trim());
+      query = query.where('categorie', isEqualTo: category.trim());
     }
 
     final snapshot = await query.get();
@@ -95,7 +99,7 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }
 
     final data = annonce.toJson();
-    data['updatedAt'] = FieldValue.serverTimestamp();
+    data['dateModification'] = FieldValue.serverTimestamp();
 
     await _annoncesRef.doc(annonce.id).update(data);
     final snapshot = await _annoncesRef.doc(annonce.id).get();
@@ -116,8 +120,8 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }
 
     await _annoncesRef.doc(id).update({
-      'isActive': false,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'statut': 'inactive',
+      'dateModification': FieldValue.serverTimestamp(),
     });
   }
 
@@ -130,7 +134,8 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     for (var index = 0; index < images.length; index++) {
       final image = images[index];
       final extension = image.name.split('.').last.toLowerCase();
-      final fileName = 'image_${index + 1}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+      final fileName =
+          'image_${index + 1}_${DateTime.now().millisecondsSinceEpoch}.$extension';
       final ref = _storage.ref().child('annonces/$annonceId/$fileName');
       final bytes = await image.readAsBytes();
 

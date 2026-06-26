@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "functions": [
     {
@@ -18,18 +19,18 @@
     "platforms": {
       "android": {
         "default": {
-          "projectId": "medconnect-e81ba",
-          "appId": "1:341398935670:android:cfd99ea3900bc1113ba757",
+          "projectId": "occasion-10cdb",
+          "appId": "1:101610899328:android:f31d5e4f8e710904486365",
           "fileOutput": "android/app/google-services.json"
         }
       },
       "dart": {
         "lib/firebase_options.dart": {
-          "projectId": "medconnect-e81ba",
+          "projectId": "occasion-10cdb",
           "configurations": {
-            "android": "1:341398935670:android:cfd99ea3900bc1113ba757",
-            "ios": "1:341398935670:ios:6729499cf24578a63ba757",
-            "web": "1:341398935670:web:59b3f9d9f56f95723ba757"
+            "android": "1:101610899328:android:f31d5e4f8e710904486365",
+            "ios": "1:101610899328:ios:1ef95a310386d06c486365",
+            "web": "1:101610899328:web:94ef5e76085b599b486365"
           }
         }
       }

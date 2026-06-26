@@ -1,67 +1,270 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasOnly(data, keys) {
+      return data.keys().hasOnly(keys);
+    }
+
+    function stringField(data, field, max) {
+      return data[field] is string && data[field].size() <= max;
+    }
+
+    function optionalString(data, field, max) {
+      return !(field in data) || stringField(data, field, max);
+    }
+
+    function optionalNumber(data, field) {
+      return !(field in data) || data[field] is number;
+    }
+
+    function validAnnonce(data) {
+      return hasOnly(data, [
+        'id', 'titre', 'description', 'prix', 'devise', 'categorie',
+        'marque', 'modele', 'annee', 'etat', 'localisation', 'vendeurId',
+        'telephone', 'images', 'favoris', 'vues', 'statut',
+        'dateCreation', 'dateModification'
+      ])
+      && stringField(data, 'titre', 160)
+      && stringField(data, 'description', 4000)
+      && data.prix is number && data.prix >= 0
+      && stringField(data, 'devise', 10)
+      && stringField(data, 'categorie', 120)
+      && optionalString(data, 'marque', 120)
+      && optionalString(data, 'modele', 120)
+      && optionalNumber(data, 'annee')
+      && optionalString(data, 'etat', 80)
+      && optionalString(data, 'localisation', 180)
+      && stringField(data, 'vendeurId', 128)
+      && optionalString(data, 'telephone', 40)
+      && data.images is list
+      && data.favoris is number && data.favoris >= 0
+      && data.vues is number && data.vues >= 0
+      && stringField(data, 'statut', 40)
+      && data.dateCreation is timestamp
+      && data.dateModification is timestamp;
+    }
+
+    function validUtilisateur(data) {
+      return hasOnly(data, [
+        'id', 'nom', 'prenom', 'telephone', 'email', 'photo', 'ville', 'pays',
+        'dateCreation', 'typeCompte', 'estVerifie', 'derniereConnexion'
+      ])
+      && stringField(data, 'nom', 160)
+      && optionalString(data, 'prenom', 160)
+      && stringField(data, 'telephone', 40)
+      && optionalString(data, 'email', 160)
+      && optionalString(data, 'photo', 500)
+      && optionalString(data, 'ville', 120)
+      && optionalString(data, 'pays', 120)
+      && data.dateCreation is timestamp
+      && stringField(data, 'typeCompte', 40)
+      && data.estVerifie is bool
+      && data.derniereConnexion is timestamp;
+    }
+
+    function validFavori(data) {
+      return hasOnly(data, ['id', 'utilisateurId', 'annonceId', 'dateAjout'])
+      && stringField(data, 'utilisateurId', 128)
+      && stringField(data, 'annonceId', 128)
+      && data.dateAjout is timestamp;
+    }
+
+    function validMessage(data) {
+      return hasOnly(data, [
+        'id', 'conversationId', 'expediteurId', 'destinataireId',
+        'contenu', 'lu', 'dateEnvoi'
+      ])
+      && stringField(data, 'conversationId', 128)
+      && stringField(data, 'expediteurId', 128)
+      && stringField(data, 'destinataireId', 128)
+      && stringField(data, 'contenu', 4000)
+      && data.lu is bool
+      && data.dateEnvoi is timestamp;
+    }
+
+    function validConversation(data) {
+      return hasOnly(data, ['id', 'participants', 'dernierMessage', 'dateDernierMessage'])
+      && data.participants is list
+      && data.participants.size() >= 2
+      && stringField(data, 'dernierMessage', 1000)
+      && data.dateDernierMessage is timestamp;
+    }
+
+    function validSignalement(data) {
+      return hasOnly(data, ['id', 'annonceId', 'utilisateurId', 'motif', 'description', 'date', 'statut'])
+      && stringField(data, 'annonceId', 128)
+      && stringField(data, 'utilisateurId', 128)
+      && stringField(data, 'motif', 160)
+      && optionalString(data, 'description', 2000)
+      && data.date is timestamp
+      && stringField(data, 'statut', 40);
+    }
+
+    function validCategorie(data) {
+      return hasOnly(data, ['id', 'nom', 'icone', 'ordre'])
+      && stringField(data, 'nom', 120)
+      && optionalString(data, 'icone', 120)
+      && data.ordre is number && data.ordre >= 0;
+    }
+
+    function validNotification(data) {
+      return hasOnly(data, ['id', 'utilisateurId', 'titre', 'message', 'lu', 'date'])
+      && stringField(data, 'utilisateurId', 128)
+      && stringField(data, 'titre', 160)
+      && stringField(data, 'message', 1000)
+      && data.lu is bool
+      && data.date is timestamp;
+    }
+
+    match /annonces/{annonceId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.vendeurId == request.auth.uid
+        && validAnnonce(request.resource.data);
+      allow update: if signedIn()
+        && validAnnonce(request.resource.data)
+        && (
+          resource.data.vendeurId == request.auth.uid
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'dateModification'])
+        );
+      allow delete: if signedIn() && resource.data.vendeurId == request.auth.uid;
+    }
+
+    match /utilisateurs/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId) && validUtilisateur(request.resource.data);
+      allow delete: if isOwner(userId);
+    }
+
+    match /favoris/{favoriId} {
+      allow read: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.utilisateurId == request.auth.uid
+        && validFavori(request.resource.data);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn()
+        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.expediteurId == request.auth.uid
+        && validMessage(request.resource.data);
+      allow update: if signedIn()
+        && validMessage(request.resource.data)
+        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn()
+        && request.auth.uid in request.resource.data.participants
+        && validConversation(request.resource.data);
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && validConversation(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /signalements/{signalementId} {
+      allow create: if signedIn()
+        && request.resource.data.utilisateurId == request.auth.uid
+        && validSignalement(request.resource.data);
+      allow read, update, delete: if false;
+    }
+
+    match /categories/{categorieId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.auth.token.admin == true
+        && validCategorie(request.resource.data);
+      allow delete: if signedIn() && request.auth.token.admin == true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.utilisateurId == request.auth.uid
+        && validNotification(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.utilisateurId == request.auth.uid
+        && validNotification(request.resource.data);
+      allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+    }
+
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if signedIn();
+      allow write: if isOwner(userId);
 
       match /blockedUsers/{blockedUserId} {
-        allow read, create, update, delete: if request.auth != null
-          && request.auth.uid == userId;
+        allow read, create, update, delete: if isOwner(userId);
       }
     }
 
     match /reports/{reportId} {
-      allow create: if request.auth != null
+      allow create: if signedIn()
         && request.resource.data.reporterId == request.auth.uid;
       allow read, update, delete: if false;
     }
 
     match /statuses/{statusId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow read: if signedIn();
+      allow create: if signedIn()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update: if request.auth != null
+      allow update: if signedIn()
         && (
           resource.data.sellerId == request.auth.uid
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
         );
-      allow delete: if request.auth != null
-        && resource.data.sellerId == request.auth.uid;
+      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
     }
 
     match /products/{productId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow read: if signedIn();
+      allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update, delete: if request.auth != null
-        && resource.data.sellerId == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.sellerId == request.auth.uid;
     }
 
     match /chats/{chatId} {
-      allow create: if request.auth != null
+      allow create: if signedIn()
         && (
           request.resource.data.buyerId == request.auth.uid
           || request.resource.data.sellerId == request.auth.uid
         );
-      allow read, update, delete: if request.auth != null
+      allow read, update, delete: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         );
 
       match /messages/{messageId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null
+        allow read: if signedIn();
+        allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid;
-        allow update: if request.auth != null
+        allow update: if signedIn()
           && (
             resource.data.senderId == request.auth.uid
             || resource.data.receiverId == request.auth.uid
           );
         allow delete: if false;
       }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

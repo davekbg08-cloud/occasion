@@ -14,19 +14,30 @@ class Favori {
   factory Favori.fromJson(Map<String, dynamic> json) {
     return Favori(
       id: json['id'] as String? ?? '',
-      userId: json['userId'] as String? ?? '',
+      userId:
+          json['utilisateurId'] as String? ?? json['userId'] as String? ?? '',
       annonceId: json['annonceId'] as String? ?? '',
-      createdAt: _toDateTime(json['createdAt']) ?? DateTime.now(),
+      createdAt:
+          _toDateTime(json['dateAjout'] ?? json['createdAt']) ?? DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'userId': userId,
+      'utilisateurId': userId,
       'annonceId': annonceId,
-      'createdAt': createdAt,
+      'dateAjout': createdAt,
     };
+  }
+
+  void validate() {
+    final errors = <String>[];
+    if (userId.trim().isEmpty) errors.add('utilisateurId obligatoire');
+    if (annonceId.trim().isEmpty) errors.add('annonceId obligatoire');
+    if (errors.isNotEmpty) {
+      throw ArgumentError(errors.join(', '));
+    }
   }
 
   static DateTime? _toDateTime(dynamic value) {
