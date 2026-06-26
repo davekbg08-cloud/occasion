@@ -31,6 +31,10 @@ class ProductListScreen extends ConsumerWidget {
         title: const Text('Nos Produits'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.search, size: 28),
+            onPressed: () => context.push('/search'),
+          ),
+          IconButton(
             icon: const Icon(Icons.person_outline, size: 28),
             onPressed: () => context.push('/profile'),
           ),
@@ -100,9 +104,11 @@ class ProductListScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Ajout de produit à venir')),
-          );
+          if (currentUser == null) {
+            context.push('/auth');
+            return;
+          }
+          context.push('/create-annonce');
         },
         child: const Icon(Icons.add),
       ),
