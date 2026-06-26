@@ -47,29 +47,29 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBXYiylAjJnR72IE_vUIrEZcjl1e_HBikI',
-    appId: '1:341398935670:web:59b3f9d9f56f95723ba757',
-    messagingSenderId: '341398935670',
-    projectId: 'medconnect-e81ba',
-    authDomain: 'medconnect-e81ba.firebaseapp.com',
-    storageBucket: 'medconnect-e81ba.firebasestorage.app',
-    measurementId: 'G-5WJ8G0PKWW',
+    apiKey: 'AIzaSyDsZ-F8Tpl77yZUxkRkXOr-HnGrfr6OcbM',
+    appId: '1:101610899328:web:94ef5e76085b599b486365',
+    messagingSenderId: '101610899328',
+    projectId: 'occasion-10cdb',
+    authDomain: 'occasion-10cdb.firebaseapp.com',
+    storageBucket: 'occasion-10cdb.firebasestorage.app',
+    measurementId: 'G-C7WDKKRSMD',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDPD-jAyZJVrgw5vQzc1u1-8QatuMHXoRU',
-    appId: '1:341398935670:android:cfd99ea3900bc1113ba757',
-    messagingSenderId: '341398935670',
-    projectId: 'medconnect-e81ba',
-    storageBucket: 'medconnect-e81ba.firebasestorage.app',
+    apiKey: 'AIzaSyARE6huabcDtrZOMGLcxj86NlNyZeyqeOM',
+    appId: '1:101610899328:android:f31d5e4f8e710904486365',
+    messagingSenderId: '101610899328',
+    projectId: 'occasion-10cdb',
+    storageBucket: 'occasion-10cdb.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyC2qNcq03hHTQ67Xv_z_YyYiMC8DULsoOk',
-    appId: '1:341398935670:ios:6729499cf24578a63ba757',
-    messagingSenderId: '341398935670',
-    projectId: 'medconnect-e81ba',
-    storageBucket: 'medconnect-e81ba.firebasestorage.app',
+    apiKey: 'AIzaSyCrBeSsmzA15KykFuAk17fJQJP0qMPSkKE',
+    appId: '1:101610899328:ios:1ef95a310386d06c486365',
+    messagingSenderId: '101610899328',
+    projectId: 'occasion-10cdb',
+    storageBucket: 'occasion-10cdb.firebasestorage.app',
     iosBundleId: 'com.example.occasion',
   );
 }

@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,6 +26,7 @@ import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'search/screens/search_screen.dart';
 import 'services/notification_service.dart';
+import 'services/firestore_bootstrap.dart';
 import 'services/service_locator.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
@@ -32,6 +34,7 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirestoreBootstrap.configure(FirebaseFirestore.instance);
   configureServices();
   await NotificationService.init(appNavigatorKey);
   runApp(const ProviderScope(child: OccasionApp()));
