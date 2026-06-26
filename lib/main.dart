@@ -15,6 +15,7 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
 import 'screens/id_scan_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/payment_screen.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/product_list_screen.dart';
@@ -86,6 +87,10 @@ class OccasionApp extends StatelessWidget {
       GoRoute(
         path: '/search',
         builder: (context, state) => const SearchScreen(),
+      ),
+      GoRoute(
+        path: '/notifications',
+        builder: (context, state) => const NotificationsScreen(),
       ),
       GoRoute(
         path: '/chat-list',
