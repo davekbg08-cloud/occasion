@@ -12,6 +12,22 @@
 .swiftpm/
 migrate_working_dir/
 
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.keystore
+serviceAccount*.json
+firebase-adminsdk*.json
+secrets/
+.venv/
+venv/
+
 # IntelliJ related
 *.iml
 *.ipr
