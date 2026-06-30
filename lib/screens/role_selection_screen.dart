@@ -37,12 +37,10 @@ class RoleSelectionScreen extends StatelessWidget {
                 icon: Icons.storefront_rounded,
                 title: 'Vendeur',
                 description:
-                    'Publiez vos articles avec un abonnement mensuel de 20000 FC.',
+                    "Créez gratuitement votre compte vendeur et parcourez l'application.",
                 accentColor: Colors.blue,
-                onTap: () => context.push(
-                  '/phone-auth',
-                  extra: UserRole.seller,
-                ),
+                onTap: () =>
+                    context.push('/phone-auth', extra: UserRole.seller),
               ),
               const SizedBox(height: 20),
               _RoleCard(
@@ -51,10 +49,7 @@ class RoleSelectionScreen extends StatelessWidget {
                 description:
                     'Parcourez les articles gratuitement, sans abonnement mensuel.',
                 accentColor: Colors.green,
-                onTap: () => context.push(
-                  '/phone-auth',
-                  extra: UserRole.buyer,
-                ),
+                onTap: () => context.push('/phone-auth', extra: UserRole.buyer),
               ),
               const SizedBox(height: 48),
               Row(

@@ -1,11 +1,11 @@
 {
-    "name": "occasion",
-    "short_name": "occasion",
+    "name": "Occasion",
+    "short_name": "Occasion",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Occasion, plateforme d'achat et de vente d'articles.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

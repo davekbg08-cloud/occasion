@@ -36,7 +36,7 @@ exports.onNewMessage = onDocumentCreated(
         },
         android: {
           priority: "high",
-          notification: { channelId: "gestion_money_channel" },
+          notification: { channelId: "occasion_channel" },
         },
         apns: {
           payload: { aps: { sound: "default", badge: 1 } },
@@ -92,7 +92,7 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
         },
         android: {
           priority: "normal",
-          notification: { channelId: "gestion_money_channel" },
+          notification: { channelId: "occasion_channel" },
         },
         apns: {
           payload: { aps: { sound: "default" } },

@@ -1,25 +1,25 @@
-# Occasion — Marketplace
+# Occasion - Marketplace
 
-Occasion est une application Flutter de marketplace destinée à mettre en relation vendeurs et acheteurs autour de produits publiés dans l’application.
+Occasion est une application Flutter de marketplace destinee a mettre en relation vendeurs et acheteurs autour de produits publies dans l'application.
 
 ## Objectif
 
-Construire une marketplace mobile avec profils utilisateurs, catalogue produits, panier, paiement, messagerie, statuts/fil d’actualité, notifications et vérification d’identité.
+Construire une marketplace mobile avec profils utilisateurs, catalogue produits, panier, paiement, messagerie, statuts/fil d'actualite, notifications et verification d'identite.
 
-## Fonctionnalités visibles dans le projet
+## Fonctionnalites visibles dans le projet
 
-- Sélection du rôle utilisateur : acheteur ou vendeur.
-- Authentification téléphone.
-- Scan d’identité / OCR.
+- Selection du role utilisateur : acheteur ou vendeur.
+- Authentification telephone.
+- Scan d'identite / OCR.
 - Liste de produits.
 - Panier.
 - Paiement.
 - Abonnement.
 - Profil utilisateur.
-- Statuts / fil d’actualité.
+- Statuts / fil d'actualite.
 - Messagerie acheteur-vendeur.
 - Notifications Firebase/locales.
-- Gestion des utilisateurs bloqués et suppression de compte.
+- Gestion des utilisateurs bloques et suppression de compte.
 
 ## Stack technique
 
@@ -32,19 +32,19 @@ Construire une marketplace mobile avec profils utilisateurs, catalogue produits,
 - Camera / Image Picker / Google ML Kit OCR
 - Notifications locales
 
-## État actuel
+## Etat actuel
 
-Le projet est une marketplace Flutter en développement. L’identité visible doit rester `Occasion`, mais l’`applicationId` Android est encore `com.example.occasion` parce que le fichier Firebase `google-services.json` actuel est lié à ce package. Avant une publication officielle, il faudra créer/configurer l’application Android finale dans Firebase puis remplacer proprement l’`applicationId`.
+Le projet est une marketplace Flutter en developpement. L'identite visible doit rester `Occasion`, mais l'`applicationId` Android est encore `com.example.occasion` parce que le fichier Firebase `google-services.json` actuel est lie a ce package. Avant une publication officielle, il faudra creer/configurer l'application Android finale dans Firebase puis remplacer proprement l'`applicationId`.
 
-## Points à faire avant publication
+## Points a faire avant publication
 
 1. Choisir le package final, par exemple `com.mediavision.occasion`.
-2. Créer l’application Android correspondante dans Firebase.
-3. Télécharger le nouveau `google-services.json`.
-4. Mettre à jour `applicationId` et `namespace` Android.
+2. Creer l'application Android correspondante dans Firebase.
+3. Telecharger le nouveau `google-services.json`.
+4. Mettre a jour `applicationId` et `namespace` Android.
 5. Ajouter une vraie signature release.
-6. Tester l’auth téléphone, Firestore, Storage, notifications et paiement sur téléphone réel.
-7. Vérifier les règles Firestore/Storage avant test public.
+6. Tester l'auth telephone, Firestore, Storage, notifications et paiement sur telephone reel.
+7. Verifier les regles Firestore/Storage avant test public.
 
 ## Commandes utiles
 
@@ -57,4 +57,4 @@ flutter build apk --release
 
 ## Note
 
-Ne pas mélanger ce dépôt avec Ma Gestion ou MedConnect. Occasion est le projet marketplace.
+Ne pas melanger ce depot avec Ma Gestion ou MedConnect. Occasion est le projet marketplace.

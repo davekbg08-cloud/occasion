@@ -153,7 +153,7 @@ class OccasionApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Occasion Marketplace',
+      title: 'Occasion',
       theme: ThemeData.dark().copyWith(
         colorScheme: const ColorScheme.dark(primary: Colors.blue),
         scaffoldBackgroundColor: Colors.black,
@@ -219,7 +219,7 @@ class _MainNavState extends ConsumerState<MainNav> {
     final unreadCount = ref.watch(
       chatNotifierProvider.select(
         (state) =>
-            state.chats.fold<int>(0, (sum, chat) => sum + chat.unreadCount),
+            state.chats.fold<int>(0, (total, chat) => total + chat.unreadCount),
       ),
     );
 

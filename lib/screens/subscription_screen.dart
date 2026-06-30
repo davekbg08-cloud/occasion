@@ -28,7 +28,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       'name': 'Vendeur Mensuel',
       'price': 20000,
       'duration': '1 mois',
-      'benefit': 'Publication des articles + messagerie client',
+      'benefit': 'Publication des annonces',
     },
   ];
 
@@ -163,7 +163,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Seuls les vendeurs paient un abonnement mensuel. Les acheteurs utilisent Occasion gratuitement.',
+                'Pour publier vos annonces sur Occasion, un abonnement vendeur est nécessaire.',
                 style: TextStyle(color: Colors.grey[400], fontSize: 14),
               ),
               const SizedBox(height: 16),

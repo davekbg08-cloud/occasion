@@ -9,6 +9,7 @@ import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../providers/status_provider.dart';
+import '../services/seller_subscription_guard.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
@@ -36,6 +37,13 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
     super.dispose();
   }
 
+  void _openPublisher() {
+    final canPublish = checkSellerSubscription(context, ref);
+    if (canPublish) {
+      context.push('/add-status');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusState = ref.watch(statusNotifierProvider);
@@ -57,7 +65,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
           : statusState.error != null && visibleStatuses.isEmpty
           ? _ErrorFeed(message: statusState.error!)
           : visibleStatuses.isEmpty
-          ? _EmptyFeed(isSeller: isSeller)
+          ? _EmptyFeed(isSeller: isSeller, onPublish: _openPublisher)
           : Stack(
               children: [
                 PageView.builder(
@@ -103,7 +111,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                         ),
                         if (isSeller)
                           FilledButton.icon(
-                            onPressed: () => context.push('/add-status'),
+                            onPressed: _openPublisher,
                             icon: const Icon(Icons.add, size: 16),
                             label: const Text('Publier'),
                           ),
@@ -422,9 +430,10 @@ class _ActionButton extends StatelessWidget {
 }
 
 class _EmptyFeed extends StatelessWidget {
-  const _EmptyFeed({required this.isSeller});
+  const _EmptyFeed({required this.isSeller, required this.onPublish});
 
   final bool isSeller;
+  final VoidCallback onPublish;
 
   @override
   Widget build(BuildContext context) {
@@ -441,7 +450,7 @@ class _EmptyFeed extends StatelessWidget {
           const SizedBox(height: 8),
           if (isSeller)
             FilledButton.icon(
-              onPressed: () => context.push('/add-status'),
+              onPressed: onPublish,
               icon: const Icon(Icons.add),
               label: const Text('Publier le premier article'),
             )

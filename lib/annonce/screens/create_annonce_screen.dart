@@ -10,7 +10,8 @@ class CreateAnnonceScreen extends ConsumerStatefulWidget {
   const CreateAnnonceScreen({super.key});
 
   @override
-  ConsumerState<CreateAnnonceScreen> createState() => _CreateAnnonceScreenState();
+  ConsumerState<CreateAnnonceScreen> createState() =>
+      _CreateAnnonceScreenState();
 }
 
 class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
@@ -59,16 +60,20 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     final currentUser = ref.read(authNotifierProvider).currentUser;
     if (currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connecte-toi avant de publier une annonce.')),
+        const SnackBar(
+          content: Text('Connecte-toi avant de publier une annonce.'),
+        ),
       );
       return;
     }
 
-    final price = double.tryParse(_priceController.text.trim().replaceAll(',', '.'));
+    final price = double.tryParse(
+      _priceController.text.trim().replaceAll(',', '.'),
+    );
     if (price == null || price <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Prix invalide.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Prix invalide.')));
       return;
     }
 
@@ -86,7 +91,9 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
           : _locationController.text.trim(),
     );
 
-    await ref.read(createAnnonceProvider.notifier).create(annonce, _selectedImages);
+    await ref
+        .read(createAnnonceProvider.notifier)
+        .create(annonce, _selectedImages);
   }
 
   @override
@@ -113,9 +120,9 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
           ref.read(createAnnonceProvider.notifier).reset();
         },
         error: (error, stackTrace) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(error.toString())),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(error.toString())));
         },
       );
     });
@@ -198,12 +205,15 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                     flex: 2,
                     child: TextFormField(
                       controller: _priceController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Prix',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) => value == null || value.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                           ? 'Entre le prix'
                           : null,
                     ),
@@ -211,36 +221,41 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _currency,
+                      initialValue: _currency,
                       decoration: const InputDecoration(
                         labelText: 'Devise',
                         border: OutlineInputBorder(),
                       ),
                       items: _currencies
-                          .map((currency) => DropdownMenuItem(
-                                value: currency,
-                                child: Text(currency),
-                              ))
+                          .map(
+                            (currency) => DropdownMenuItem(
+                              value: currency,
+                              child: Text(currency),
+                            ),
+                          )
                           .toList(),
                       onChanged: createState.isLoading
                           ? null
-                          : (value) => setState(() => _currency = value ?? 'USD'),
+                          : (value) =>
+                                setState(() => _currency = value ?? 'USD'),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _category,
+                initialValue: _category,
                 decoration: const InputDecoration(
                   labelText: 'Catégorie',
                   border: OutlineInputBorder(),
                 ),
                 items: _categories
-                    .map((category) => DropdownMenuItem(
-                          value: category,
-                          child: Text(category),
-                        ))
+                    .map(
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ),
+                    )
                     .toList(),
                 onChanged: createState.isLoading
                     ? null

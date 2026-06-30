@@ -32,7 +32,7 @@ class NotificationService {
   static StreamSubscription<String>? _tokenRefreshSubscription;
 
   static const _channel = AndroidNotificationChannel(
-    'gestion_money_channel',
+    'occasion_channel',
     'Notifications',
     description: 'Messages et nouveaux articles',
     importance: Importance.high,
