@@ -18,8 +18,12 @@ class ChatService {
     return _chats.doc(chatId).collection('messages');
   }
 
-  String _chatId(String uid1, String uid2) {
+  String _chatId(String uid1, String uid2, String? listingId) {
     final ids = [uid1, uid2]..sort();
+    final listingPart = listingId?.trim();
+    if (listingPart != null && listingPart.isNotEmpty) {
+      ids.add(listingPart.replaceAll('/', '_'));
+    }
     return ids.join('_');
   }
 
@@ -30,8 +34,10 @@ class ChatService {
     required String sellerName,
     String? buyerProfileImageUrl,
     String? sellerProfileImageUrl,
+    String? listingId,
+    String? listingTitle,
   }) async {
-    final id = _chatId(buyerId, sellerId);
+    final id = _chatId(buyerId, sellerId, listingId);
     final doc = await _chats.doc(id).get();
 
     if (!doc.exists) {
@@ -43,9 +49,21 @@ class ChatService {
         sellerName: sellerName,
         buyerProfileImageUrl: buyerProfileImageUrl,
         sellerProfileImageUrl: sellerProfileImageUrl,
+        listingId: listingId,
+        listingTitle: listingTitle,
       );
       await _chats.doc(id).set(chat.toMap());
       return chat;
+    }
+
+    if ((listingTitle?.trim().isNotEmpty == true) ||
+        (listingId?.trim().isNotEmpty == true)) {
+      await _chats.doc(id).set({
+        if (listingId?.trim().isNotEmpty == true) 'listingId': listingId,
+        if (listingTitle?.trim().isNotEmpty == true)
+          'listingTitle': listingTitle,
+        'participants': [buyerId, sellerId],
+      }, SetOptions(merge: true));
     }
 
     return Chat.fromMap({...?doc.data(), 'id': doc.id});
@@ -123,5 +141,9 @@ class ChatService {
     }
     batch.update(_chats.doc(chatId), {'unreadCount': 0});
     await batch.commit();
+  }
+
+  Future<void> deleteChat(String chatId) async {
+    await _chats.doc(chatId).delete();
   }
 }

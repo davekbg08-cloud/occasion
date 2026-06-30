@@ -9,6 +9,8 @@ class Annonce {
     required this.userId,
     this.imageUrls = const <String>[],
     this.location,
+    this.city = '',
+    this.district = '',
     this.brand = '',
     this.model = '',
     this.year = 0,
@@ -20,6 +22,7 @@ class Annonce {
     this.isActive = true,
     this.views = 0,
     this.favoritesCount = 0,
+    this.messagesCount = 0,
   });
 
   final String id;
@@ -31,6 +34,8 @@ class Annonce {
   final String userId;
   final List<String> imageUrls;
   final String? location;
+  final String city;
+  final String district;
   final String brand;
   final String model;
   final int year;
@@ -42,12 +47,19 @@ class Annonce {
   final bool isActive;
   final int views;
   final int favoritesCount;
+  final int messagesCount;
 
   factory Annonce.fromJson(Map<String, dynamic> json) {
     final status =
         json['statut'] as String? ??
         json['status'] as String? ??
         ((json['isActive'] as bool? ?? true) ? 'active' : 'inactive');
+    final city = json['ville'] as String? ?? json['city'] as String? ?? '';
+    final district =
+        json['quartier'] as String? ?? json['district'] as String? ?? '';
+    final fallbackLocation = [city, district]
+        .where((part) => part.trim().isNotEmpty)
+        .join(', ');
 
     return Annonce(
       id: json['id'] as String? ?? '',
@@ -67,7 +79,12 @@ class Annonce {
                   const <dynamic>[])
               .map((item) => item.toString())
               .toList(),
-      location: json['localisation'] as String? ?? json['location'] as String?,
+      location:
+          json['localisation'] as String? ??
+          json['location'] as String? ??
+          (fallbackLocation.isEmpty ? null : fallbackLocation),
+      city: city,
+      district: district,
       brand: json['marque'] as String? ?? json['brand'] as String? ?? '',
       model: json['modele'] as String? ?? json['model'] as String? ?? '',
       year: _toInt(json['annee'] ?? json['year']),
@@ -79,6 +96,12 @@ class Annonce {
       isActive: status == 'active' || status == 'actif',
       views: _toInt(json['vues'] ?? json['views']),
       favoritesCount: _toInt(json['favoris'] ?? json['favoritesCount']),
+      messagesCount: _toInt(
+        json['messagesCount'] ??
+            json['nombreMessages'] ??
+            json['messages'] ??
+            0,
+      ),
     );
   }
 
@@ -95,11 +118,14 @@ class Annonce {
       'annee': year,
       'etat': condition.trim(),
       'localisation': location?.trim() ?? '',
+      'ville': city.trim(),
+      'quartier': district.trim(),
       'vendeurId': userId.trim(),
       'telephone': phone.trim(),
       'images': imageUrls,
       'favoris': favoritesCount,
       'vues': views,
+      'messagesCount': messagesCount,
       'statut': status.trim().isEmpty
           ? (isActive ? 'active' : 'inactive')
           : status.trim(),
@@ -118,6 +144,7 @@ class Annonce {
     if (userId.trim().isEmpty) errors.add('vendeurId obligatoire');
     if (views < 0) errors.add('vues invalide');
     if (favoritesCount < 0) errors.add('favoris invalide');
+    if (messagesCount < 0) errors.add('messages invalide');
     if (errors.isNotEmpty) {
       throw ArgumentError(errors.join(', '));
     }
@@ -133,6 +160,8 @@ class Annonce {
     String? userId,
     List<String>? imageUrls,
     String? location,
+    String? city,
+    String? district,
     String? brand,
     String? model,
     int? year,
@@ -144,6 +173,7 @@ class Annonce {
     bool? isActive,
     int? views,
     int? favoritesCount,
+    int? messagesCount,
   }) {
     return Annonce(
       id: id ?? this.id,
@@ -155,6 +185,8 @@ class Annonce {
       userId: userId ?? this.userId,
       imageUrls: imageUrls ?? this.imageUrls,
       location: location ?? this.location,
+      city: city ?? this.city,
+      district: district ?? this.district,
       brand: brand ?? this.brand,
       model: model ?? this.model,
       year: year ?? this.year,
@@ -166,6 +198,7 @@ class Annonce {
       isActive: isActive ?? this.isActive,
       views: views ?? this.views,
       favoritesCount: favoritesCount ?? this.favoritesCount,
+      messagesCount: messagesCount ?? this.messagesCount,
     );
   }
 

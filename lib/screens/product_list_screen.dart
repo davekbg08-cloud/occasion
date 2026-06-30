@@ -15,6 +15,13 @@ class ProductListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final productsAsync = ref.watch(productNotifierProvider);
     final currentUser = ref.watch(authNotifierProvider).currentUser;
+    if (currentUser?.isSeller == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) context.go('/my-listings');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final blockedIds = currentUser == null
         ? const <String>{}
         : ref
@@ -100,17 +107,15 @@ class ProductListScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text('Erreur : $error')),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (currentUser == null) {
-            context.push('/auth');
-            return;
-          }
-          context.push('/create-annonce');
-        },
-        child: const Icon(Icons.add),
+        error: (error, stack) => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Impossible de charger les produits pour le moment.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       ),
     );
   }

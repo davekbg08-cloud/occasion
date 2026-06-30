@@ -8,7 +8,9 @@ import '../../shared/models/annonce.dart';
 abstract class AnnonceRepository {
   Future<Annonce> createAnnonce(Annonce annonce, List<XFile> images);
   Future<List<Annonce>> getAnnonces({String? search, String? category});
+  Future<List<Annonce>> getSellerAnnonces(String sellerId);
   Future<Annonce> updateAnnonce(Annonce annonce);
+  Future<Annonce> updateAnnonceStatus(Annonce annonce, String status);
   Future<void> deleteAnnonce(String id);
 }
 
@@ -92,6 +94,26 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
+  Future<List<Annonce>> getSellerAnnonces(String sellerId) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || currentUser.uid != sellerId) {
+      throw Exception('Connecte-toi avec ton compte vendeur.');
+    }
+
+    final snapshot = await _annoncesRef
+        .where('vendeurId', isEqualTo: sellerId)
+        .get();
+    final annonces = snapshot.docs.map(_fromFirestore).toList();
+    annonces.sort((a, b) {
+      final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
+    return annonces;
+  }
+
+  @override
   Future<Annonce> updateAnnonce(Annonce annonce) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null || currentUser.uid != annonce.userId) {
@@ -104,6 +126,16 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     await _annoncesRef.doc(annonce.id).update(data);
     final snapshot = await _annoncesRef.doc(annonce.id).get();
     return _fromFirestore(snapshot);
+  }
+
+  @override
+  Future<Annonce> updateAnnonceStatus(Annonce annonce, String status) {
+    return updateAnnonce(
+      annonce.copyWith(
+        status: status,
+        isActive: status == 'active' || status == 'actif',
+      ),
+    );
   }
 
   @override

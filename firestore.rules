@@ -26,11 +26,27 @@ service cloud.firestore {
       return !(field in data) || data[field] is number;
     }
 
+    function isChatParticipant(chatId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && (
+          get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
+          || get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId == request.auth.uid
+        );
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/conversations/$(conversationId))
+        && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+    }
+
     function validAnnonce(data) {
       return hasOnly(data, [
         'id', 'titre', 'description', 'prix', 'devise', 'categorie',
         'marque', 'modele', 'annee', 'etat', 'localisation', 'vendeurId',
-        'telephone', 'images', 'favoris', 'vues', 'statut',
+        'ville', 'quartier', 'telephone', 'images', 'favoris', 'vues',
+        'messagesCount', 'statut',
         'dateCreation', 'dateModification'
       ])
       && stringField(data, 'titre', 160)
@@ -43,11 +59,14 @@ service cloud.firestore {
       && optionalNumber(data, 'annee')
       && optionalString(data, 'etat', 80)
       && optionalString(data, 'localisation', 180)
+      && optionalString(data, 'ville', 120)
+      && optionalString(data, 'quartier', 120)
       && stringField(data, 'vendeurId', 128)
       && optionalString(data, 'telephone', 40)
       && data.images is list
       && data.favoris is number && data.favoris >= 0
       && data.vues is number && data.vues >= 0
+      && optionalNumber(data, 'messagesCount')
       && stringField(data, 'statut', 40)
       && data.dateCreation is timestamp
       && data.dateModification is timestamp;
@@ -126,7 +145,12 @@ service cloud.firestore {
     }
 
     match /annonces/{annonceId} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (
+          resource.data.statut == 'active'
+          || resource.data.statut == 'actif'
+          || resource.data.vendeurId == request.auth.uid
+        );
       allow create: if signedIn()
         && request.resource.data.vendeurId == request.auth.uid
         && validAnnonce(request.resource.data);
@@ -175,6 +199,20 @@ service cloud.firestore {
         && request.auth.uid in resource.data.participants
         && validConversation(request.resource.data);
       allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isConversationParticipant(conversationId);
+        allow create: if isConversationParticipant(conversationId)
+          && request.resource.data.expediteurId == request.auth.uid
+          && validMessage(request.resource.data);
+        allow update: if isConversationParticipant(conversationId)
+          && validMessage(request.resource.data)
+          && (
+            resource.data.expediteurId == request.auth.uid
+            || resource.data.destinataireId == request.auth.uid
+          );
+        allow delete: if false;
+      }
     }
 
     match /signalements/{signalementId} {
@@ -231,7 +269,13 @@ service cloud.firestore {
     }
 
     match /products/{productId} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (
+          resource.data.sellerId == request.auth.uid
+          || resource.data.status == 'active'
+          || resource.data.statut == 'active'
+          || resource.data.isActive == true
+        );
       allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
@@ -251,14 +295,16 @@ service cloud.firestore {
         );
 
       match /messages/{messageId} {
-        allow read: if signedIn();
-        allow create: if signedIn()
-          && request.resource.data.senderId == request.auth.uid;
-        allow update: if signedIn()
-          && (
-            resource.data.senderId == request.auth.uid
-            || resource.data.receiverId == request.auth.uid
-          );
+        allow read: if isChatParticipant(chatId);
+        allow create: if isChatParticipant(chatId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.receiverId in [
+            get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId
+          ];
+        allow update: if isChatParticipant(chatId)
+          && resource.data.receiverId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
         allow delete: if false;
       }
     }

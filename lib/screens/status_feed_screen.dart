@@ -298,6 +298,8 @@ class _SellerInfo extends StatelessWidget {
                 extra: {
                   'sellerId': status.sellerId,
                   'sellerName': status.sellerName,
+                  'listingId': status.productId ?? status.id,
+                  'listingTitle': status.caption ?? 'Publication vendeur',
                 },
               ),
               style: OutlinedButton.styleFrom(
@@ -370,6 +372,8 @@ class _Actions extends ConsumerWidget {
             extra: {
               'sellerId': status.sellerId,
               'sellerName': status.sellerName,
+              'listingId': status.productId ?? status.id,
+              'listingTitle': status.caption ?? 'Publication vendeur',
             },
           ),
         ),
@@ -477,7 +481,7 @@ class _ErrorFeed extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'Impossible de charger le feed : $message',
+          'Impossible de charger le feed pour le moment.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white70),
         ),
