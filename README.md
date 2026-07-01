@@ -34,17 +34,14 @@ Construire une marketplace mobile avec profils utilisateurs, catalogue produits,
 
 ## Etat actuel
 
-Le projet est une marketplace Flutter en developpement. L'identite visible doit rester `Occasion`, mais l'`applicationId` Android est encore `com.example.occasion` parce que le fichier Firebase `google-services.json` actuel est lie a ce package. Avant une publication officielle, il faudra creer/configurer l'application Android finale dans Firebase puis remplacer proprement l'`applicationId`.
+Le projet est une marketplace Flutter en developpement. L'identite visible doit rester `Occasion`. L'`applicationId` Android final est `com.mediavision.occasion`; l'application Android Firebase correspondante est creee et `android/app/google-services.json` pointe vers ce package.
 
 ## Points a faire avant publication
 
-1. Choisir le package final, par exemple `com.mediavision.occasion`.
-2. Creer l'application Android correspondante dans Firebase.
-3. Telecharger le nouveau `google-services.json`.
-4. Mettre a jour `applicationId` et `namespace` Android.
-5. Ajouter une vraie signature release.
-6. Tester l'auth telephone, Firestore, Storage, notifications et paiement sur telephone reel.
-7. Verifier les regles Firestore/Storage avant test public.
+1. Ajouter une vraie signature release via `android/key.properties` et un keystore prive non versionne.
+2. Tester l'auth telephone, Firestore, Storage, notifications et paiement sur telephone reel.
+3. Verifier les regles Firestore/Storage avant test public.
+4. Creer les applications Firebase separees avant toute publication iOS/macOS.
 
 ## Commandes utiles
 

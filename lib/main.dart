@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -40,8 +42,13 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirestoreBootstrap.configure(FirebaseFirestore.instance);
   configureServices();
-  await NotificationService.init(appNavigatorKey);
+
+  // Lance l'interface immédiatement. L'initialisation des notifications est
+  // volontairement non bloquante : sur le web, la demande de permission FCM et
+  // flutter_local_notifications peuvent ne jamais se résoudre, ce qui laissait
+  // l'application sur une page blanche tant que runApp() n'était pas appelé.
   runApp(const ProviderScope(child: OccasionApp()));
+  unawaited(NotificationService.init(appNavigatorKey));
 }
 
 class OccasionApp extends StatelessWidget {
@@ -71,10 +78,8 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/cart',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: CartScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.buyer, child: CartScreen()),
       ),
       GoRoute(
         path: '/orders',
@@ -102,10 +107,8 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/payment',
-        builder: (_, _) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: PaymentScreen(),
-        ),
+        builder: (_, _) =>
+            const _RoleGuard(role: UserRole.buyer, child: PaymentScreen()),
       ),
       GoRoute(
         path: '/subscription',
@@ -125,24 +128,18 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/status',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: StatusFeedScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.buyer, child: StatusFeedScreen()),
       ),
       GoRoute(
         path: '/add-status',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.seller,
-          child: AddStatusScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.seller, child: AddStatusScreen()),
       ),
       GoRoute(
         path: '/products',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: ProductListScreen(),
-        ),
+        builder: (context, state) =>
+            const _AuthGuard(child: ProductListScreen()),
       ),
       GoRoute(
         path: '/create-annonce',
@@ -170,10 +167,8 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/my-listings',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.seller,
-          child: MyListingsScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.seller, child: MyListingsScreen()),
       ),
       GoRoute(
         path: '/seller-orders',
@@ -211,10 +206,7 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/search',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: SearchScreen(),
-        ),
+        builder: (context, state) => const _AuthGuard(child: SearchScreen()),
       ),
       GoRoute(
         path: '/notifications',
@@ -359,6 +351,22 @@ class _RoleGuard extends ConsumerWidget {
     });
 
     return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}
+
+class _AuthGuard extends ConsumerWidget {
+  const _AuthGuard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authNotifierProvider);
+    if (authState.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (authState.currentUser == null) return const _AuthPage();
+    return child;
   }
 }
 
@@ -561,27 +569,33 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
 
   Future<Chat> _openChat() {
     final me = ref.read(authNotifierProvider).currentUser;
-    final sellerId = widget.args['sellerId'] as String? ?? 'seller-demo';
+    final sellerId = widget.args['sellerId'] as String?;
     final sellerName = widget.args['sellerName'] as String? ?? 'Vendeur';
-    final buyerId = widget.args['buyerId'] as String? ?? me?.id ?? 'buyer-demo';
+    final buyerId = widget.args['buyerId'] as String? ?? me?.id;
     final buyerName =
         widget.args['buyerName'] as String? ?? me?.name ?? 'Acheteur';
     final listingId = widget.args['listingId'] as String?;
     final listingTitle = widget.args['listingTitle'] as String?;
 
+    if (me == null) {
+      throw StateError('Utilisateur non connecté.');
+    }
+    if (sellerId == null || sellerId.trim().isEmpty) {
+      throw StateError('Vendeur introuvable.');
+    }
+    if (buyerId == null || buyerId.trim().isEmpty) {
+      throw StateError('Acheteur introuvable.');
+    }
+
     return ref
         .read(chatNotifierProvider.notifier)
         .openChat(
-          buyerId: me?.isBuyer == false ? buyerId : me?.id ?? buyerId,
-          sellerId: me?.isSeller == true ? me!.id : sellerId,
-          buyerName: me?.isBuyer == false ? buyerName : me?.name ?? buyerName,
-          sellerName: me?.isSeller == true ? me!.name : sellerName,
-          buyerProfileImageUrl: me?.isBuyer == true
-              ? me?.profileImageUrl
-              : null,
-          sellerProfileImageUrl: me?.isSeller == true
-              ? me?.profileImageUrl
-              : null,
+          buyerId: me.isBuyer ? me.id : buyerId,
+          sellerId: me.isSeller ? me.id : sellerId,
+          buyerName: me.isBuyer ? me.name : buyerName,
+          sellerName: me.isSeller ? me.name : sellerName,
+          buyerProfileImageUrl: me.isBuyer ? me.profileImageUrl : null,
+          sellerProfileImageUrl: me.isSeller ? me.profileImageUrl : null,
           listingId: listingId,
           listingTitle: listingTitle,
         );

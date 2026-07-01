@@ -35,7 +35,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     try {
       await _service.deleteAccount(widget.userId);
-      ref.read(authNotifierProvider.notifier).logout();
+      await ref.read(authNotifierProvider.notifier).logout();
 
       if (mounted) context.go('/auth');
     } on FirebaseAuthException catch (error) {
@@ -61,9 +61,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     } catch (_) {
       setState(() => _isDeleting = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Suppression impossible.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Suppression impossible.')),
+        );
       }
     }
   }

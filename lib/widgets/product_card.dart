@@ -55,6 +55,7 @@ class ProductCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(authNotifierProvider).currentUser;
     final currentUserId = currentUser?.id;
+    final showBuyerActions = currentUser == null || currentUser.isBuyer;
     final canModerate =
         currentUserId != null &&
         product.sellerId != null &&
@@ -173,48 +174,50 @@ class ProductCard extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _openPrivateMessage(context, ref),
-                        icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                        label: const Text('Contacter'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+            if (showBuyerActions) ...[
+              const SizedBox(height: 12),
+              Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openPrivateMessage(context, ref),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                          label: const Text('Contacter'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.tonalIcon(
-                        onPressed: () => _addToCart(context, ref),
-                        icon: const Icon(
-                          Icons.shopping_cart_outlined,
-                          size: 18,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: () => _addToCart(context, ref),
+                          icon: const Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Ajouter'),
                         ),
-                        label: const Text('Ajouter'),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      _addToCart(context, ref);
-                      context.push('/cart');
-                    },
-                    icon: const Icon(Icons.shopping_bag_outlined, size: 18),
-                    label: const Text('Acheter'),
+                    ],
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        _addToCart(context, ref);
+                        context.push('/cart');
+                      },
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 18),
+                      label: const Text('Acheter'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

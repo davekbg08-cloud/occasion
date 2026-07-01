@@ -89,7 +89,8 @@ class ProfileScreen extends ConsumerWidget {
   ) async {
     await NotificationService.clearToken(userId);
     if (!context.mounted) return;
-    ref.read(authNotifierProvider.notifier).logout();
+    await ref.read(authNotifierProvider.notifier).logout();
+    if (!context.mounted) return;
     context.go('/auth');
   }
 }

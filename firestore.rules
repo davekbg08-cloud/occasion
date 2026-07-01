@@ -10,6 +10,16 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function hasUserRole(role) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isSeller() {
+      return hasUserRole('seller');
+    }
+
     function hasOnly(data, keys) {
       return data.keys().hasOnly(keys);
     }
@@ -64,6 +74,7 @@ service cloud.firestore {
       && stringField(data, 'vendeurId', 128)
       && optionalString(data, 'telephone', 40)
       && data.images is list
+      && data.images.size() <= 8
       && data.favoris is number && data.favoris >= 0
       && data.vues is number && data.vues >= 0
       && optionalNumber(data, 'messagesCount')
@@ -152,19 +163,22 @@ service cloud.firestore {
           || resource.data.vendeurId == request.auth.uid
         );
       allow create: if signedIn()
+        && isSeller()
         && request.resource.data.vendeurId == request.auth.uid
         && validAnnonce(request.resource.data);
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
         && (
-          resource.data.vendeurId == request.auth.uid
+          (resource.data.vendeurId == request.auth.uid && isSeller())
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'dateModification'])
         );
-      allow delete: if signedIn() && resource.data.vendeurId == request.auth.uid;
+      allow delete: if signedIn()
+        && isSeller()
+        && resource.data.vendeurId == request.auth.uid;
     }
 
     match /utilisateurs/{userId} {
-      allow read: if signedIn();
+      allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && validUtilisateur(request.resource.data);
       allow delete: if isOwner(userId);
     }
@@ -242,7 +256,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn();
+      allow read: if isOwner(userId);
       allow write: if isOwner(userId);
 
       match /blockedUsers/{blockedUserId} {
@@ -259,13 +273,15 @@ service cloud.firestore {
     match /statuses/{statusId} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
+        && isSeller();
       allow update: if signedIn()
         && (
-          resource.data.sellerId == request.auth.uid
+          (resource.data.sellerId == request.auth.uid && isSeller())
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
         );
-      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+      allow delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
     }
 
     match /products/{productId} {
@@ -278,8 +294,29 @@ service cloud.firestore {
         );
       allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update, delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+        && isSeller();
+      allow update, delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read, delete: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        );
+      allow create: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+        );
+      allow update: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        )
+        && request.resource.data.userId == resource.data.userId;
     }
 
     match /chats/{chatId} {

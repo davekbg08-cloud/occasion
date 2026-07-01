@@ -36,7 +36,9 @@ class MyListingsScreen extends ConsumerWidget {
       body: annoncesAsync.when(
         data: (annonces) {
           if (annonces.isEmpty) {
-            return _EmptyListings(onPublish: () => context.push('/publish-product'));
+            return _EmptyListings(
+              onPublish: () => context.push('/publish-product'),
+            );
           }
 
           return RefreshIndicator(
@@ -47,7 +49,10 @@ class MyListingsScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(12),
               itemCount: annonces.length,
               itemBuilder: (context, index) {
-                return _ListingCard(annonce: annonces[index], sellerId: user.id);
+                return _ListingCard(
+                  annonce: annonces[index],
+                  sellerId: user.id,
+                );
               },
             ),
           );
@@ -157,7 +162,10 @@ class _ListingCard extends ConsumerWidget {
                   icon: Icons.mark_unread_chat_alt_outlined,
                   label: '${annonce.messagesCount} messages',
                 ),
-                _InfoPill(icon: Icons.category_outlined, label: annonce.category),
+                _InfoPill(
+                  icon: Icons.category_outlined,
+                  label: annonce.category,
+                ),
               ],
             ),
             const SizedBox(height: 12),

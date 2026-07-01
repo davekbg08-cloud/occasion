@@ -57,9 +57,10 @@ class Annonce {
     final city = json['ville'] as String? ?? json['city'] as String? ?? '';
     final district =
         json['quartier'] as String? ?? json['district'] as String? ?? '';
-    final fallbackLocation = [city, district]
-        .where((part) => part.trim().isNotEmpty)
-        .join(', ');
+    final fallbackLocation = [
+      city,
+      district,
+    ].where((part) => part.trim().isNotEmpty).join(', ');
 
     return Annonce(
       id: json['id'] as String? ?? '',

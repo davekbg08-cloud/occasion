@@ -113,9 +113,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
     await ref.read(chatNotifierProvider.notifier).deleteChat(chat.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Conversation supprimée.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Conversation supprimée.')));
   }
 
   void _shareInfo(Chat chat) {
@@ -251,9 +251,11 @@ class _ChatTile extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     final now = DateTime.now();
-    final diff = DateTime(now.year, now.month, now.day)
-        .difference(DateTime(date.year, date.month, date.day))
-        .inDays;
+    final diff = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).difference(DateTime(date.year, date.month, date.day)).inDays;
     if (diff == 0) return DateFormat('HH:mm').format(date);
     if (diff == 1) return 'Hier';
     return DateFormat('dd/MM/yyyy').format(date);

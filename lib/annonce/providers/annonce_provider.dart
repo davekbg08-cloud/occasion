@@ -14,12 +14,12 @@ final searchFiltersProvider = StateProvider<Map<String, dynamic>>((ref) => {});
 
 final annoncesProvider = FutureProvider.autoDispose
     .family<List<Annonce>, Map<String, dynamic>>((ref, filters) async {
-  final repo = ref.watch(annonceRepositoryProvider);
-  return repo.getAnnonces(
-    search: filters['search'] as String?,
-    category: filters['category'] as String?,
-  );
-});
+      final repo = ref.watch(annonceRepositoryProvider);
+      return repo.getAnnonces(
+        search: filters['search'] as String?,
+        category: filters['category'] as String?,
+      );
+    });
 
 final sellerAnnoncesProvider = FutureProvider.autoDispose
     .family<List<Annonce>, String>((ref, sellerId) async {
@@ -40,9 +40,9 @@ final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
 
 final createAnnonceProvider =
     StateNotifierProvider<CreateAnnonceNotifier, AsyncValue<Annonce?>>((ref) {
-  final repo = ref.watch(annonceRepositoryProvider);
-  return CreateAnnonceNotifier(repo);
-});
+      final repo = ref.watch(annonceRepositoryProvider);
+      return CreateAnnonceNotifier(repo);
+    });
 
 class CreateAnnonceNotifier extends StateNotifier<AsyncValue<Annonce?>> {
   CreateAnnonceNotifier(this._repository) : super(const AsyncValue.data(null));

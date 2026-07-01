@@ -111,9 +111,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     final currentUser = ref.read(authNotifierProvider).currentUser;
     if (currentUser == null || !currentUser.isSeller) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connecte-toi avec ton compte vendeur.'),
-        ),
+        const SnackBar(content: Text('Connecte-toi avec ton compte vendeur.')),
       );
       return;
     }
@@ -130,9 +128,10 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
 
     final city = _cityController.text.trim();
     final district = _districtController.text.trim();
-    final location = [city, district]
-        .where((part) => part.trim().isNotEmpty)
-        .join(', ');
+    final location = [
+      city,
+      district,
+    ].where((part) => part.trim().isNotEmpty).join(', ');
     final initial = widget.initialAnnonce;
     final annonce = Annonce(
       id: initial?.id ?? '',
@@ -395,8 +394,9 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                       .toList(),
                   onChanged: createState.isLoading
                       ? null
-                      : (value) =>
-                            setState(() => _publicationStatus = value ?? 'active'),
+                      : (value) => setState(
+                          () => _publicationStatus = value ?? 'active',
+                        ),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(

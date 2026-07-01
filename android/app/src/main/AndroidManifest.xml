@@ -11,13 +11,13 @@
     <application
         android:label="Occasion"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@drawable/ic_launcher">
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="occasion_channel" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@mipmap/ic_launcher" />
+            android:resource="@drawable/ic_notification" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

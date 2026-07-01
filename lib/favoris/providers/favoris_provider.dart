@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/favori.dart';
 
 final favorisProvider =
-    StateNotifierProvider.family<FavorisNotifier, List<Favori>, String>((ref, userId) {
-  final notifier = FavorisNotifier(userId: userId);
-  notifier.loadFavoris();
-  return notifier;
-});
+    StateNotifierProvider.family<FavorisNotifier, List<Favori>, String>((
+      ref,
+      userId,
+    ) {
+      final notifier = FavorisNotifier(userId: userId);
+      notifier.loadFavoris();
+      return notifier;
+    });
 
 class FavorisNotifier extends StateNotifier<List<Favori>> {
   FavorisNotifier({required this.userId}) : super(const []);
@@ -32,7 +35,9 @@ class FavorisNotifier extends StateNotifier<List<Favori>> {
       throw Exception('Utilisateur non connecté.');
     }
 
-    final existing = state.where((favori) => favori.annonceId == annonceId).toList();
+    final existing = state
+        .where((favori) => favori.annonceId == annonceId)
+        .toList();
     if (existing.isNotEmpty) {
       await _favorisRef.doc(existing.first.id).delete();
       state = state.where((favori) => favori.annonceId != annonceId).toList();
