@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final notificationsProvider =
     StateNotifierProvider<NotificationNotifier, List<AppNotification>>((ref) {
-  return NotificationNotifier();
-});
+      return NotificationNotifier();
+    });
 
 class AppNotification {
   const AppNotification({

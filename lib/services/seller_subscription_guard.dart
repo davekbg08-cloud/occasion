@@ -8,7 +8,7 @@ import '../providers/subscription_provider.dart';
 bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
   final user = ref.read(authNotifierProvider).currentUser;
   if (user == null) {
-    context.go('/role-selection');
+    context.go('/auth');
     return false;
   }
 
@@ -28,6 +28,13 @@ bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
     return true;
   }
 
-  context.push('/subscription');
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text(
+        'Un abonnement vendeur actif est requis pour publier une annonce.',
+      ),
+    ),
+  );
+  context.go('/subscription');
   return false;
 }

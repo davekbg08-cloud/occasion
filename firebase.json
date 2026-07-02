@@ -3,6 +3,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "functions": [
     {
       "source": "functions",
@@ -20,7 +23,7 @@
       "android": {
         "default": {
           "projectId": "occasion-10cdb",
-          "appId": "1:101610899328:android:f31d5e4f8e710904486365",
+          "appId": "1:101610899328:android:22d73787045628df486365",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -28,7 +31,7 @@
         "lib/firebase_options.dart": {
           "projectId": "occasion-10cdb",
           "configurations": {
-            "android": "1:101610899328:android:f31d5e4f8e710904486365",
+            "android": "1:101610899328:android:22d73787045628df486365",
             "ios": "1:101610899328:ios:1ef95a310386d06c486365",
             "web": "1:101610899328:web:94ef5e76085b599b486365"
           }

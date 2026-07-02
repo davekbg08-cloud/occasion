@@ -37,7 +37,7 @@ class RoleSelectionScreen extends StatelessWidget {
                 icon: Icons.storefront_rounded,
                 title: 'Vendeur',
                 description:
-                    "Créez gratuitement votre compte vendeur et parcourez l'application.",
+                    "Gérez vos annonces et activez un abonnement pour publier.",
                 accentColor: Colors.blue,
                 onTap: () =>
                     context.push('/phone-auth', extra: UserRole.seller),

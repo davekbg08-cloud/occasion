@@ -10,7 +10,14 @@ import '../providers/chat_provider.dart';
 import '../providers/moderation_provider.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
-  const ChatListScreen({super.key});
+  const ChatListScreen({
+    super.key,
+    this.title = 'Messages',
+    this.emptySubtitle = 'Contactez un vendeur depuis une annonce',
+  });
+
+  final String title;
+  final String emptySubtitle;
 
   @override
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
@@ -47,9 +54,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Messages',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        title: Text(
+          widget.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -59,18 +69,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       body: chatState.isLoading && visibleChats.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : chatState.error != null && visibleChats.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Impossible de charger les messages : ${chatState.error}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              ),
-            )
+          ? const _MessageLoadError()
           : visibleChats.isEmpty
-          ? const _EmptyChats()
+          ? _EmptyChats(subtitle: widget.emptySubtitle)
           : ListView.separated(
               itemCount: visibleChats.length,
               separatorBuilder: (context, index) =>
@@ -80,11 +81,51 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 return _ChatTile(
                   chat: chat,
                   currentUserId: me?.id ?? '',
-                  onTap: () => context.push('/chat-room', extra: chat),
+                  onOpen: () => context.push('/chat-room', extra: chat),
+                  onDelete: () => _confirmDelete(chat),
+                  onShareInfo: () => _shareInfo(chat),
                 );
               },
             ),
     );
+  }
+
+  Future<void> _confirmDelete(Chat chat) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la conversation ?'),
+        content: const Text('Elle disparaîtra de votre liste de messages.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await ref.read(chatNotifierProvider.notifier).deleteChat(chat.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Conversation supprimée.')));
+  }
+
+  void _shareInfo(Chat chat) {
+    final title = chat.listingTitle?.trim();
+    final message = title == null || title.isEmpty
+        ? 'Informations utiles prêtes à être partagées.'
+        : 'Informations de l’annonce "$title" prêtes à être partagées.';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -92,12 +133,16 @@ class _ChatTile extends StatelessWidget {
   const _ChatTile({
     required this.chat,
     required this.currentUserId,
-    required this.onTap,
+    required this.onOpen,
+    required this.onDelete,
+    required this.onShareInfo,
   });
 
   final Chat chat;
   final String currentUserId;
-  final VoidCallback onTap;
+  final VoidCallback onOpen;
+  final VoidCallback onDelete;
+  final VoidCallback onShareInfo;
 
   @override
   Widget build(BuildContext context) {
@@ -105,10 +150,11 @@ class _ChatTile extends StatelessWidget {
     final image = chat.otherUserProfileImage(currentUserId);
     final unread = chat.unreadCount > 0;
     final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
+    final listingTitle = chat.listingTitle?.trim();
 
     return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      onTap: onOpen,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: CircleAvatar(
         radius: 24,
         backgroundColor: Colors.grey[800],
@@ -125,67 +171,128 @@ class _ChatTile extends StatelessWidget {
               )
             : null,
       ),
-      title: Text(
-        name,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: unread ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      subtitle: Text(
-        chat.lastMessage ?? 'Démarrer la conversation',
-        style: TextStyle(
-          color: unread ? Colors.blue[300] : Colors.grey[500],
-          fontSize: 13,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
+      title: Row(
         children: [
+          Expanded(
+            child: Text(
+              name,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: unread ? FontWeight.bold : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _ReadStatus(unread: unread),
+        ],
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (listingTitle != null && listingTitle.isNotEmpty)
+            Text(
+              listingTitle,
+              style: TextStyle(color: Colors.blue[200], fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          Text(
+            chat.lastMessage ?? 'Écrire un message',
+            style: TextStyle(
+              color: unread ? Colors.blue[300] : Colors.grey[500],
+              fontSize: 13,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           if (chat.lastMessageAt != null)
             Text(
               _formatDate(chat.lastMessageAt!),
-              style: TextStyle(
-                color: unread ? Colors.blue : Colors.grey[600],
-                fontSize: 11,
-              ),
+              style: TextStyle(color: Colors.grey[600], fontSize: 11),
             ),
-          if (unread) ...[
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                color: Colors.blue,
-                shape: BoxShape.circle,
-              ),
-              child: Text(
-                '${chat.unreadCount}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Écrire un message',
+            onPressed: onOpen,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Actions conversation',
+            onSelected: (value) {
+              if (value == 'delete') onDelete();
+              if (value == 'share') onShareInfo();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'share',
+                child: ListTile(
+                  leading: Icon(Icons.ios_share_outlined),
+                  title: Text('Partager infos utiles'),
                 ),
               ),
-            ),
-          ],
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(Icons.delete_outline, color: Colors.red),
+                  title: Text('Supprimer conversation'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
   String _formatDate(DateTime date) {
-    final diff = DateTime.now().difference(date).inDays;
+    final now = DateTime.now();
+    final diff = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).difference(DateTime(date.year, date.month, date.day)).inDays;
     if (diff == 0) return DateFormat('HH:mm').format(date);
     if (diff == 1) return 'Hier';
-    return DateFormat('dd/MM').format(date);
+    return DateFormat('dd/MM/yyyy').format(date);
+  }
+}
+
+class _ReadStatus extends StatelessWidget {
+  const _ReadStatus({required this.unread});
+
+  final bool unread;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: unread
+            ? Colors.blue.withValues(alpha: 0.16)
+            : Colors.grey.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        unread ? 'Non lu' : 'Lu',
+        style: TextStyle(
+          color: unread ? Colors.blue[200] : Colors.grey[400],
+          fontSize: 11,
+          fontWeight: unread ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
   }
 }
 
 class _EmptyChats extends StatelessWidget {
-  const _EmptyChats();
+  const _EmptyChats({required this.subtitle});
+
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -201,10 +308,29 @@ class _EmptyChats extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Contactez un vendeur depuis le feed',
+            subtitle,
+            textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey[500], fontSize: 13),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MessageLoadError extends StatelessWidget {
+  const _MessageLoadError();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white70),
+        ),
       ),
     );
   }

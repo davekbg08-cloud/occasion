@@ -10,6 +10,16 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function hasUserRole(role) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isSeller() {
+      return hasUserRole('seller');
+    }
+
     function hasOnly(data, keys) {
       return data.keys().hasOnly(keys);
     }
@@ -26,11 +36,27 @@ service cloud.firestore {
       return !(field in data) || data[field] is number;
     }
 
+    function isChatParticipant(chatId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && (
+          get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
+          || get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId == request.auth.uid
+        );
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/conversations/$(conversationId))
+        && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+    }
+
     function validAnnonce(data) {
       return hasOnly(data, [
         'id', 'titre', 'description', 'prix', 'devise', 'categorie',
         'marque', 'modele', 'annee', 'etat', 'localisation', 'vendeurId',
-        'telephone', 'images', 'favoris', 'vues', 'statut',
+        'ville', 'quartier', 'telephone', 'images', 'favoris', 'vues',
+        'messagesCount', 'statut',
         'dateCreation', 'dateModification'
       ])
       && stringField(data, 'titre', 160)
@@ -43,11 +69,15 @@ service cloud.firestore {
       && optionalNumber(data, 'annee')
       && optionalString(data, 'etat', 80)
       && optionalString(data, 'localisation', 180)
+      && optionalString(data, 'ville', 120)
+      && optionalString(data, 'quartier', 120)
       && stringField(data, 'vendeurId', 128)
       && optionalString(data, 'telephone', 40)
       && data.images is list
+      && data.images.size() <= 8
       && data.favoris is number && data.favoris >= 0
       && data.vues is number && data.vues >= 0
+      && optionalNumber(data, 'messagesCount')
       && stringField(data, 'statut', 40)
       && data.dateCreation is timestamp
       && data.dateModification is timestamp;
@@ -126,21 +156,29 @@ service cloud.firestore {
     }
 
     match /annonces/{annonceId} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (
+          resource.data.statut == 'active'
+          || resource.data.statut == 'actif'
+          || resource.data.vendeurId == request.auth.uid
+        );
       allow create: if signedIn()
+        && isSeller()
         && request.resource.data.vendeurId == request.auth.uid
         && validAnnonce(request.resource.data);
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
         && (
-          resource.data.vendeurId == request.auth.uid
+          (resource.data.vendeurId == request.auth.uid && isSeller())
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'dateModification'])
         );
-      allow delete: if signedIn() && resource.data.vendeurId == request.auth.uid;
+      allow delete: if signedIn()
+        && isSeller()
+        && resource.data.vendeurId == request.auth.uid;
     }
 
     match /utilisateurs/{userId} {
-      allow read: if signedIn();
+      allow read: if isOwner(userId);
       allow create, update: if isOwner(userId) && validUtilisateur(request.resource.data);
       allow delete: if isOwner(userId);
     }
@@ -175,6 +213,20 @@ service cloud.firestore {
         && request.auth.uid in resource.data.participants
         && validConversation(request.resource.data);
       allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isConversationParticipant(conversationId);
+        allow create: if isConversationParticipant(conversationId)
+          && request.resource.data.expediteurId == request.auth.uid
+          && validMessage(request.resource.data);
+        allow update: if isConversationParticipant(conversationId)
+          && validMessage(request.resource.data)
+          && (
+            resource.data.expediteurId == request.auth.uid
+            || resource.data.destinataireId == request.auth.uid
+          );
+        allow delete: if false;
+      }
     }
 
     match /signalements/{signalementId} {
@@ -204,7 +256,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn();
+      allow read: if isOwner(userId);
       allow write: if isOwner(userId);
 
       match /blockedUsers/{blockedUserId} {
@@ -221,21 +273,50 @@ service cloud.firestore {
     match /statuses/{statusId} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
+        && isSeller();
       allow update: if signedIn()
         && (
-          resource.data.sellerId == request.auth.uid
+          (resource.data.sellerId == request.auth.uid && isSeller())
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
         );
-      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+      allow delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
     }
 
     match /products/{productId} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (
+          resource.data.sellerId == request.auth.uid
+          || resource.data.status == 'active'
+          || resource.data.statut == 'active'
+          || resource.data.isActive == true
+        );
       allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update, delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+        && isSeller();
+      allow update, delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read, delete: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        );
+      allow create: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+        );
+      allow update: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        )
+        && request.resource.data.userId == resource.data.userId;
     }
 
     match /chats/{chatId} {
@@ -251,14 +332,16 @@ service cloud.firestore {
         );
 
       match /messages/{messageId} {
-        allow read: if signedIn();
-        allow create: if signedIn()
-          && request.resource.data.senderId == request.auth.uid;
-        allow update: if signedIn()
-          && (
-            resource.data.senderId == request.auth.uid
-            || resource.data.receiverId == request.auth.uid
-          );
+        allow read: if isChatParticipant(chatId);
+        allow create: if isChatParticipant(chatId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.receiverId in [
+            get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId
+          ];
+        allow update: if isChatParticipant(chatId)
+          && resource.data.receiverId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
         allow delete: if false;
       }
     }

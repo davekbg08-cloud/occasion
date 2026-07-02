@@ -8,7 +8,9 @@ import '../../shared/models/annonce.dart';
 abstract class AnnonceRepository {
   Future<Annonce> createAnnonce(Annonce annonce, List<XFile> images);
   Future<List<Annonce>> getAnnonces({String? search, String? category});
+  Future<List<Annonce>> getSellerAnnonces(String sellerId);
   Future<Annonce> updateAnnonce(Annonce annonce);
+  Future<Annonce> updateAnnonceStatus(Annonce annonce, String status);
   Future<void> deleteAnnonce(String id);
 }
 
@@ -40,7 +42,11 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }
 
     final docRef = _annoncesRef.doc();
-    final imageUrls = await _uploadImages(annonceId: docRef.id, images: images);
+    final imageUrls = await _uploadImages(
+      sellerId: userId,
+      annonceId: docRef.id,
+      images: images,
+    );
 
     final prepared = annonce.copyWith(
       id: docRef.id,
@@ -92,6 +98,26 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
+  Future<List<Annonce>> getSellerAnnonces(String sellerId) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || currentUser.uid != sellerId) {
+      throw Exception('Connecte-toi avec ton compte vendeur.');
+    }
+
+    final snapshot = await _annoncesRef
+        .where('vendeurId', isEqualTo: sellerId)
+        .get();
+    final annonces = snapshot.docs.map(_fromFirestore).toList();
+    annonces.sort((a, b) {
+      final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
+    return annonces;
+  }
+
+  @override
   Future<Annonce> updateAnnonce(Annonce annonce) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null || currentUser.uid != annonce.userId) {
@@ -104,6 +130,16 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     await _annoncesRef.doc(annonce.id).update(data);
     final snapshot = await _annoncesRef.doc(annonce.id).get();
     return _fromFirestore(snapshot);
+  }
+
+  @override
+  Future<Annonce> updateAnnonceStatus(Annonce annonce, String status) {
+    return updateAnnonce(
+      annonce.copyWith(
+        status: status,
+        isActive: status == 'active' || status == 'actif',
+      ),
+    );
   }
 
   @override
@@ -126,18 +162,32 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   Future<List<String>> _uploadImages({
+    required String sellerId,
     required String annonceId,
     required List<XFile> images,
   }) async {
+    if (images.length > 8) {
+      throw Exception('Maximum 8 images par annonce.');
+    }
+
     final urls = <String>[];
 
     for (var index = 0; index < images.length; index++) {
       final image = images[index];
       final extension = image.name.split('.').last.toLowerCase();
+      if (!_isAllowedImageExtension(extension)) {
+        throw Exception('Format image non pris en charge.');
+      }
+
       final fileName =
           'image_${index + 1}_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      final ref = _storage.ref().child('annonces/$annonceId/$fileName');
+      final ref = _storage.ref().child(
+        'annonces/$sellerId/$annonceId/$fileName',
+      );
       final bytes = await image.readAsBytes();
+      if (bytes.length > 5 * 1024 * 1024) {
+        throw Exception('Chaque image doit faire moins de 5 Mo.');
+      }
 
       await ref.putData(
         bytes,
@@ -167,5 +217,16 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
       default:
         return 'image/jpeg';
     }
+  }
+
+  bool _isAllowedImageExtension(String extension) {
+    return const {
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'heic',
+      'heif',
+    }.contains(extension);
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
@@ -44,9 +45,12 @@ class NotificationService {
 
     try {
       await _requestPermission();
-      await _setupLocalNotifications(navigatorKey);
 
-      FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
+      // flutter_local_notifications n'a pas d'implémentation web.
+      if (!kIsWeb) {
+        await _setupLocalNotifications(navigatorKey);
+        FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
+      }
       FirebaseMessaging.onMessage.listen(_showLocalNotification);
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
         _navigate(message, navigatorKey);
@@ -106,6 +110,8 @@ class NotificationService {
   }
 
   static Future<void> _showLocalNotification(RemoteMessage message) async {
+    if (kIsWeb) return;
+
     final notification = message.notification;
     if (notification == null) return;
 

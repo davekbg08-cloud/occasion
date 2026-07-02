@@ -14,12 +14,18 @@ final searchFiltersProvider = StateProvider<Map<String, dynamic>>((ref) => {});
 
 final annoncesProvider = FutureProvider.autoDispose
     .family<List<Annonce>, Map<String, dynamic>>((ref, filters) async {
-  final repo = ref.watch(annonceRepositoryProvider);
-  return repo.getAnnonces(
-    search: filters['search'] as String?,
-    category: filters['category'] as String?,
-  );
-});
+      final repo = ref.watch(annonceRepositoryProvider);
+      return repo.getAnnonces(
+        search: filters['search'] as String?,
+        category: filters['category'] as String?,
+      );
+    });
+
+final sellerAnnoncesProvider = FutureProvider.autoDispose
+    .family<List<Annonce>, String>((ref, sellerId) async {
+      final repo = ref.watch(annonceRepositoryProvider);
+      return repo.getSellerAnnonces(sellerId);
+    });
 
 final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
   final query = ref.watch(searchQueryProvider);
@@ -34,9 +40,9 @@ final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
 
 final createAnnonceProvider =
     StateNotifierProvider<CreateAnnonceNotifier, AsyncValue<Annonce?>>((ref) {
-  final repo = ref.watch(annonceRepositoryProvider);
-  return CreateAnnonceNotifier(repo);
-});
+      final repo = ref.watch(annonceRepositoryProvider);
+      return CreateAnnonceNotifier(repo);
+    });
 
 class CreateAnnonceNotifier extends StateNotifier<AsyncValue<Annonce?>> {
   CreateAnnonceNotifier(this._repository) : super(const AsyncValue.data(null));
@@ -47,6 +53,16 @@ class CreateAnnonceNotifier extends StateNotifier<AsyncValue<Annonce?>> {
     state = const AsyncValue.loading();
     try {
       final result = await _repository.createAnnonce(annonce, images);
+      state = AsyncValue.data(result);
+    } catch (error, stackTrace) {
+      state = AsyncValue.error(error, stackTrace);
+    }
+  }
+
+  Future<void> update(Annonce annonce) async {
+    state = const AsyncValue.loading();
+    try {
+      final result = await _repository.updateAnnonce(annonce);
       state = AsyncValue.data(result);
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);

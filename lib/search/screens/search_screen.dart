@@ -47,7 +47,15 @@ class SearchScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(child: Text('Erreur : $error')),
+        error: (error, stackTrace) => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Impossible de charger les annonces pour le moment.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       ),
     );
   }

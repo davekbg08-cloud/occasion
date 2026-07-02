@@ -129,6 +129,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     required String sellerName,
     String? buyerProfileImageUrl,
     String? sellerProfileImageUrl,
+    String? listingId,
+    String? listingTitle,
   }) async {
     state = state.copyWith(isLoading: true, clearError: true);
 
@@ -140,6 +142,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         sellerName: sellerName,
         buyerProfileImageUrl: buyerProfileImageUrl,
         sellerProfileImageUrl: sellerProfileImageUrl,
+        listingId: listingId,
+        listingTitle: listingTitle,
       );
 
       _upsertChat(chat);
@@ -163,6 +167,18 @@ class ChatNotifier extends StateNotifier<ChatState> {
         senderId: senderId,
         receiverId: receiverId,
         content: content,
+      );
+    } catch (error) {
+      state = state.copyWith(error: error.toString());
+    }
+  }
+
+  Future<void> deleteChat(String chatId) async {
+    try {
+      await _service.deleteChat(chatId);
+      state = state.copyWith(
+        chats: state.chats.where((chat) => chat.id != chatId).toList(),
+        clearError: true,
       );
     } catch (error) {
       state = state.copyWith(error: error.toString());

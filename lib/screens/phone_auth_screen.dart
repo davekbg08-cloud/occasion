@@ -36,7 +36,9 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
 
     if (!mounted) return;
 
-    context.go('/home');
+    context.go(
+      widget.role == UserRole.seller ? '/seller-dashboard' : '/buyer-home',
+    );
   }
 
   @override

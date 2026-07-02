@@ -21,8 +21,8 @@ class NotificationsScreen extends ConsumerWidget {
             onPressed: notifications.isEmpty
                 ? null
                 : () => ref
-                    .read(notificationsProvider.notifier)
-                    .clearNotifications(),
+                      .read(notificationsProvider.notifier)
+                      .clearNotifications(),
           ),
         ],
       ),
