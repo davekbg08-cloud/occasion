@@ -15,6 +15,8 @@ class ProductListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final productsAsync = ref.watch(productNotifierProvider);
     final currentUser = ref.watch(authNotifierProvider).currentUser;
+    final isBuyer = currentUser?.isBuyer == true;
+
     final blockedIds = currentUser == null
         ? const <String>{}
         : ref
@@ -38,40 +40,41 @@ class ProductListScreen extends ConsumerWidget {
             icon: const Icon(Icons.person_outline, size: 28),
             onPressed: () => context.push('/profile'),
           ),
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart_outlined, size: 28),
-                onPressed: () => context.push('/cart'),
-              ),
-              if (cartCount > 0)
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 18,
-                      minHeight: 18,
-                    ),
-                    child: Center(
-                      child: Text(
-                        cartCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
+          if (isBuyer)
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.shopping_cart_outlined, size: 28),
+                  onPressed: () => context.push('/cart'),
+                ),
+                if (cartCount > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Center(
+                        child: Text(
+                          cartCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
       body: productsAsync.when(
@@ -100,17 +103,15 @@ class ProductListScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text('Erreur : $error')),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (currentUser == null) {
-            context.push('/auth');
-            return;
-          }
-          context.push('/create-annonce');
-        },
-        child: const Icon(Icons.add),
+        error: (error, stack) => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Impossible de charger les produits pour le moment.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       ),
     );
   }

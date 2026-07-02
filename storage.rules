@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isImage() {
+      return request.resource != null
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function isVideo() {
+      return request.resource != null
+        && request.resource.contentType.matches('video/.*');
+    }
+
+    match /profile_photos/{userId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isOwner(userId)
+        && isImage()
+        && request.resource.size <= 3 * 1024 * 1024;
+      allow delete: if isOwner(userId);
+    }
+
+    match /annonces/{sellerId}/{annonceId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isOwner(sellerId)
+        && isImage()
+        && request.resource.size <= 5 * 1024 * 1024;
+      allow delete: if isOwner(sellerId);
+    }
+
+    match /statuses/{sellerId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isOwner(sellerId)
+        && (
+          (isImage() && request.resource.size <= 5 * 1024 * 1024)
+          || (isVideo() && request.resource.size <= 50 * 1024 * 1024)
+        );
+      allow delete: if isOwner(sellerId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

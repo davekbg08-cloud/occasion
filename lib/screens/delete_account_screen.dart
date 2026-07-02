@@ -35,9 +35,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     try {
       await _service.deleteAccount(widget.userId);
-      ref.read(authNotifierProvider.notifier).logout();
+      await ref.read(authNotifierProvider.notifier).logout();
 
-      if (mounted) context.go('/role-selection');
+      if (mounted) context.go('/auth');
     } on FirebaseAuthException catch (error) {
       if (error.code == 'requires-recent-login' && mounted) {
         setState(() => _isDeleting = false);
@@ -58,12 +58,12 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           ),
         );
       }
-    } catch (error) {
+    } catch (_) {
       setState(() => _isDeleting = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur : $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Suppression impossible.')),
+        );
       }
     }
   }

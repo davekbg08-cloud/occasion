@@ -11,6 +11,8 @@ class Status {
     this.caption,
     this.productId,
     this.likesCount = 0,
+    this.status = 'published',
+    this.active = true,
     required this.createdAt,
   });
 
@@ -23,6 +25,8 @@ class Status {
   final String? caption;
   final String? productId;
   final int likesCount;
+  final String status;
+  final bool active;
   final DateTime createdAt;
 
   factory Status.fromMap(Map<String, dynamic> map) {
@@ -38,6 +42,8 @@ class Status {
       caption: map['caption'] as String?,
       productId: map['productId'] as String?,
       likesCount: map['likesCount'] as int? ?? 0,
+      status: map['status'] as String? ?? 'published',
+      active: map['active'] as bool? ?? true,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
         map['createdAt'] as int? ?? 0,
       ),
@@ -54,10 +60,12 @@ class Status {
     'caption': caption,
     'productId': productId,
     'likesCount': likesCount,
+    'status': status,
+    'active': active,
     'createdAt': createdAt.millisecondsSinceEpoch,
   };
 
-  Status copyWith({int? likesCount}) {
+  Status copyWith({int? likesCount, String? status, bool? active}) {
     return Status(
       id: id,
       sellerId: sellerId,
@@ -68,6 +76,8 @@ class Status {
       caption: caption,
       productId: productId,
       likesCount: likesCount ?? this.likesCount,
+      status: status ?? this.status,
+      active: active ?? this.active,
       createdAt: createdAt,
     );
   }

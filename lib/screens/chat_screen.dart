@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -85,6 +86,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     final messages = ref.watch(chatMessagesProvider(widget.chat.id));
     final otherName = chat.otherUserName(myId);
+    final otherImage = chat.otherUserProfileImage(myId)?.trim();
     final otherId = chat.otherUserId(myId);
     final initial = otherName.isEmpty
         ? '?'
@@ -100,10 +102,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             CircleAvatar(
               radius: 18,
               backgroundColor: Colors.grey[700],
-              child: Text(
-                initial,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-              ),
+              backgroundImage: otherImage == null || otherImage.isEmpty
+                  ? null
+                  : CachedNetworkImageProvider(otherImage),
+              child: otherImage == null || otherImage.isEmpty
+                  ? Text(
+                      initial,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    )
+                  : null,
             ),
             const SizedBox(width: 10),
             Expanded(

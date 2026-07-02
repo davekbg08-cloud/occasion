@@ -7,6 +7,8 @@ class Chat {
     required this.sellerName,
     this.buyerProfileImageUrl,
     this.sellerProfileImageUrl,
+    this.listingId,
+    this.listingTitle,
     this.lastMessage,
     this.lastMessageAt,
     this.unreadCount = 0,
@@ -19,6 +21,8 @@ class Chat {
   final String sellerName;
   final String? buyerProfileImageUrl;
   final String? sellerProfileImageUrl;
+  final String? listingId;
+  final String? listingTitle;
   final String? lastMessage;
   final DateTime? lastMessageAt;
   final int unreadCount;
@@ -46,6 +50,8 @@ class Chat {
       sellerName: map['sellerName'] as String? ?? '',
       buyerProfileImageUrl: map['buyerProfileImageUrl'] as String?,
       sellerProfileImageUrl: map['sellerProfileImageUrl'] as String?,
+      listingId: map['listingId'] as String?,
+      listingTitle: map['listingTitle'] as String?,
       lastMessage: map['lastMessage'] as String?,
       lastMessageAt: map['lastMessageAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['lastMessageAt'] as int)
@@ -62,6 +68,9 @@ class Chat {
     'sellerName': sellerName,
     'buyerProfileImageUrl': buyerProfileImageUrl,
     'sellerProfileImageUrl': sellerProfileImageUrl,
+    'listingId': listingId,
+    'listingTitle': listingTitle,
+    'participants': [buyerId, sellerId],
     'lastMessage': lastMessage,
     'lastMessageAt': lastMessageAt?.millisecondsSinceEpoch,
     'unreadCount': unreadCount,
@@ -80,6 +89,8 @@ class Chat {
       sellerName: sellerName,
       buyerProfileImageUrl: buyerProfileImageUrl,
       sellerProfileImageUrl: sellerProfileImageUrl,
+      listingId: listingId,
+      listingTitle: listingTitle,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       unreadCount: unreadCount ?? this.unreadCount,

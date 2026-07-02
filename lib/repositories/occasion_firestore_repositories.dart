@@ -131,12 +131,12 @@ class AnnoncesCrudRepository extends OccasionCollectionRepository<Annonce> {
 
   Stream<List<Annonce>> activeByDate({String? categorie, int limit = 50}) {
     Query<Map<String, dynamic>> query = collection
-        .where('statut', isEqualTo: 'active')
+        .where('status', isEqualTo: 'published')
         .orderBy('dateCreation', descending: true)
         .limit(limit);
     if (categorie != null && categorie.trim().isNotEmpty) {
       query = collection
-          .where('statut', isEqualTo: 'active')
+          .where('status', isEqualTo: 'published')
           .where('categorie', isEqualTo: categorie.trim())
           .orderBy('dateCreation', descending: true)
           .limit(limit);

@@ -4,7 +4,7 @@
       "collectionGroup": "annonces",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "dateCreation", "order": "DESCENDING" }
       ]
     },
@@ -12,7 +12,7 @@
       "collectionGroup": "annonces",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "categorie", "order": "ASCENDING" },
         { "fieldPath": "dateCreation", "order": "DESCENDING" }
       ]
@@ -22,7 +22,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "vendeurId", "order": "ASCENDING" },
-        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "dateCreation", "order": "DESCENDING" }
       ]
     },
@@ -81,6 +81,46 @@
         { "fieldPath": "utilisateurId", "order": "ASCENDING" },
         { "fieldPath": "lu", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "statuses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "statuses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sellerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "buyerId", "order": "ASCENDING" },
+        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sellerId", "order": "ASCENDING" },
+        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "receiverId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
       ]
     }
   ],

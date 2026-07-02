@@ -9,17 +9,20 @@ class Annonce {
     required this.userId,
     this.imageUrls = const <String>[],
     this.location,
+    this.city = '',
+    this.district = '',
     this.brand = '',
     this.model = '',
     this.year = 0,
     this.condition = '',
     this.phone = '',
-    this.status = 'active',
+    this.status = 'published',
     this.createdAt,
     this.updatedAt,
     this.isActive = true,
     this.views = 0,
     this.favoritesCount = 0,
+    this.messagesCount = 0,
   });
 
   final String id;
@@ -31,6 +34,8 @@ class Annonce {
   final String userId;
   final List<String> imageUrls;
   final String? location;
+  final String city;
+  final String district;
   final String brand;
   final String model;
   final int year;
@@ -42,12 +47,22 @@ class Annonce {
   final bool isActive;
   final int views;
   final int favoritesCount;
+  final int messagesCount;
 
   factory Annonce.fromJson(Map<String, dynamic> json) {
     final status =
-        json['statut'] as String? ??
         json['status'] as String? ??
-        ((json['isActive'] as bool? ?? true) ? 'active' : 'inactive');
+        json['statut'] as String? ??
+        ((json['active'] as bool? ?? json['isActive'] as bool? ?? true)
+            ? 'published'
+            : 'draft');
+    final city = json['ville'] as String? ?? json['city'] as String? ?? '';
+    final district =
+        json['quartier'] as String? ?? json['district'] as String? ?? '';
+    final fallbackLocation = [
+      city,
+      district,
+    ].where((part) => part.trim().isNotEmpty).join(', ');
 
     return Annonce(
       id: json['id'] as String? ?? '',
@@ -60,14 +75,23 @@ class Annonce {
           json['categorie'] as String? ??
           json['category'] as String? ??
           'Divers',
-      userId: json['vendeurId'] as String? ?? json['userId'] as String? ?? '',
+      userId:
+          json['sellerId'] as String? ??
+          json['vendeurId'] as String? ??
+          json['userId'] as String? ??
+          '',
       imageUrls:
           (json['images'] as List<dynamic>? ??
                   json['imageUrls'] as List<dynamic>? ??
                   const <dynamic>[])
               .map((item) => item.toString())
               .toList(),
-      location: json['localisation'] as String? ?? json['location'] as String?,
+      location:
+          json['localisation'] as String? ??
+          json['location'] as String? ??
+          (fallbackLocation.isEmpty ? null : fallbackLocation),
+      city: city,
+      district: district,
       brand: json['marque'] as String? ?? json['brand'] as String? ?? '',
       model: json['modele'] as String? ?? json['model'] as String? ?? '',
       year: _toInt(json['annee'] ?? json['year']),
@@ -76,33 +100,64 @@ class Annonce {
       status: status,
       createdAt: _toDateTime(json['dateCreation'] ?? json['createdAt']),
       updatedAt: _toDateTime(json['dateModification'] ?? json['updatedAt']),
-      isActive: status == 'active' || status == 'actif',
+      isActive:
+          status == 'published' ||
+          status == 'active' ||
+          status == 'actif' ||
+          (json['active'] as bool? ?? false) ||
+          (json['isPublished'] as bool? ?? false),
       views: _toInt(json['vues'] ?? json['views']),
       favoritesCount: _toInt(json['favoris'] ?? json['favoritesCount']),
+      messagesCount: _toInt(
+        json['messagesCount'] ??
+            json['nombreMessages'] ??
+            json['messages'] ??
+            0,
+      ),
     );
   }
 
   Map<String, dynamic> toJson() {
+    final normalizedCity = city.trim().isEmpty
+        ? (location?.trim() ?? '')
+        : city.trim();
+
     return {
       'id': id,
+      'sellerId': userId.trim(),
+      'title': title.trim(),
       'titre': title.trim(),
       'description': description.trim(),
+      'price': price,
       'prix': price,
+      'currency': currency.trim(),
       'devise': currency.trim(),
+      'category': category.trim(),
       'categorie': category.trim(),
       'marque': brand.trim(),
       'modele': model.trim(),
       'annee': year,
       'etat': condition.trim(),
       'localisation': location?.trim() ?? '',
+      'city': normalizedCity,
+      'ville': normalizedCity,
+      'district': district.trim(),
+      'quartier': district.trim(),
       'vendeurId': userId.trim(),
       'telephone': phone.trim(),
+      'imageUrls': imageUrls,
       'images': imageUrls,
       'favoris': favoritesCount,
       'vues': views,
-      'statut': status.trim().isEmpty
-          ? (isActive ? 'active' : 'inactive')
+      'messagesCount': messagesCount,
+      'status': status.trim().isEmpty
+          ? (isActive ? 'published' : 'draft')
           : status.trim(),
+      'statut': status.trim().isEmpty
+          ? (isActive ? 'published' : 'draft')
+          : status.trim(),
+      'active': isActive,
+      'isPublished': status == 'published' || isActive,
       'dateCreation': createdAt,
       'dateModification': updatedAt,
     };
@@ -115,9 +170,13 @@ class Annonce {
     if (price < 0) errors.add('prix invalide');
     if (currency.trim().isEmpty) errors.add('devise obligatoire');
     if (category.trim().isEmpty) errors.add('categorie obligatoire');
+    if (city.trim().isEmpty && (location?.trim().isEmpty ?? true)) {
+      errors.add('ville obligatoire');
+    }
     if (userId.trim().isEmpty) errors.add('vendeurId obligatoire');
     if (views < 0) errors.add('vues invalide');
     if (favoritesCount < 0) errors.add('favoris invalide');
+    if (messagesCount < 0) errors.add('messages invalide');
     if (errors.isNotEmpty) {
       throw ArgumentError(errors.join(', '));
     }
@@ -133,6 +192,8 @@ class Annonce {
     String? userId,
     List<String>? imageUrls,
     String? location,
+    String? city,
+    String? district,
     String? brand,
     String? model,
     int? year,
@@ -144,6 +205,7 @@ class Annonce {
     bool? isActive,
     int? views,
     int? favoritesCount,
+    int? messagesCount,
   }) {
     return Annonce(
       id: id ?? this.id,
@@ -155,6 +217,8 @@ class Annonce {
       userId: userId ?? this.userId,
       imageUrls: imageUrls ?? this.imageUrls,
       location: location ?? this.location,
+      city: city ?? this.city,
+      district: district ?? this.district,
       brand: brand ?? this.brand,
       model: model ?? this.model,
       year: year ?? this.year,
@@ -166,6 +230,7 @@ class Annonce {
       isActive: isActive ?? this.isActive,
       views: views ?? this.views,
       favoritesCount: favoritesCount ?? this.favoritesCount,
+      messagesCount: messagesCount ?? this.messagesCount,
     );
   }
 

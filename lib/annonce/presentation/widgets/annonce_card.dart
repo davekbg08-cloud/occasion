@@ -14,7 +14,8 @@ class AnnonceCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(authNotifierProvider).currentUser;
     final userId = currentUser?.id ?? '';
-    final favoris = ref.watch(favorisProvider(userId));
+    final canFavorite = currentUser?.isBuyer == true;
+    final favoris = canFavorite ? ref.watch(favorisProvider(userId)) : const [];
     final isFavorite = favoris.any((favori) => favori.annonceId == annonce.id);
 
     return Card(
@@ -33,14 +34,16 @@ class AnnonceCard extends ConsumerWidget {
           '${annonce.price.toStringAsFixed(0)} ${annonce.currency}\n${annonce.category}',
         ),
         isThreeLine: true,
-        trailing: IconButton(
-          icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
-          onPressed: userId.isEmpty
-              ? null
-              : () => ref
-                  .read(favorisProvider(userId).notifier)
-                  .toggleFavori(annonce.id),
-        ),
+        trailing: canFavorite
+            ? IconButton(
+                icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
+                onPressed: userId.isEmpty
+                    ? null
+                    : () => ref
+                          .read(favorisProvider(userId).notifier)
+                          .toggleFavori(annonce.id),
+              )
+            : null,
       ),
     );
   }

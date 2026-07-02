@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/report.dart';
 import '../models/product_model.dart';
@@ -13,45 +13,49 @@ class ProductCard extends ConsumerWidget {
 
   final ProductModel product;
 
-  Future<void> _openWhatsApp(BuildContext context) async {
-    final phone = product.sellerPhone;
-    if (phone == null || phone.trim().isEmpty) {
+  void _openPrivateMessage(BuildContext context, WidgetRef ref) {
+    final currentUser = ref.read(authNotifierProvider).currentUser;
+    if (currentUser == null) {
+      context.push('/auth');
+      return;
+    }
+
+    final sellerId = product.sellerId;
+    if (sellerId == null || sellerId.isEmpty || sellerId == currentUser.id) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Numéro WhatsApp non disponible')),
+        const SnackBar(content: Text('Conversation indisponible.')),
       );
       return;
     }
 
-    final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
-    final fullNumber = digits.startsWith('243')
-        ? digits
-        : digits.startsWith('0')
-        ? '243${digits.substring(1)}'
-        : '243$digits';
-    final message = Uri.encodeComponent(
-      'Bonjour, je suis intéressé par votre article :\n'
-      '${product.name}\n'
-      '${product.price.toInt()} FCFA\n'
-      'Est-il encore disponible ?',
+    context.push(
+      '/open-chat',
+      extra: {
+        'sellerId': sellerId,
+        'sellerName': product.sellerName ?? 'Vendeur',
+        'buyerId': currentUser.id,
+        'buyerName': currentUser.name,
+        'listingId': product.id,
+        'listingTitle': product.name,
+      },
     );
-    final url = Uri.parse('https://wa.me/$fullNumber?text=$message');
+  }
 
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-      return;
-    }
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Impossible d'ouvrir WhatsApp")),
-      );
-    }
+  void _addToCart(BuildContext context, WidgetRef ref) {
+    ref.read(cartNotifierProvider.notifier).addToCart(product);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${product.name} ajouté au panier'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(authNotifierProvider).currentUser;
     final currentUserId = currentUser?.id;
+    final showBuyerActions = currentUser == null || currentUser.isBuyer;
     final canModerate =
         currentUserId != null &&
         product.sellerId != null &&
@@ -170,47 +174,50 @@ class ProductCard extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _openWhatsApp(context),
-                    icon: const Icon(
-                      Icons.chat_rounded,
-                      color: Color(0xFF25D366),
-                      size: 18,
-                    ),
-                    label: const Text(
-                      'WhatsApp',
-                      style: TextStyle(color: Color(0xFF25D366)),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF25D366)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () {
-                      ref
-                          .read(cartNotifierProvider.notifier)
-                          .addToCart(product);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('${product.name} ajouté au panier'),
-                          duration: const Duration(seconds: 2),
+            if (showBuyerActions) ...[
+              const SizedBox(height: 12),
+              Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openPrivateMessage(context, ref),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                          label: const Text('Contacter'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
                         ),
-                      );
-                    },
-                    icon: const Icon(Icons.shopping_cart_outlined, size: 18),
-                    label: const Text('Ajouter'),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: () => _addToCart(context, ref),
+                          icon: const Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Ajouter'),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        _addToCart(context, ref);
+                        context.push('/cart');
+                      },
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 18),
+                      label: const Text('Acheter'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

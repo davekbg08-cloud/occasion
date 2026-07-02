@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
-import '../services/cinetpay_service.dart';
-import '../services/service_locator.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -19,8 +17,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String? selectedPlan = 'seller_monthly';
   String? selectedOperator;
   bool isProcessing = false;
-
-  final String subscriptionPhone = '0856373707';
 
   final List<Map<String, Object>> plans = const [
     {
@@ -39,75 +35,27 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   ];
 
   Future<void> _subscribe() async {
-    if (selectedPlan == null || selectedOperator == null) {
+    if (selectedPlan == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez choisir un opérateur de paiement'),
-        ),
+        const SnackBar(content: Text('Choisissez une formule vendeur.')),
       );
       return;
     }
 
-    final plan = plans.firstWhere((item) => item['id'] == selectedPlan);
-    final amount = plan['price'] as int;
-
     setState(() => isProcessing = true);
 
-    try {
-      final success = await getIt<CinetPayService>().initiatePayment(
-        context: context,
-        amount: amount.toDouble(),
-        transactionId: 'sub_${DateTime.now().millisecondsSinceEpoch}',
-        description: 'Abonnement vendeur mensuel',
-        customerPhone: subscriptionPhone,
-      );
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      if (success) {
-        final startDate = DateTime.now();
-        ref
-            .read(subscriptionNotifierProvider.notifier)
-            .activateSubscription(
-              Subscription(
-                id: 'sub_${startDate.millisecondsSinceEpoch}',
-                planName: plan['name'] as String,
-                price: amount.toDouble(),
-                startDate: startDate,
-                expiryDate: startDate.add(_subscriptionDuration),
-                isActive: true,
-                paymentMethod: selectedOperator!,
-              ),
-            );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Abonnement vendeur activé avec succès !"),
-            backgroundColor: Colors.green,
-          ),
-        );
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (mounted) context.go('/home');
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Paiement refusé ou annulé'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => isProcessing = false);
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          "Paiement en préparation (mode test). Aucun paiement réel n'a été lancé.",
+        ),
+      ),
+    );
+    setState(() => isProcessing = false);
   }
-
-  Duration get _subscriptionDuration => const Duration(days: 30);
 
   @override
   Widget build(BuildContext context) {
@@ -141,8 +89,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   icon: const Icon(Icons.autorenew),
                   label: Text(
                     isProcessing
-                        ? 'Paiement en cours...'
-                        : 'Payer le renouvellement (${subscription.price.toInt()} FC)',
+                        ? 'Mode test...'
+                        : 'Tester le renouvellement (${subscription.price.toInt()} FC)',
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.orange,
@@ -163,15 +111,17 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Pour publier vos annonces sur Occasion, un abonnement vendeur est nécessaire.',
+                "Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées.",
                 style: TextStyle(color: Colors.grey[400], fontSize: 14),
               ),
               const SizedBox(height: 16),
             ],
+            _buildExplanationCard(),
+            const SizedBox(height: 16),
             ...plans.map(_buildPlanCard),
             const SizedBox(height: 24),
             const Text(
-              'Paiement Mobile Money',
+              'Prestataires prévus (mode test)',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -184,17 +134,18 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 child: Center(
                   child: Column(
                     children: [
-                      Text('Numéro de paiement'),
+                      Text('Paiement en préparation'),
                       Text(
-                        '0856373707',
+                        'Mode test',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        '(pré-rempli)',
+                        "Aucun débit réel n'est lancé tant qu'un prestataire n'est pas connecté.",
                         style: TextStyle(color: Colors.grey),
+                        textAlign: TextAlign.center,
                       ),
                     ],
                   ),
@@ -221,7 +172,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         ),
                       )
                     : const Text(
-                        'PAYER 20000 FC',
+                        'PAIEMENT EN PRÉPARATION',
                         style: TextStyle(fontSize: 18),
                       ),
               ),
@@ -318,6 +269,34 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             Text(
               isActive ? 'Actif' : 'Expiré',
               style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExplanationCard() {
+    return Card(
+      color: Colors.grey[900],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Comment fonctionne l'abonnement vendeur ?",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "La publication de base peut rester gratuite selon la configuration. L'abonnement vendeur servira à publier davantage d'annonces ou à activer des options avancées. Le paiement réel sera branché plus tard via CinetPay, Stripe, Mobile Money ou un autre prestataire.",
+              style: TextStyle(color: Colors.grey[400], height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            const Chip(
+              avatar: Icon(Icons.science_outlined, size: 18),
+              label: Text('Paiement en préparation - Mode test'),
             ),
           ],
         ),

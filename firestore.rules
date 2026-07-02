@@ -10,6 +10,16 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function hasUserRole(role) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isSeller() {
+      return hasUserRole('seller');
+    }
+
     function hasOnly(data, keys) {
       return data.keys().hasOnly(keys);
     }
@@ -26,56 +36,107 @@ service cloud.firestore {
       return !(field in data) || data[field] is number;
     }
 
-    function validAnnonce(data) {
-      return hasOnly(data, [
-        'id', 'titre', 'description', 'prix', 'devise', 'categorie',
-        'marque', 'modele', 'annee', 'etat', 'localisation', 'vendeurId',
-        'telephone', 'images', 'favoris', 'vues', 'statut',
-        'dateCreation', 'dateModification'
-      ])
-      && stringField(data, 'titre', 160)
-      && stringField(data, 'description', 4000)
-      && data.prix is number && data.prix >= 0
-      && stringField(data, 'devise', 10)
-      && stringField(data, 'categorie', 120)
-      && optionalString(data, 'marque', 120)
-      && optionalString(data, 'modele', 120)
-      && optionalNumber(data, 'annee')
-      && optionalString(data, 'etat', 80)
-      && optionalString(data, 'localisation', 180)
-      && stringField(data, 'vendeurId', 128)
-      && optionalString(data, 'telephone', 40)
-      && data.images is list
-      && data.favoris is number && data.favoris >= 0
-      && data.vues is number && data.vues >= 0
-      && stringField(data, 'statut', 40)
-      && data.dateCreation is timestamp
-      && data.dateModification is timestamp;
+    function optionalBool(data, field) {
+      return !(field in data) || data[field] is bool;
     }
 
-    function validUtilisateur(data) {
+    function isPublishedAnnonce(data) {
+      return data.statut in ['active', 'actif', 'published', 'publie']
+        || data.status in ['active', 'published']
+        || data.active == true
+        || data.isPublished == true;
+    }
+
+    function isPublishedStatus(data) {
+      return data.status in ['active', 'published']
+        || data.active == true
+        || data.isPublished == true;
+    }
+
+    function isChatParticipant(chatId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && (
+          get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
+          || get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId == request.auth.uid
+        );
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/conversations/$(conversationId))
+        && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+    }
+
+    function validAnnonce(data) {
       return hasOnly(data, [
-        'id', 'nom', 'prenom', 'telephone', 'email', 'photo', 'ville', 'pays',
-        'dateCreation', 'typeCompte', 'estVerifie', 'derniereConnexion'
+        'id', 'sellerId', 'userId', 'title', 'titre', 'description',
+        'price', 'prix', 'currency', 'devise', 'category', 'categorie',
+        'brand', 'marque', 'model', 'modele', 'year', 'annee',
+        'condition', 'etat', 'location', 'localisation', 'vendeurId',
+        'city', 'ville', 'district', 'quartier', 'phone', 'telephone',
+        'imageUrls', 'images', 'favoritesCount', 'favoris', 'views', 'vues',
+        'messagesCount', 'statut', 'status', 'active', 'isActive',
+        'isPublished', 'createdAt', 'dateCreation', 'updatedAt',
+        'dateModification'
       ])
-      && stringField(data, 'nom', 160)
-      && optionalString(data, 'prenom', 160)
-      && stringField(data, 'telephone', 40)
-      && optionalString(data, 'email', 160)
-      && optionalString(data, 'photo', 500)
+      && (stringField(data, 'title', 160) || stringField(data, 'titre', 160))
+      && stringField(data, 'description', 4000)
+      && (
+        (data.price is number && data.price >= 0)
+        || (data.prix is number && data.prix >= 0)
+      )
+      && (stringField(data, 'currency', 10) || stringField(data, 'devise', 10))
+      && (stringField(data, 'category', 120) || stringField(data, 'categorie', 120))
+      && optionalString(data, 'brand', 120)
+      && optionalString(data, 'marque', 120)
+      && optionalString(data, 'model', 120)
+      && optionalString(data, 'modele', 120)
+      && optionalNumber(data, 'year')
+      && optionalNumber(data, 'annee')
+      && optionalString(data, 'condition', 80)
+      && optionalString(data, 'etat', 80)
+      && optionalString(data, 'location', 180)
+      && optionalString(data, 'localisation', 180)
+      && optionalString(data, 'city', 120)
       && optionalString(data, 'ville', 120)
-      && optionalString(data, 'pays', 120)
-      && data.dateCreation is timestamp
-      && stringField(data, 'typeCompte', 40)
-      && data.estVerifie is bool
-      && data.derniereConnexion is timestamp;
+      && optionalString(data, 'district', 120)
+      && optionalString(data, 'quartier', 120)
+      && (
+        stringField(data, 'sellerId', 128)
+        || stringField(data, 'vendeurId', 128)
+        || stringField(data, 'userId', 128)
+      )
+      && optionalString(data, 'sellerId', 128)
+      && optionalString(data, 'vendeurId', 128)
+      && optionalString(data, 'userId', 128)
+      && optionalString(data, 'phone', 40)
+      && optionalString(data, 'telephone', 40)
+      && (
+        (data.imageUrls is list && data.imageUrls.size() <= 8)
+        || (data.images is list && data.images.size() <= 8)
+      )
+      && optionalNumber(data, 'favoritesCount')
+      && optionalNumber(data, 'favoris')
+      && optionalNumber(data, 'views')
+      && optionalNumber(data, 'vues')
+      && optionalNumber(data, 'messagesCount')
+      && optionalString(data, 'statut', 40)
+      && optionalString(data, 'status', 40)
+      && optionalBool(data, 'active')
+      && optionalBool(data, 'isActive')
+      && optionalBool(data, 'isPublished')
+      && (!( 'createdAt' in data) || data.createdAt == null || data.createdAt is timestamp)
+      && (!( 'dateCreation' in data) || data.dateCreation == null || data.dateCreation is timestamp)
+      && (!( 'updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp)
+      && (!( 'dateModification' in data) || data.dateModification == null || data.dateModification is timestamp);
     }
 
     function validFavori(data) {
       return hasOnly(data, ['id', 'utilisateurId', 'annonceId', 'dateAjout'])
-      && stringField(data, 'utilisateurId', 128)
-      && stringField(data, 'annonceId', 128)
-      && data.dateAjout is timestamp;
+        && stringField(data, 'utilisateurId', 128)
+        && stringField(data, 'annonceId', 128)
+        && data.dateAjout is timestamp;
     }
 
     function validMessage(data) {
@@ -93,56 +154,89 @@ service cloud.firestore {
 
     function validConversation(data) {
       return hasOnly(data, ['id', 'participants', 'dernierMessage', 'dateDernierMessage'])
-      && data.participants is list
-      && data.participants.size() >= 2
-      && stringField(data, 'dernierMessage', 1000)
-      && data.dateDernierMessage is timestamp;
+        && data.participants is list
+        && data.participants.size() >= 2
+        && stringField(data, 'dernierMessage', 1000)
+        && data.dateDernierMessage is timestamp;
     }
 
     function validSignalement(data) {
       return hasOnly(data, ['id', 'annonceId', 'utilisateurId', 'motif', 'description', 'date', 'statut'])
-      && stringField(data, 'annonceId', 128)
-      && stringField(data, 'utilisateurId', 128)
-      && stringField(data, 'motif', 160)
-      && optionalString(data, 'description', 2000)
-      && data.date is timestamp
-      && stringField(data, 'statut', 40);
+        && stringField(data, 'annonceId', 128)
+        && stringField(data, 'utilisateurId', 128)
+        && stringField(data, 'motif', 160)
+        && optionalString(data, 'description', 2000)
+        && data.date is timestamp
+        && stringField(data, 'statut', 40);
     }
 
     function validCategorie(data) {
       return hasOnly(data, ['id', 'nom', 'icone', 'ordre'])
-      && stringField(data, 'nom', 120)
-      && optionalString(data, 'icone', 120)
-      && data.ordre is number && data.ordre >= 0;
+        && stringField(data, 'nom', 120)
+        && optionalString(data, 'icone', 120)
+        && data.ordre is number && data.ordre >= 0;
     }
 
     function validNotification(data) {
       return hasOnly(data, ['id', 'utilisateurId', 'titre', 'message', 'lu', 'date'])
-      && stringField(data, 'utilisateurId', 128)
-      && stringField(data, 'titre', 160)
-      && stringField(data, 'message', 1000)
-      && data.lu is bool
-      && data.date is timestamp;
+        && stringField(data, 'utilisateurId', 128)
+        && stringField(data, 'titre', 160)
+        && stringField(data, 'message', 1000)
+        && data.lu is bool
+        && data.date is timestamp;
     }
 
     match /annonces/{annonceId} {
-      allow read: if signedIn();
+      allow read: if isPublishedAnnonce(resource.data)
+        || (
+          signedIn()
+          && (
+            resource.data.sellerId == request.auth.uid
+            || resource.data.vendeurId == request.auth.uid
+            || resource.data.userId == request.auth.uid
+          )
+        );
       allow create: if signedIn()
-        && request.resource.data.vendeurId == request.auth.uid
+        && isSeller()
+        && (
+          request.resource.data.sellerId == request.auth.uid
+          || request.resource.data.vendeurId == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+        )
         && validAnnonce(request.resource.data);
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
         && (
-          resource.data.vendeurId == request.auth.uid
+          (
+            isSeller()
+            && (
+              resource.data.sellerId == request.auth.uid
+              || resource.data.vendeurId == request.auth.uid
+              || resource.data.userId == request.auth.uid
+            )
+          )
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'dateModification'])
         );
-      allow delete: if signedIn() && resource.data.vendeurId == request.auth.uid;
+      allow delete: if signedIn()
+        && isSeller()
+        && (
+          resource.data.sellerId == request.auth.uid
+          || resource.data.vendeurId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        );
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+
+      match /blockedUsers/{blockedUserId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
     }
 
     match /utilisateurs/{userId} {
-      allow read: if signedIn();
-      allow create, update: if isOwner(userId) && validUtilisateur(request.resource.data);
-      allow delete: if isOwner(userId);
+      allow read, create, update, delete: if isOwner(userId);
     }
 
     match /favoris/{favoriId} {
@@ -152,6 +246,36 @@ service cloud.firestore {
         && validFavori(request.resource.data);
       allow update: if false;
       allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+    }
+
+    match /statuses/{statusId} {
+      allow read: if isPublishedStatus(resource.data)
+        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      allow create: if signedIn()
+        && isSeller()
+        && request.resource.data.sellerId == request.auth.uid
+        && isPublishedStatus(request.resource.data);
+      allow update: if signedIn()
+        && (
+          (resource.data.sellerId == request.auth.uid && isSeller())
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
+        );
+      allow delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
+    }
+
+    match /products/{productId} {
+      allow read: if resource.data.status in ['active', 'published']
+        || resource.data.statut in ['active', 'published']
+        || resource.data.isActive == true
+        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.sellerId == request.auth.uid
+        && isSeller();
+      allow update, delete: if signedIn()
+        && isSeller()
+        && resource.data.sellerId == request.auth.uid;
     }
 
     match /messages/{messageId} {
@@ -175,12 +299,78 @@ service cloud.firestore {
         && request.auth.uid in resource.data.participants
         && validConversation(request.resource.data);
       allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isConversationParticipant(conversationId);
+        allow create: if isConversationParticipant(conversationId)
+          && request.resource.data.expediteurId == request.auth.uid
+          && validMessage(request.resource.data);
+        allow update: if isConversationParticipant(conversationId)
+          && validMessage(request.resource.data)
+          && (
+            resource.data.expediteurId == request.auth.uid
+            || resource.data.destinataireId == request.auth.uid
+          );
+        allow delete: if false;
+      }
+    }
+
+    match /chats/{chatId} {
+      allow create: if signedIn()
+        && (
+          request.resource.data.buyerId == request.auth.uid
+          || request.resource.data.sellerId == request.auth.uid
+        );
+      allow read, update, delete: if signedIn()
+        && (
+          resource.data.buyerId == request.auth.uid
+          || resource.data.sellerId == request.auth.uid
+        );
+
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(chatId);
+        allow create: if isChatParticipant(chatId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.receiverId in [
+            get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId
+          ];
+        allow update: if isChatParticipant(chatId)
+          && resource.data.receiverId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+        allow delete: if false;
+      }
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read, delete: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        );
+      allow create: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+        );
+      allow update: if signedIn()
+        && (
+          subscriptionId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+        )
+        && request.resource.data.userId == resource.data.userId;
     }
 
     match /signalements/{signalementId} {
       allow create: if signedIn()
         && request.resource.data.utilisateurId == request.auth.uid
         && validSignalement(request.resource.data);
+      allow read, update, delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid;
       allow read, update, delete: if false;
     }
 
@@ -201,66 +391,6 @@ service cloud.firestore {
         && resource.data.utilisateurId == request.auth.uid
         && validNotification(request.resource.data);
       allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
-    }
-
-    match /users/{userId} {
-      allow read: if signedIn();
-      allow write: if isOwner(userId);
-
-      match /blockedUsers/{blockedUserId} {
-        allow read, create, update, delete: if isOwner(userId);
-      }
-    }
-
-    match /reports/{reportId} {
-      allow create: if signedIn()
-        && request.resource.data.reporterId == request.auth.uid;
-      allow read, update, delete: if false;
-    }
-
-    match /statuses/{statusId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update: if signedIn()
-        && (
-          resource.data.sellerId == request.auth.uid
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
-        );
-      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
-    }
-
-    match /products/{productId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
-        && request.resource.data.sellerId == request.auth.uid
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
-      allow update, delete: if signedIn() && resource.data.sellerId == request.auth.uid;
-    }
-
-    match /chats/{chatId} {
-      allow create: if signedIn()
-        && (
-          request.resource.data.buyerId == request.auth.uid
-          || request.resource.data.sellerId == request.auth.uid
-        );
-      allow read, update, delete: if signedIn()
-        && (
-          resource.data.buyerId == request.auth.uid
-          || resource.data.sellerId == request.auth.uid
-        );
-
-      match /messages/{messageId} {
-        allow read: if signedIn();
-        allow create: if signedIn()
-          && request.resource.data.senderId == request.auth.uid;
-        allow update: if signedIn()
-          && (
-            resource.data.senderId == request.auth.uid
-            || resource.data.receiverId == request.auth.uid
-          );
-        allow delete: if false;
-      }
     }
 
     match /{document=**} {

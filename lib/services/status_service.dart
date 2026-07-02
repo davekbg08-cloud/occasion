@@ -20,6 +20,7 @@ class StatusService {
 
   Stream<List<Status>> feed() {
     return _statuses
+        .where('active', isEqualTo: true)
         .orderBy('createdAt', descending: true)
         .limit(100)
         .snapshots()
@@ -53,6 +54,17 @@ class StatusService {
   }) async {
     final ext = type == StatusType.video ? 'mp4' : 'jpg';
     final contentType = type == StatusType.video ? 'video/mp4' : 'image/jpeg';
+    final maxBytes = type == StatusType.video
+        ? 50 * 1024 * 1024
+        : 5 * 1024 * 1024;
+    if (await mediaFile.length() > maxBytes) {
+      throw Exception(
+        type == StatusType.video
+            ? 'La vidéo doit faire moins de 50 Mo.'
+            : "L'image doit faire moins de 5 Mo.",
+      );
+    }
+
     final storagePath =
         'statuses/$sellerId/${DateTime.now().millisecondsSinceEpoch}.$ext';
 
@@ -70,6 +82,8 @@ class StatusService {
       type: type,
       caption: caption,
       productId: productId,
+      status: 'published',
+      active: true,
       createdAt: DateTime.now(),
     );
 

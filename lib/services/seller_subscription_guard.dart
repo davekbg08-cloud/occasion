@@ -3,12 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/auth_provider.dart';
-import '../providers/subscription_provider.dart';
 
 bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
   final user = ref.read(authNotifierProvider).currentUser;
   if (user == null) {
-    context.go('/role-selection');
+    context.go('/auth');
     return false;
   }
 
@@ -21,13 +20,5 @@ bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
     return false;
   }
 
-  final subscription = ref.read(subscriptionNotifierProvider);
-  final hasActiveSubscription =
-      subscription != null && subscription.isActive && !subscription.isExpired;
-  if (hasActiveSubscription) {
-    return true;
-  }
-
-  context.push('/subscription');
-  return false;
+  return true;
 }
