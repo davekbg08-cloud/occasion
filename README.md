@@ -34,25 +34,31 @@ Construire une marketplace mobile avec profils utilisateurs, catalogue produits,
 
 ## Etat actuel
 
-Le projet est une marketplace Flutter en developpement. L'identite visible doit rester `Occasion`, mais l'`applicationId` Android est encore `com.example.occasion` parce que le fichier Firebase `google-services.json` actuel est lie a ce package. Avant une publication officielle, il faudra creer/configurer l'application Android finale dans Firebase puis remplacer proprement l'`applicationId`.
+Marketplace Flutter en production. L'identite visible est `Occasion` (titre, PWA,
+icones, splash, canal de notification). Les regles Firestore et Storage sont
+deployees sur le projet Firebase `occasion-10cdb`.
 
-## Points a faire avant publication
+L'`applicationId` Android reste `com.example.occasion` car le `google-services.json`
+actuel est lie a ce package. Pour une publication Play Store officielle, il faudra
+recreer l'application Android sous le package final dans Firebase et remplacer
+`applicationId`, `namespace` et `google-services.json`.
 
-1. Choisir le package final, par exemple `com.mediavision.occasion`.
-2. Creer l'application Android correspondante dans Firebase.
-3. Telecharger le nouveau `google-services.json`.
-4. Mettre a jour `applicationId` et `namespace` Android.
-5. Ajouter une vraie signature release.
-6. Tester l'auth telephone, Firestore, Storage, notifications et paiement sur telephone reel.
-7. Verifier les regles Firestore/Storage avant test public.
+## Deploiement
+
+- **Web** : deploiement automatique sur GitHub Pages a chaque push sur `main`
+  (voir `.github/workflows/deploy-pages.yml`).
+- **Regles Firebase** : `firebase deploy --only firestore:rules,firestore:indexes,storage`.
+- **Android release** : `flutter build apk --release` (ajouter une signature release
+  avant publication Play Store).
 
 ## Commandes utiles
 
 ```bash
 flutter pub get
 flutter analyze
-flutter test
+flutter build web --release
 flutter build apk --release
+firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
 
 ## Note

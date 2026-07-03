@@ -12,7 +12,7 @@ abstract class AnnonceRepository {
   Future<Annonce> createAnnonce(Annonce annonce, List<XFile> images);
   Future<List<Annonce>> getAnnonces({String? search, String? category});
   Future<List<Annonce>> getSellerAnnonces(String sellerId);
-  Future<Annonce> updateAnnonce(Annonce annonce);
+  Future<Annonce> updateAnnonce(Annonce annonce, {List<XFile> newImages});
   Future<Annonce> updateAnnonceStatus(Annonce annonce, String status);
   Future<void> deleteAnnonce(String id);
 }
@@ -161,17 +161,44 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
-  Future<Annonce> updateAnnonce(Annonce annonce) async {
+  Future<Annonce> updateAnnonce(
+    Annonce annonce, {
+    List<XFile> newImages = const [],
+  }) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null || currentUser.uid != annonce.userId) {
       throw Exception('Tu ne peux modifier que tes propres annonces.');
     }
 
-    final data = annonce.toJson();
+    var updated = annonce;
+    if (newImages.isNotEmpty) {
+      final hasSellerSubscription = await _hasActiveSellerSubscription(
+        annonce.userId,
+      );
+      final maxImages = hasSellerSubscription
+          ? _sellerMaxImages
+          : _freeMaxImages;
+      if (newImages.length > maxImages) {
+        throw Exception(
+          hasSellerSubscription
+              ? 'La formule vendeur permet jusqu’à 5 photos par annonce.'
+              : 'La formule gratuite permet jusqu’à 2 photos par annonce.',
+        );
+      }
+      final imageUrls = await _uploadImages(
+        sellerId: annonce.userId,
+        annonceId: annonce.id,
+        images: newImages,
+        maxImages: maxImages,
+      );
+      updated = annonce.copyWith(imageUrls: imageUrls);
+    }
+
+    final data = updated.toJson();
     data['dateModification'] = FieldValue.serverTimestamp();
 
-    await _annoncesRef.doc(annonce.id).update(data);
-    final snapshot = await _annoncesRef.doc(annonce.id).get();
+    await _annoncesRef.doc(updated.id).update(data);
+    final snapshot = await _annoncesRef.doc(updated.id).get();
     return _fromFirestore(snapshot);
   }
 

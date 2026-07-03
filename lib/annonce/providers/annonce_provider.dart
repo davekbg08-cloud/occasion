@@ -59,10 +59,13 @@ class CreateAnnonceNotifier extends StateNotifier<AsyncValue<Annonce?>> {
     }
   }
 
-  Future<void> update(Annonce annonce) async {
+  Future<void> update(Annonce annonce, {List<XFile> newImages = const []}) async {
     state = const AsyncValue.loading();
     try {
-      final result = await _repository.updateAnnonce(annonce);
+      final result = await _repository.updateAnnonce(
+        annonce,
+        newImages: newImages,
+      );
       state = AsyncValue.data(result);
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);

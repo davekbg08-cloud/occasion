@@ -195,7 +195,9 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     );
 
     if (_isEditing) {
-      await ref.read(createAnnonceProvider.notifier).update(annonce);
+      await ref
+          .read(createAnnonceProvider.notifier)
+          .update(annonce, newImages: _selectedImages);
     } else {
       await ref
           .read(createAnnonceProvider.notifier)
