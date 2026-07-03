@@ -394,10 +394,18 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'pending';
       allow read: if signedIn()
-        && resource.data.userId == request.auth.uid;
-      // Le statut final ('paid'/'failed') n'est écrit que par la
-      // Cloud Function après vérification auprès de CinetPay.
-      allow update, delete: if false;
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      // Le client peut soumettre une référence de paiement manuel Orange
+      // Money pour vérification humaine par un admin. Le passage final à
+      // 'paid'/'failed' reste réservé au serveur.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'manualPaymentMethod', 'manualPaymentReference', 'updatedAt'
+        ])
+        && request.resource.data.status == 'awaiting_manual_verification'
+        && stringField(request.resource.data, 'manualPaymentReference', 120);
+      allow delete: if false;
     }
 
     match /orders/{orderId} {

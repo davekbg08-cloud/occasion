@@ -5,10 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
-import '../services/cinetpay_service.dart';
 import '../services/payment_config.dart';
-import '../services/payment_settlement_service.dart';
-import '../services/service_locator.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -20,8 +17,7 @@ class SubscriptionScreen extends ConsumerStatefulWidget {
 class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String? selectedPlan = 'seller_monthly';
   bool isProcessing = false;
-
-  final _settlement = PaymentSettlementService();
+  final TextEditingController referenceController = TextEditingController();
 
   final List<Map<String, Object>> plans = const [
     {
@@ -33,88 +29,55 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     },
   ];
 
-  Future<void> _subscribe() async {
+  @override
+  void dispose() {
+    referenceController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
     if (selectedPlan == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Choisissez une formule vendeur.')),
       );
       return;
     }
-
-    if (!PaymentConfig.isConfigured) {
+    final reference = referenceController.text.trim();
+    if (reference.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Paiement indisponible : configuration CinetPay manquante côté app.',
+            'Colle la référence de transaction reçue par SMS Orange Money.',
           ),
-          backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
     final plan = plans.firstWhere((item) => item['id'] == selectedPlan);
-    final currentUser = ref.read(authNotifierProvider).currentUser;
-    if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connecte-toi avant de payer un abonnement.')),
-      );
-      return;
-    }
 
     setState(() => isProcessing = true);
-
     try {
-      final price = (plan['price'] as num).toDouble();
-      final transactionId = await ref
+      await ref
           .read(subscriptionNotifierProvider.notifier)
-          .createSubscriptionPaymentIntent(
+          .submitManualSubscriptionPayment(
             planId: plan['id'] as String,
             planName: plan['name'] as String,
-            price: price,
+            price: (plan['price'] as num).toDouble(),
+            manualPaymentReference: reference,
           );
 
       if (!mounted) return;
-      await getIt<CinetPayService>().initiatePayment(
-        context: context,
-        amount: price,
-        transactionId: transactionId,
-        description: 'Abonnement vendeur ${plan['name']}',
-        customerPhone: currentUser.phone,
-        customerName: currentUser.name,
-        onSuccess: (_) async {
-          final confirmedPaid = await _settlement.confirmPayment(
-            transactionId,
-          );
-
-          if (confirmedPaid) {
-            await ref
-                .read(subscriptionNotifierProvider.notifier)
-                .loadForUser(currentUser.id);
-          }
-
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                confirmedPaid
-                    ? 'Paiement confirmé. Abonnement activé.'
-                    : 'Paiement reçu, activation en cours...',
-              ),
-              backgroundColor: confirmedPaid ? Colors.green : Colors.orange,
-            ),
-          );
-        },
-        onError: (_) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Paiement refusé ou annulé.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        },
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Merci ! Ton abonnement sera activé dès vérification du '
+            'paiement (généralement rapide).',
+          ),
+          backgroundColor: Colors.orange,
+        ),
       );
+      referenceController.clear();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -152,29 +115,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: FilledButton.icon(
-                  onPressed: isProcessing ? null : _subscribe,
-                  icon: const Icon(Icons.autorenew),
-                  label: Text(
-                    isProcessing
-                        ? 'Paiement en cours...'
-                        : 'Renouveler (${subscription.price.toInt()} FC)',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'Formule vendeur',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
             ] else ...[
               const Text(
                 'Abonnement vendeur',
@@ -187,15 +127,75 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            _buildExplanationCard(),
-            const SizedBox(height: 16),
             ...plans.map(_buildPlanCard),
+            const SizedBox(height: 20),
+            Card(
+              color: Colors.grey[900],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Comment payer',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '1. Envoie le montant via Orange Money au numéro '
+                      'ci-dessous.\n'
+                      '2. Colle la référence de transaction reçue par SMS.\n'
+                      "3. Ton abonnement s'active après vérification "
+                      '(généralement rapide, pas instantané).',
+                      style: TextStyle(color: Colors.white70, height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            PaymentConfig.manualOrangeMoneyNumber,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          Text(
+                            PaymentConfig.manualOrangeMoneyHolderName,
+                            style: TextStyle(color: Colors.grey[400]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: referenceController,
+              enabled: !isProcessing,
+              decoration: const InputDecoration(
+                labelText: 'Référence de transaction (SMS Orange Money)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.receipt_long_outlined),
+              ),
+            ),
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
               height: 56,
               child: FilledButton(
-                onPressed: isProcessing ? null : _subscribe,
+                onPressed: isProcessing ? null : _submit,
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -210,7 +210,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         ),
                       )
                     : const Text(
-                        'PAYER ET ACTIVER',
+                        "J'AI ENVOYÉ L'ARGENT",
                         style: TextStyle(fontSize: 18),
                       ),
               ),
@@ -313,34 +313,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             Text(
               isActive ? 'Actif' : 'Expiré',
               style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExplanationCard() {
-    return Card(
-      color: Colors.grey[900],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Comment fonctionne l'abonnement vendeur ?",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "La publication de base peut rester gratuite selon la configuration. L'abonnement vendeur sert à publier davantage d'annonces et à activer des options avancées. Le paiement se fait par Mobile Money via CinetPay (Orange, MTN, Airtel, M-Pesa selon disponibilité).",
-              style: TextStyle(color: Colors.grey[400], height: 1.35),
-            ),
-            const SizedBox(height: 10),
-            const Chip(
-              avatar: Icon(Icons.verified_outlined, size: 18),
-              label: Text('Paiement réel via CinetPay'),
             ),
           ],
         ),

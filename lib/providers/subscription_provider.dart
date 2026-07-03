@@ -44,15 +44,15 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     }
   }
 
-  /// Crée l'intention de paiement pour un abonnement vendeur. Le
-  /// paiement réel se fait ensuite via CinetPay (UI), et l'abonnement
-  /// n'est activé dans Firestore qu'après vérification serveur du
-  /// paiement (Cloud Function `confirmCinetPayPayment` / `cinetpayNotify`).
-  /// Retourne le transactionId à transmettre à CinetPay.
-  Future<String> createSubscriptionPaymentIntent({
+  /// Soumet une demande de paiement d'abonnement vendeur via Orange Money
+  /// manuel : crée l'intention de paiement puis la marque immédiatement
+  /// "en attente de vérification". L'abonnement n'est activé qu'après
+  /// confirmation par un admin (Cloud Function `confirmManualPayment`).
+  Future<String> submitManualSubscriptionPayment({
     required String planId,
     required String planName,
     required double price,
+    required String manualPaymentReference,
     int durationDays = 30,
   }) async {
     final user = _auth.currentUser;
@@ -72,6 +72,13 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
     });
+
+    await intentRef.set({
+      'status': 'awaiting_manual_verification',
+      'manualPaymentMethod': 'orange_money_manual',
+      'manualPaymentReference': manualPaymentReference,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     return intentRef.id;
   }

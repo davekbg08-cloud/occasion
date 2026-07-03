@@ -16,10 +16,10 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
   final _settlement = PaymentSettlementService();
   final Set<String> _processing = {};
 
-  Future<void> _confirm(String orderId) async {
-    setState(() => _processing.add(orderId));
+  Future<void> _confirm(String transactionId) async {
+    setState(() => _processing.add(transactionId));
     try {
-      await _settlement.confirmManualPayment(orderId);
+      await _settlement.confirmManualPayment(transactionId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -36,14 +36,14 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _processing.remove(orderId));
+      if (mounted) setState(() => _processing.remove(transactionId));
     }
   }
 
-  Future<void> _reject(String orderId) async {
-    setState(() => _processing.add(orderId));
+  Future<void> _reject(String transactionId) async {
+    setState(() => _processing.add(transactionId));
     try {
-      await _settlement.rejectManualPayment(orderId);
+      await _settlement.rejectManualPayment(transactionId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Paiement rejeté.')),
@@ -57,14 +57,14 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _processing.remove(orderId));
+      if (mounted) setState(() => _processing.remove(transactionId));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final query = FirebaseFirestore.instance
-        .collection('orders')
+        .collection('paymentIntents')
         .where('status', isEqualTo: 'awaiting_manual_verification')
         .orderBy('updatedAt', descending: true)
         .snapshots();
@@ -102,12 +102,12 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final data = docs[index].data();
-              final orderId = docs[index].id;
-              final isBusy = _processing.contains(orderId);
-              final total = (data['total'] as num?)?.toDouble() ?? 0;
+              final transactionId = docs[index].id;
+              final isBusy = _processing.contains(transactionId);
+              final type = data['type'] as String? ?? 'order';
+              final amount = (data['amount'] as num?)?.toDouble() ?? 0;
               final reference = data['manualPaymentReference'] as String?;
-              final buyerName = data['buyerName'] as String? ?? 'Acheteur';
-              final buyerPhone = data['buyerPhone'] as String? ?? '';
+              final planName = data['planName'] as String?;
               final date = _toDate(data['updatedAt']);
 
               return Card(
@@ -116,12 +116,26 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '$buyerName · $buyerPhone',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      Row(
+                        children: [
+                          Icon(
+                            type == 'subscription'
+                                ? Icons.storefront_outlined
+                                : Icons.shopping_bag_outlined,
+                            size: 18,
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            type == 'subscription'
+                                ? 'Abonnement vendeur${planName != null ? " · $planName" : ""}'
+                                : 'Commande',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text('${total.toInt()} FC'),
+                      const SizedBox(height: 6),
+                      Text('${amount.toInt()} FC'),
                       const SizedBox(height: 4),
                       Text('Référence : ${reference ?? "non fournie"}'),
                       if (date != null) ...[
@@ -136,7 +150,9 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: isBusy ? null : () => _reject(orderId),
+                              onPressed: isBusy
+                                  ? null
+                                  : () => _reject(transactionId),
                               child: const Text('Rejeter'),
                             ),
                           ),
@@ -145,7 +161,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                             child: FilledButton(
                               onPressed: isBusy
                                   ? null
-                                  : () => _confirm(orderId),
+                                  : () => _confirm(transactionId),
                               style: FilledButton.styleFrom(
                                 backgroundColor: Colors.green,
                               ),

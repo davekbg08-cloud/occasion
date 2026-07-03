@@ -40,7 +40,7 @@ class PaymentConfig {
   /// ⚠️ A REMPLIR : ton vrai numéro Orange Money (ex: '+243 8xx xxx xxx').
   static const String manualOrangeMoneyNumber = String.fromEnvironment(
     'MANUAL_ORANGE_MONEY_NUMBER',
-    defaultValue: 'TON_NUMERO_ORANGE_MONEY',
+    defaultValue: '+243 856 373 707',
   );
 
   /// Nom affiché à l'acheteur pour confirmer qu'il envoie au bon compte.

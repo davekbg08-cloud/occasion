@@ -121,37 +121,23 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
 });
 
 /**
- * Revérifie un paiement CinetPay auprès de leur API et met à jour Firestore
- * (orders / subscriptions / transactions / paymentIntents) en conséquence.
- * Idempotent : peut être appelée plusieurs fois sans effet de bord (merge).
+ * Applique le résultat d'un paiement (payé ou non) à Firestore : crée la
+ * transaction, met à jour la commande ou active l'abonnement, et met à
+ * jour l'intention de paiement elle-même. Factorisé pour être utilisé à
+ * la fois par la vérification CinetPay et la confirmation manuelle admin.
  */
-async function settleCinetPayTransaction(transactionId) {
-  const intentRef = db.collection("paymentIntents").doc(transactionId);
-  const intentSnap = await intentRef.get();
-  if (!intentSnap.exists) {
-    throw new Error(`Intent de paiement inconnu : ${transactionId}`);
-  }
-  const intent = intentSnap.data();
-
-  const checkResponse = await fetch(CINETPAY_CHECK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      apikey: CINETPAY_APIKEY.value(),
-      site_id: CINETPAY_SITE_ID.value(),
-      transaction_id: transactionId,
-    }),
-  });
-  const checkResult = await checkResponse.json();
-  const cinetpayStatus = checkResult?.data?.status;
-  const isPaid = cinetpayStatus === "ACCEPTED";
-
+async function applySettlement({
+  transactionId,
+  intent,
+  isPaid,
+  paymentMethod,
+  extra = {},
+}) {
   const now = FieldValue.serverTimestamp();
   const batch = db.batch();
 
-  const transactionRef = db.collection("transactions").doc(transactionId);
   batch.set(
-    transactionRef,
+    db.collection("transactions").doc(transactionId),
     {
       id: transactionId,
       type: intent.type,
@@ -160,10 +146,11 @@ async function settleCinetPayTransaction(transactionId) {
       planId: intent.planId ?? null,
       amount: intent.amount,
       currency: intent.currency ?? "FC",
-      paymentMethod: "CinetPay",
+      paymentMethod,
+      paymentReference: intent.manualPaymentReference ?? null,
       status: isPaid ? "paid" : "failed",
-      cinetpayRawStatus: cinetpayStatus ?? "UNKNOWN",
       createdAt: now,
+      ...extra,
     },
     { merge: true }
   );
@@ -198,7 +185,7 @@ async function settleCinetPayTransaction(transactionId) {
         startDate,
         expiryDate,
         isActive: true,
-        paymentMethod: "CinetPay",
+        paymentMethod,
         transactionId,
         updatedAt: now,
       },
@@ -217,16 +204,48 @@ async function settleCinetPayTransaction(transactionId) {
   }
 
   batch.set(
-    intentRef,
-    {
-      status: isPaid ? "paid" : "failed",
-      cinetpayRawStatus: cinetpayStatus ?? "UNKNOWN",
-      confirmedAt: now,
-    },
+    db.collection("paymentIntents").doc(transactionId),
+    { status: isPaid ? "paid" : "failed", confirmedAt: now, ...extra },
     { merge: true }
   );
 
   await batch.commit();
+}
+
+/**
+ * Revérifie un paiement CinetPay auprès de leur API et met à jour Firestore
+ * (orders / subscriptions / transactions / paymentIntents) en conséquence.
+ * Idempotent : peut être appelée plusieurs fois sans effet de bord (merge).
+ */
+async function settleCinetPayTransaction(transactionId) {
+  const intentRef = db.collection("paymentIntents").doc(transactionId);
+  const intentSnap = await intentRef.get();
+  if (!intentSnap.exists) {
+    throw new Error(`Intent de paiement inconnu : ${transactionId}`);
+  }
+  const intent = intentSnap.data();
+
+  const checkResponse = await fetch(CINETPAY_CHECK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      apikey: CINETPAY_APIKEY.value(),
+      site_id: CINETPAY_SITE_ID.value(),
+      transaction_id: transactionId,
+    }),
+  });
+  const checkResult = await checkResponse.json();
+  const cinetpayStatus = checkResult?.data?.status;
+  const isPaid = cinetpayStatus === "ACCEPTED";
+
+  await applySettlement({
+    transactionId,
+    intent,
+    isPaid,
+    paymentMethod: "CinetPay",
+    extra: { cinetpayRawStatus: cinetpayStatus ?? "UNKNOWN" },
+  });
+
   return isPaid;
 }
 
@@ -249,53 +268,34 @@ async function assertIsAdmin(uid) {
 
 /**
  * Confirme manuellement un paiement Orange Money envoyé directement par
- * l'acheteur (hors CinetPay), après vérification humaine par un admin
- * (ex: l'admin retrouve la référence dans son appli Orange Money).
+ * l'acheteur ou le vendeur (hors CinetPay), après vérification humaine
+ * par un admin (ex: l'admin retrouve la référence dans son appli Orange
+ * Money). Fonctionne aussi bien pour une commande que pour un abonnement
+ * vendeur, via la collection unifiée `paymentIntents`.
  */
 exports.confirmManualPayment = onCall(async (request) => {
   await assertIsAdmin(request.auth?.uid);
 
-  const orderId = request.data?.orderId;
-  if (!orderId || typeof orderId !== "string") {
-    throw new HttpsError("invalid-argument", "orderId manquant");
+  const transactionId = request.data?.transactionId;
+  if (!transactionId || typeof transactionId !== "string") {
+    throw new HttpsError("invalid-argument", "transactionId manquant");
   }
 
-  const orderRef = db.collection("orders").doc(orderId);
-  const orderSnap = await orderRef.get();
-  if (!orderSnap.exists) {
-    throw new HttpsError("not-found", "Commande introuvable");
+  const intentRef = db.collection("paymentIntents").doc(transactionId);
+  const intentSnap = await intentRef.get();
+  if (!intentSnap.exists) {
+    throw new HttpsError("not-found", "Intention de paiement introuvable");
   }
-  const order = orderSnap.data();
+  const intent = intentSnap.data();
 
-  const now = FieldValue.serverTimestamp();
-  const transactionId = `manual_${orderId}`;
-  const batch = db.batch();
+  await applySettlement({
+    transactionId,
+    intent,
+    isPaid: true,
+    paymentMethod: intent.manualPaymentMethod ?? "Orange Money (manuel)",
+    extra: { verifiedBy: request.auth.uid },
+  });
 
-  batch.set(
-    db.collection("transactions").doc(transactionId),
-    {
-      id: transactionId,
-      type: "order",
-      userId: order.buyerId,
-      orderId,
-      amount: order.total,
-      currency: order.currency ?? "FC",
-      paymentMethod: order.manualPaymentMethod ?? "Orange Money (manuel)",
-      paymentReference: order.manualPaymentReference ?? null,
-      status: "paid",
-      verifiedBy: request.auth.uid,
-      createdAt: now,
-    },
-    { merge: true }
-  );
-
-  batch.set(
-    orderRef,
-    { status: "paid", transactionId, updatedAt: now },
-    { merge: true }
-  );
-
-  await batch.commit();
   return { status: "paid" };
 });
 
@@ -305,18 +305,25 @@ exports.confirmManualPayment = onCall(async (request) => {
 exports.rejectManualPayment = onCall(async (request) => {
   await assertIsAdmin(request.auth?.uid);
 
-  const orderId = request.data?.orderId;
-  if (!orderId || typeof orderId !== "string") {
-    throw new HttpsError("invalid-argument", "orderId manquant");
+  const transactionId = request.data?.transactionId;
+  if (!transactionId || typeof transactionId !== "string") {
+    throw new HttpsError("invalid-argument", "transactionId manquant");
   }
 
-  await db.collection("orders").doc(orderId).set(
-    {
-      status: "payment_failed",
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const intentRef = db.collection("paymentIntents").doc(transactionId);
+  const intentSnap = await intentRef.get();
+  if (!intentSnap.exists) {
+    throw new HttpsError("not-found", "Intention de paiement introuvable");
+  }
+  const intent = intentSnap.data();
+
+  await applySettlement({
+    transactionId,
+    intent,
+    isPaid: false,
+    paymentMethod: intent.manualPaymentMethod ?? "Orange Money (manuel)",
+    extra: { verifiedBy: request.auth.uid },
+  });
 
   return { status: "payment_failed" };
 });
