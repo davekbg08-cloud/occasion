@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart' hide UserRole;
 import '../services/phone_number_validator.dart';
+import '../widgets/occasion_logo.dart';
 
 class PhoneAuthScreen extends ConsumerStatefulWidget {
   const PhoneAuthScreen({super.key, this.role});
@@ -88,15 +89,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(24),
               children: [
-                Icon(
-                  _isRegistration
-                      ? widget.role == UserRole.seller
-                            ? Icons.storefront
-                            : Icons.shopping_bag
-                      : Icons.lock_outline,
-                  color: Colors.blue,
-                  size: 56,
-                ),
+                const OccasionLogo(size: 132),
                 const SizedBox(height: 18),
                 Text(
                   title,

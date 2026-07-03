@@ -62,6 +62,13 @@ void main(List<String> args) {
   };
   iosIcons.forEach((path, size) => _writePng(path, source, size));
 
+  final iosLaunchImages = <String, int>{
+    'ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png': 168,
+    'ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png': 336,
+    'ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png': 504,
+  };
+  iosLaunchImages.forEach((path, size) => _writePng(path, source, size));
+
   final macIcons = <String, int>{
     'macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png': 16,
     'macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png': 32,

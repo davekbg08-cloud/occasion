@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/user.dart';
+import '../widgets/occasion_logo.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
@@ -16,7 +17,7 @@ class RoleSelectionScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.storefront, color: Colors.blue, size: 64),
+              const OccasionLogo(size: 132),
               const SizedBox(height: 24),
               const Text(
                 'Bienvenue !',
