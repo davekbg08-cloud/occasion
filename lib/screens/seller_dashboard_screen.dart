@@ -109,6 +109,11 @@ class _DashboardContent extends StatelessWidget {
             route: '/my-listings',
           ),
           _DashboardAction(
+            icon: Icons.local_shipping_outlined,
+            title: 'Commandes reçues',
+            route: '/seller-orders',
+          ),
+          _DashboardAction(
             icon: Icons.add_box_outlined,
             title: 'Publier une annonce',
             route: '/publish-product',

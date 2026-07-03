@@ -313,6 +313,11 @@ class _SellerOptions extends StatelessWidget {
           onTap: () => context.push('/my-listings'),
         ),
         _ProfileTile(
+          icon: Icons.local_shipping_outlined,
+          title: 'Commandes reçues',
+          onTap: () => context.push('/seller-orders'),
+        ),
+        _ProfileTile(
           icon: Icons.bar_chart_outlined,
           title: 'Statistiques',
           onTap: () => context.push('/seller-statistics'),
