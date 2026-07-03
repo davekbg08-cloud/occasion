@@ -21,6 +21,7 @@ import 'screens/delete_account_screen.dart';
 import 'screens/id_scan_screen.dart';
 import 'screens/my_listings_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/orders_screen.dart';
 import 'screens/payment_screen.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/product_list_screen.dart';
@@ -34,6 +35,7 @@ import 'search/screens/search_screen.dart';
 import 'services/notification_service.dart';
 import 'services/firestore_bootstrap.dart';
 import 'services/service_locator.dart';
+import 'widgets/occasion_logo.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -88,16 +90,8 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/orders',
-        builder: (_, _) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: SimplePlaceholderScreen(
-            title: 'Mes commandes',
-            icon: Icons.receipt_long_outlined,
-            message: 'Vos commandes acheteur apparaîtront ici.',
-            primaryLabel: 'Voir les produits',
-            primaryRoute: '/products',
-          ),
-        ),
+        builder: (_, _) =>
+            const _RoleGuard(role: UserRole.buyer, child: OrdersScreen()),
       ),
       GoRoute(
         path: '/addresses',
@@ -343,7 +337,7 @@ class _AuthGate extends ConsumerWidget {
     final currentUser = authState.currentUser;
 
     if (authState.isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: OccasionLogo(size: 132)));
     }
 
     if (currentUser == null) {
@@ -672,7 +666,7 @@ class _AuthPage extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(Icons.storefront, color: Colors.blue, size: 56),
+                const OccasionLogo(size: 132),
                 const SizedBox(height: 18),
                 Text(
                   'Occasion',

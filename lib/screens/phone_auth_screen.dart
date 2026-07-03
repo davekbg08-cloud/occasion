@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/user.dart';
 import '../providers/auth_provider.dart' hide UserRole;
+import '../services/phone_number_validator.dart';
 
 class PhoneAuthScreen extends ConsumerStatefulWidget {
   const PhoneAuthScreen({super.key, this.role});
@@ -20,6 +21,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  String _phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   bool _obscurePassword = true;
 
   bool get _isRegistration => widget.role != null;
@@ -43,6 +45,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
           role: widget.role!,
           displayName: _nameController.text,
           phoneNumber: _phoneController.text,
+          phoneCountryIso: _phoneCountryIso,
           email: _emailController.text,
           password: _passwordController.text,
         );
@@ -71,7 +74,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
     final roleLabel = widget.role == UserRole.seller ? 'vendeur' : 'acheteur';
     final title = _isRegistration ? 'Créer un compte $roleLabel' : 'Connexion';
     final subtitle = _isRegistration
-        ? 'Utilise une adresse e-mail, un mot de passe Firebase et un numero au format +243. OTP optionnel.'
+        ? 'Utilise une adresse e-mail, un mot de passe et un numero international valide.'
         : 'Connecte-toi avec ton compte Firebase Occasion.';
 
     return Scaffold(
@@ -124,6 +127,31 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                         : null,
                   ),
                   const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: _phoneCountryIso,
+                    decoration: const InputDecoration(
+                      labelText: 'Pays du numéro',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.public_outlined),
+                    ),
+                    items: PhoneNumberValidator.countries
+                        .map(
+                          (country) => DropdownMenuItem(
+                            value: country.isoCode,
+                            child: Text(
+                              '${country.name} (${country.dialCode})',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: auth.isLoading
+                        ? null
+                        : (value) => setState(
+                            () => _phoneCountryIso =
+                                value ?? PhoneNumberValidator.defaultCountryIso,
+                          ),
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _phoneController,
                     enabled: !auth.isLoading,
@@ -131,16 +159,16 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                       labelText: 'Téléphone',
-                      hintText: '+243XXXXXXXXX',
+                      hintText: '+243812345678',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.phone_outlined),
                     ),
                     validator: (value) {
-                      final phone = value?.trim() ?? '';
-                      if (!RegExp(r'^\+243\d{9}$').hasMatch(phone)) {
-                        return 'Numéro invalide. Utilisez le format +243…';
-                      }
-                      return null;
+                      final result = PhoneNumberValidator.validate(
+                        value?.trim() ?? '',
+                        countryIso: _phoneCountryIso,
+                      );
+                      return result.isValid ? null : result.message;
                     },
                   ),
                   const SizedBox(height: 16),

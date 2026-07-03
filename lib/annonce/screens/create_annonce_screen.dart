@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../providers/subscription_provider.dart';
 import '../../services/seller_subscription_guard.dart';
+import '../../services/phone_number_validator.dart';
 import '../../shared/models/annonce.dart';
 import '../providers/annonce_provider.dart';
 
@@ -31,6 +33,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
   String _condition = 'occasion';
   String _currency = 'USD';
   String _publicationStatus = 'published';
+  String _phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   List<XFile> _selectedImages = [];
 
   bool get _isEditing => widget.initialAnnonce != null;
@@ -74,6 +77,10 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     _cityController.text = annonce.city;
     _districtController.text = annonce.district;
     _phoneController.text = annonce.phone;
+    final phoneValidation = PhoneNumberValidator.validate(annonce.phone);
+    _phoneCountryIso =
+        phoneValidation.country?.isoCode ??
+        PhoneNumberValidator.defaultCountryIso;
     _category = annonce.category.isEmpty ? 'Divers' : annonce.category;
     _condition = _conditions.containsKey(annonce.condition)
         ? annonce.condition
@@ -99,9 +106,22 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
 
   Future<void> _pickImages() async {
     final picker = ImagePicker();
-    final images = await picker.pickMultiImage(imageQuality: 80);
+    final maxPhotos = _maxPhotoCount;
+    final images = await picker.pickMultiImage(
+      imageQuality: 85,
+      maxWidth: 1600,
+    );
     if (!mounted) return;
-    setState(() => _selectedImages = images.take(8).toList());
+    if (images.length > maxPhotos) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Limite atteinte: $maxPhotos photos maximum pour votre formule.',
+          ),
+        ),
+      );
+    }
+    setState(() => _selectedImages = images.take(maxPhotos).toList());
   }
 
   Future<void> _publish() async {
@@ -125,6 +145,18 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
       ).showSnackBar(const SnackBar(content: Text('Prix invalide.')));
       return;
     }
+
+    final phoneValidation = PhoneNumberValidator.validate(
+      _phoneController.text,
+      countryIso: _phoneCountryIso,
+    );
+    if (!phoneValidation.isValid) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(phoneValidation.message)));
+      return;
+    }
+
     if (!_isEditing && _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Ajoutez au moins une photo.')),
@@ -152,7 +184,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
       city: city,
       district: district,
       condition: _condition,
-      phone: _phoneController.text.trim(),
+      phone: phoneValidation.normalized,
       status: _publicationStatus,
       createdAt: initial?.createdAt,
       updatedAt: initial?.updatedAt,
@@ -174,6 +206,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
   @override
   Widget build(BuildContext context) {
     final createState = ref.watch(createAnnonceProvider);
+    ref.watch(subscriptionNotifierProvider);
 
     ref.listen(createAnnonceProvider, (previous, next) {
       next.whenOrNull(
@@ -192,16 +225,14 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
           context.go('/my-listings');
         },
         error: (error, stackTrace) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "L'annonce n'a pas pu être enregistrée. Vérifiez vos droits et réessayez.",
-              ),
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
         },
       );
     });
+
+    final maxPhotos = _maxPhotoCount;
 
     return Scaffold(
       appBar: AppBar(
@@ -285,7 +316,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 OutlinedButton.icon(
                   onPressed: createState.isLoading ? null : _pickImages,
                   icon: const Icon(Icons.photo_camera_outlined),
-                  label: const Text('Choisir des photos'),
+                  label: Text('Choisir des photos ($maxPhotos max)'),
                 ),
                 if (_selectedImages.isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -367,6 +398,29 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
             _Section(
               title: 'Contact vendeur',
               children: [
+                DropdownButtonFormField<String>(
+                  initialValue: _phoneCountryIso,
+                  decoration: const InputDecoration(
+                    labelText: 'Pays du numéro',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.public_outlined),
+                  ),
+                  items: PhoneNumberValidator.countries
+                      .map(
+                        (country) => DropdownMenuItem(
+                          value: country.isoCode,
+                          child: Text('${country.name} (${country.dialCode})'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: createState.isLoading
+                      ? null
+                      : (value) => setState(
+                          () => _phoneCountryIso =
+                              value ?? PhoneNumberValidator.defaultCountryIso,
+                        ),
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
@@ -376,12 +430,11 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                   validator: (value) {
-                    final phone = value?.trim() ?? '';
-                    if (phone.isEmpty) return 'Entre un numéro de contact';
-                    if (!RegExp(r'^\+243\d{9}$').hasMatch(phone)) {
-                      return 'Numéro invalide. Utilisez le format +243…';
-                    }
-                    return null;
+                    final result = PhoneNumberValidator.validate(
+                      value ?? '',
+                      countryIso: _phoneCountryIso,
+                    );
+                    return result.isValid ? null : result.message;
                   },
                 ),
               ],
@@ -436,6 +489,27 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
         ),
       ),
     );
+  }
+
+  int get _maxPhotoCount {
+    final subscription = ref.read(subscriptionNotifierProvider);
+    final hasActiveSubscription =
+        subscription != null &&
+        subscription.isActive &&
+        !subscription.isExpired;
+    return hasActiveSubscription ? 5 : 2;
+  }
+
+  String _friendlyError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '').trim();
+    if (message.contains('permission-denied')) {
+      return "Action refusée. Vérifiez que vous êtes connecté avec le compte vendeur propriétaire.";
+    }
+    if (message.contains('network')) {
+      return 'Connexion réseau indisponible. Réessayez dans un instant.';
+    }
+    if (message.isNotEmpty) return message;
+    return "L'annonce n'a pas pu être enregistrée. Réessayez.";
   }
 }
 

@@ -63,7 +63,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
       body: statusState.isLoading && visibleStatuses.isEmpty
           ? const Center(child: CircularProgressIndicator(color: Colors.white))
           : statusState.error != null && visibleStatuses.isEmpty
-          ? _ErrorFeed(message: statusState.error!)
+          ? const _ErrorFeed()
           : visibleStatuses.isEmpty
           ? _EmptyFeed(isSeller: isSeller, onPublish: _openPublisher)
           : Stack(
@@ -444,7 +444,7 @@ class _EmptyFeed extends StatelessWidget {
           const Icon(Icons.play_circle_outline, color: Colors.grey, size: 72),
           const SizedBox(height: 16),
           const Text(
-            'Aucun contenu pour le moment',
+            'Aucun contenu pour le moment.',
             style: TextStyle(color: Colors.white, fontSize: 16),
           ),
           const SizedBox(height: 8),
@@ -467,9 +467,7 @@ class _EmptyFeed extends StatelessWidget {
 }
 
 class _ErrorFeed extends StatelessWidget {
-  const _ErrorFeed({required this.message});
-
-  final String message;
+  const _ErrorFeed();
 
   @override
   Widget build(BuildContext context) {
@@ -477,7 +475,7 @@ class _ErrorFeed extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'Impossible de charger le feed : $message',
+          'Impossible de charger le feed pour le moment.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white70),
         ),

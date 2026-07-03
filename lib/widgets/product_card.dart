@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../models/report.dart';
 import '../models/product_model.dart';
@@ -142,13 +143,34 @@ class ProductCard extends ConsumerWidget {
                       if (product.sellerName != null) ...[
                         const SizedBox(height: 2),
                         Text(
-                          product.sellerName!,
+                          _sellerLine(product),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
                           ),
                         ),
                       ],
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if (product.isSellerPhoneVerified)
+                            const _TrustChip(
+                              icon: Icons.phone_android_outlined,
+                              label: 'Téléphone vérifié',
+                            ),
+                          if (product.isSellerVerified)
+                            const _TrustChip(
+                              icon: Icons.verified_user_outlined,
+                              label: 'Vendeur vérifié',
+                            ),
+                          const _TrustChip(
+                            icon: Icons.shield_outlined,
+                            label: 'Payez après vérification',
+                          ),
+                        ],
+                      ),
                       if (product.category != null) ...[
                         const SizedBox(height: 4),
                         Container(
@@ -220,6 +242,45 @@ class ProductCard extends ConsumerWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  String _sellerLine(ProductModel product) {
+    final sellerName = product.sellerName ?? 'Vendeur';
+    final createdAt = product.sellerCreatedAt;
+    if (createdAt == null || createdAt.millisecondsSinceEpoch == 0) {
+      return sellerName;
+    }
+    return '$sellerName - inscrit depuis ${DateFormat('MM/yyyy').format(createdAt)}';
+  }
+}
+
+class _TrustChip extends StatelessWidget {
+  const _TrustChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.grey[850],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.white70),
+          ),
+        ],
       ),
     );
   }

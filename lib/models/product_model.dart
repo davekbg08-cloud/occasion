@@ -11,6 +11,8 @@ class ProductModel extends Product {
     this.sellerName,
     this.sellerPhone,
     this.isSellerVerified = false,
+    this.isSellerPhoneVerified = false,
+    this.sellerCreatedAt,
     this.category,
   });
 
@@ -19,6 +21,8 @@ class ProductModel extends Product {
   final String? sellerName;
   final String? sellerPhone;
   final bool isSellerVerified;
+  final bool isSellerPhoneVerified;
+  final DateTime? sellerCreatedAt;
   final String? category;
 
   factory ProductModel.fromMap(Map<String, dynamic> map) {
@@ -32,6 +36,8 @@ class ProductModel extends Product {
       sellerName: map['sellerName'] as String?,
       sellerPhone: map['sellerPhone'] as String?,
       isSellerVerified: map['isSellerVerified'] as bool? ?? false,
+      isSellerPhoneVerified: map['isSellerPhoneVerified'] as bool? ?? false,
+      sellerCreatedAt: _toDateTime(map['sellerCreatedAt']),
       category: map['category'] as String?,
     );
   }
@@ -46,6 +52,8 @@ class ProductModel extends Product {
     'sellerName': sellerName,
     'sellerPhone': sellerPhone,
     'isSellerVerified': isSellerVerified,
+    'isSellerPhoneVerified': isSellerPhoneVerified,
+    'sellerCreatedAt': sellerCreatedAt?.millisecondsSinceEpoch,
     'category': category,
   };
 
@@ -59,6 +67,8 @@ class ProductModel extends Product {
     String? sellerName,
     String? sellerPhone,
     bool? isSellerVerified,
+    bool? isSellerPhoneVerified,
+    DateTime? sellerCreatedAt,
     String? category,
   }) {
     return ProductModel(
@@ -71,7 +81,23 @@ class ProductModel extends Product {
       sellerName: sellerName ?? this.sellerName,
       sellerPhone: sellerPhone ?? this.sellerPhone,
       isSellerVerified: isSellerVerified ?? this.isSellerVerified,
+      isSellerPhoneVerified:
+          isSellerPhoneVerified ?? this.isSellerPhoneVerified,
+      sellerCreatedAt: sellerCreatedAt ?? this.sellerCreatedAt,
       category: category ?? this.category,
     );
+  }
+
+  static DateTime? _toDateTime(Object? value) {
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    try {
+      final dynamic dynamicValue = value;
+      final converted = dynamicValue?.toDate();
+      if (converted is DateTime) return converted;
+    } catch (_) {
+      // Keep product decoding tolerant.
+    }
+    return null;
   }
 }

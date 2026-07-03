@@ -1,12 +1,16 @@
 import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../providers/auth_provider.dart';
+import '../services/image_compression_service.dart';
 import '../services/id_document_parser.dart';
 
 class IdScanScreen extends ConsumerStatefulWidget {
@@ -102,6 +106,11 @@ class _IdScanScreenState extends ConsumerState<IdScanScreen> {
       textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
       final recognizedText = await textRecognizer.processImage(inputImage);
       final parsedInfo = IdDocumentParser.parse(recognizedText.text);
+      await _uploadVerificationImage(
+        picture,
+        kind: 'identity',
+        updateField: 'idDocumentUrl',
+      );
 
       if (!mounted) return;
       setState(() {
@@ -119,7 +128,7 @@ class _IdScanScreenState extends ConsumerState<IdScanScreen> {
       );
     } catch (e) {
       if (mounted) {
-        _showSnack("Erreur lors de l'analyse : $e", Colors.red);
+        _showSnack(_friendlyVerificationError(e), Colors.red);
       }
     } finally {
       await textRecognizer?.close();
@@ -127,6 +136,97 @@ class _IdScanScreenState extends ConsumerState<IdScanScreen> {
         setState(() => _isProcessing = false);
       }
     }
+  }
+
+  Future<void> _takeSelfie() async {
+    final controller = _cameraController;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _isProcessing) {
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+    try {
+      final picture = await controller.takePicture();
+      await _uploadVerificationImage(
+        picture,
+        kind: 'selfie',
+        updateField: 'selfieUrl',
+      );
+      if (!mounted) return;
+      _showSnack('Selfie transmis pour vérification', Colors.green);
+    } catch (error) {
+      if (mounted) {
+        _showSnack(_friendlyVerificationError(error), Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  Future<void> _uploadVerificationImage(
+    XFile picture, {
+    required String kind,
+    required String updateField,
+  }) async {
+    final user = ref.read(authNotifierProvider).currentUser;
+    if (user == null) {
+      throw StateError('Connecte-toi avant de vérifier ton identité.');
+    }
+
+    final compressed = await ImageCompressionService.compressXFile(picture);
+    final storageRef = FirebaseStorage.instance.ref().child(
+      'verification/${user.id}/${kind}_${DateTime.now().millisecondsSinceEpoch}.${compressed.extension}',
+    );
+    await storageRef.putData(
+      compressed.bytes,
+      SettableMetadata(
+        contentType: compressed.contentType,
+        customMetadata: {
+          'originalSize': compressed.originalSize.toString(),
+          'compressedSize': compressed.compressedSize.toString(),
+          'width': compressed.width.toString(),
+          'height': compressed.height.toString(),
+        },
+      ),
+    );
+    final url = await storageRef.getDownloadURL();
+    final identityStatus =
+        SellerIdentityStatus.identitySubmitted.firestoreValue;
+
+    await FirebaseFirestore.instance.collection('users').doc(user.id).set({
+      updateField: url,
+      'identityStatus': identityStatus,
+      'sellerStatus': identityStatus,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance
+        .collection('publicProfiles')
+        .doc(user.id)
+        .set({
+          'id': user.id,
+          'name': user.name,
+          'role': user.role.name,
+          'profileImageUrl': user.profileImageUrl,
+          'identityStatus': identityStatus,
+          'sellerStatus': identityStatus,
+          'phoneVerified': user.phoneVerified,
+          'createdAt': user.createdAt,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+  }
+
+  String _friendlyVerificationError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('permission-denied') ||
+        message.contains('unauthorized')) {
+      return "Envoi refusé. Vérifiez votre session puis réessayez.";
+    }
+    if (message.trim().isNotEmpty) return message;
+    return "Impossible d'envoyer le document.";
   }
 
   void _showSnack(String message, Color color) {
@@ -179,6 +279,7 @@ class _IdScanScreenState extends ConsumerState<IdScanScreen> {
               recognizedText: _recognizedText,
               isProcessing: _isProcessing,
               onScan: _takePictureAndScan,
+              onSelfie: _takeSelfie,
             ),
           ),
         ],
@@ -269,12 +370,14 @@ class _ResultPanel extends StatelessWidget {
     required this.recognizedText,
     required this.isProcessing,
     required this.onScan,
+    required this.onSelfie,
   });
 
   final String extractedInfo;
   final String recognizedText;
   final bool isProcessing;
   final VoidCallback onScan;
+  final VoidCallback onSelfie;
 
   @override
   Widget build(BuildContext context) {
@@ -320,6 +423,15 @@ class _ResultPanel extends StatelessWidget {
               ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size(double.infinity, 56),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: isProcessing ? null : onSelfie,
+              icon: const Icon(Icons.face_retouching_natural_outlined),
+              label: const Text('Envoyer un selfie'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
               ),
             ),
           ],

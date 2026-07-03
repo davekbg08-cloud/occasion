@@ -36,6 +36,7 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 85,
+      maxWidth: 1600,
     );
     if (picked == null) return;
 
@@ -98,7 +99,19 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     final error = ref.read(statusNotifierProvider).error;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('Publication impossible : $error')));
+    ).showSnackBar(SnackBar(content: Text(_friendlyStatusError(error))));
+  }
+
+  String _friendlyStatusError(String? error) {
+    final message = error ?? '';
+    if (message.contains('permission-denied') ||
+        message.contains('unauthorized')) {
+      return 'Publication refusée. Vérifiez votre session vendeur.';
+    }
+    if (message.contains('network')) {
+      return 'Connexion réseau indisponible. Réessayez.';
+    }
+    return 'Publication impossible pour le moment.';
   }
 
   @override

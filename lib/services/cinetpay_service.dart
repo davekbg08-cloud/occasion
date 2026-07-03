@@ -2,6 +2,8 @@ import 'package:cinetpay/cinetpay.dart';
 import 'package:flutter/material.dart';
 import 'package:injectable/injectable.dart';
 
+import 'phone_number_validator.dart';
+
 @injectable
 class CinetPayService {
   static const String _siteId = 'TON_SITE_ID';
@@ -25,8 +27,9 @@ class CinetPayService {
       throw ArgumentError('Le montant CinetPay doit être au moins 100 FCFA');
     }
 
-    if (customerPhone.trim().isEmpty) {
-      throw ArgumentError('Numéro de téléphone invalide');
+    final phoneValidation = PhoneNumberValidator.validate(customerPhone);
+    if (!phoneValidation.isValid) {
+      throw ArgumentError(phoneValidation.message);
     }
 
     final result = await Navigator.of(context).push<bool>(
@@ -61,7 +64,7 @@ class CinetPayService {
               'description': description,
               'customer_name': customerName,
               'customer_email': customerEmail,
-              'customer_phone_number': customerPhone,
+              'customer_phone_number': phoneValidation.normalized,
             },
             waitResponse: (response) {
               final isSuccess = _isSuccessfulResponse(response);

@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../providers/product_provider.dart';
+import '../widgets/occasion_logo.dart';
 import '../widgets/product_card.dart';
 
 class ProductListScreen extends ConsumerWidget {
@@ -30,7 +31,14 @@ class ProductListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nos Produits'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OccasionLogo(size: 34),
+            SizedBox(width: 8),
+            Text('Nos Produits'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.search, size: 28),
@@ -88,7 +96,7 @@ class ProductListScreen extends ConsumerWidget {
               .toList();
 
           if (visibleProducts.isEmpty) {
-            return const Center(child: Text('Aucun produit disponible'));
+            return const Center(child: Text('Aucun contenu pour le moment.'));
           }
 
           return RefreshIndicator(

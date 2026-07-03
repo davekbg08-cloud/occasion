@@ -20,7 +20,7 @@ service firebase.storage {
         && request.resource.contentType.matches('video/.*');
     }
 
-    match /profile_photos/{userId}/{fileName} {
+    match /profiles/{userId}/{fileName} {
       allow read: if true;
       allow create, update: if isOwner(userId)
         && isImage()
@@ -31,19 +31,19 @@ service firebase.storage {
     match /annonces/{sellerId}/{annonceId}/{fileName} {
       allow read: if true;
       allow create, update: if isOwner(sellerId)
-        && isImage()
-        && request.resource.size <= 5 * 1024 * 1024;
-      allow delete: if isOwner(sellerId);
-    }
-
-    match /statuses/{sellerId}/{fileName} {
-      allow read: if true;
-      allow create, update: if isOwner(sellerId)
         && (
           (isImage() && request.resource.size <= 5 * 1024 * 1024)
           || (isVideo() && request.resource.size <= 50 * 1024 * 1024)
         );
       allow delete: if isOwner(sellerId);
+    }
+
+    match /verification/{userId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && isImage()
+        && request.resource.size <= 5 * 1024 * 1024;
+      allow delete: if isOwner(userId);
     }
 
     match /{allPaths=**} {

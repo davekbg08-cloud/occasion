@@ -131,12 +131,12 @@ class AnnoncesCrudRepository extends OccasionCollectionRepository<Annonce> {
 
   Stream<List<Annonce>> activeByDate({String? categorie, int limit = 50}) {
     Query<Map<String, dynamic>> query = collection
-        .where('status', isEqualTo: 'published')
+        .where('isPublished', isEqualTo: true)
         .orderBy('dateCreation', descending: true)
         .limit(limit);
     if (categorie != null && categorie.trim().isNotEmpty) {
       query = collection
-          .where('status', isEqualTo: 'published')
+          .where('isPublished', isEqualTo: true)
           .where('categorie', isEqualTo: categorie.trim())
           .orderBy('dateCreation', descending: true)
           .limit(limit);
@@ -144,6 +144,11 @@ class AnnoncesCrudRepository extends OccasionCollectionRepository<Annonce> {
     return query.snapshots().map(
       (snapshot) => snapshot.docs
           .map((doc) => Annonce.fromJson({...doc.data(), 'id': doc.id}))
+          .where(
+            (annonce) =>
+                (annonce.status == 'published' || annonce.status == 'active') &&
+                annonce.isActive,
+          )
           .toList(),
     );
   }

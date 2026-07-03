@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
@@ -7,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/user.dart';
+import '../services/image_compression_service.dart';
+import '../services/phone_number_validator.dart';
 
 export '../models/user.dart';
 
@@ -105,16 +108,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required UserRole role,
     required String displayName,
     required String phoneNumber,
+    String phoneCountryIso = PhoneNumberValidator.defaultCountryIso,
     required String email,
     required String password,
   }) async {
     final name = displayName.trim();
-    final phone = phoneNumber.trim();
+    final phoneValidation = PhoneNumberValidator.validate(
+      phoneNumber,
+      countryIso: phoneCountryIso,
+    );
+    final phone = phoneValidation.normalized;
     if (name.isEmpty) {
       throw ArgumentError('Le nom est obligatoire.');
     }
-    if (!_isValidCongolesePhone(phone)) {
-      throw ArgumentError('Numéro invalide. Utilisez le format +243…');
+    if (!phoneValidation.isValid) {
+      throw ArgumentError(phoneValidation.message);
     }
     if (email.trim().isEmpty) {
       throw ArgumentError('L’adresse e-mail est obligatoire.');
@@ -147,11 +155,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
         phone: phone,
         role: role,
         createdAt: DateTime.now(),
+        phoneVerified: false,
+        identityStatus: SellerIdentityStatus.unverified,
       );
 
       await _users.doc(firebaseUser.uid).set({
         ...user.toMap(),
         'email': email.trim(),
+        'phoneCountry': phoneValidation.country?.isoCode ?? phoneCountryIso,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await _firestore.collection('publicProfiles').doc(firebaseUser.uid).set({
+        'id': firebaseUser.uid,
+        'name': name,
+        'role': role.name,
+        'profileImageUrl': null,
+        'identityStatus': SellerIdentityStatus.unverified.firestoreValue,
+        'sellerStatus': SellerIdentityStatus.unverified.firestoreValue,
+        'phoneVerified': false,
+        'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -183,19 +205,41 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final bytes = await image.readAsBytes();
-      final extension = _extension(image.name);
+      final compressed = await ImageCompressionService.compressXFile(
+        image,
+        maxWidth: 1024,
+        quality: 82,
+      );
       final ref = _storage.ref().child(
-        'profile_photos/${firebaseUser.uid}/profile.$extension',
+        'profiles/${firebaseUser.uid}/profile.${compressed.extension}',
       );
       await ref.putData(
-        bytes,
-        SettableMetadata(contentType: _contentType(extension)),
+        compressed.bytes,
+        SettableMetadata(
+          contentType: compressed.contentType,
+          customMetadata: {
+            'originalSize': compressed.originalSize.toString(),
+            'compressedSize': compressed.compressedSize.toString(),
+            'width': compressed.width.toString(),
+            'height': compressed.height.toString(),
+          },
+        ),
       );
       final url = await ref.getDownloadURL();
 
       await _users.doc(firebaseUser.uid).set({
         'profileImageUrl': url,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await _firestore.collection('publicProfiles').doc(firebaseUser.uid).set({
+        'id': firebaseUser.uid,
+        'name': currentUser.name,
+        'role': currentUser.role.name,
+        'profileImageUrl': url,
+        'identityStatus': currentUser.identityStatus.firestoreValue,
+        'sellerStatus': currentUser.identityStatus.firestoreValue,
+        'phoneVerified': currentUser.phoneVerified,
+        'createdAt': currentUser.createdAt,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -204,8 +248,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
         clearError: true,
         user: currentUser.copyWith(profileImageUrl: url),
       );
-    } catch (_) {
-      _fail('Impossible de mettre à jour la photo de profil.');
+    } catch (error, stackTrace) {
+      developer.log(
+        'Echec upload photo profil',
+        name: 'AuthNotifier.updateProfilePhoto',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      state = state.copyWith(
+        isAuthenticated: true,
+        isLoading: false,
+        user: currentUser,
+        errorMessage: _storageMessage(error),
+      );
       rethrow;
     }
   }
@@ -276,24 +331,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  String _extension(String name) {
-    final parts = name.toLowerCase().split('.');
-    final extension = parts.length > 1 ? parts.last : 'jpg';
-    if (extension == 'png' || extension == 'webp') return extension;
-    return 'jpg';
-  }
-
-  String _contentType(String extension) {
-    switch (extension) {
-      case 'png':
-        return 'image/png';
-      case 'webp':
-        return 'image/webp';
-      default:
-        return 'image/jpeg';
-    }
-  }
-
   String _authMessage(firebase_auth.FirebaseAuthException error) {
     switch (error.code) {
       case 'email-already-in-use':
@@ -313,8 +350,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  bool _isValidCongolesePhone(String phone) {
-    return RegExp(r'^\+243\d{9}$').hasMatch(phone.trim());
+  String _storageMessage(Object error) {
+    if (error is FirebaseException) {
+      switch (error.code) {
+        case 'unauthorized':
+        case 'permission-denied':
+          return "La photo n'a pas pu être envoyée. Vérifiez votre session puis réessayez.";
+        case 'quota-exceeded':
+          return 'Stockage temporairement indisponible. Réessayez plus tard.';
+        case 'canceled':
+          return "L'envoi de la photo a été annulé.";
+      }
+    }
+    if (error is ImageCompressionException) return error.message;
+    return 'Impossible de mettre à jour la photo de profil.';
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/status.dart';
+import 'image_compression_service.dart';
 
 class StatusService {
   StatusService([this._firestore, this._storageOverride]);
@@ -52,24 +53,37 @@ class StatusService {
     String? caption,
     String? productId,
   }) async {
-    final ext = type == StatusType.video ? 'mp4' : 'jpg';
-    final contentType = type == StatusType.video ? 'video/mp4' : 'image/jpeg';
-    final maxBytes = type == StatusType.video
-        ? 50 * 1024 * 1024
-        : 5 * 1024 * 1024;
-    if (await mediaFile.length() > maxBytes) {
-      throw Exception(
-        type == StatusType.video
-            ? 'La vidéo doit faire moins de 50 Mo.'
-            : "L'image doit faire moins de 5 Mo.",
-      );
+    if (type == StatusType.video &&
+        await mediaFile.length() > 50 * 1024 * 1024) {
+      throw Exception('La vidéo doit faire moins de 50 Mo.');
     }
 
-    final storagePath =
-        'statuses/$sellerId/${DateTime.now().millisecondsSinceEpoch}.$ext';
-
-    final ref = _storage.ref().child(storagePath);
-    await ref.putFile(mediaFile, SettableMetadata(contentType: contentType));
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final ref = type == StatusType.video
+        ? _storage.ref().child('annonces/$sellerId/statuses/$timestamp.mp4')
+        : _storage.ref().child('annonces/$sellerId/statuses/$timestamp.jpg');
+    if (type == StatusType.video) {
+      await ref.putFile(mediaFile, SettableMetadata(contentType: 'video/mp4'));
+    } else {
+      final compressed = ImageCompressionService.compressBytes(
+        await mediaFile.readAsBytes(),
+      );
+      if (compressed.compressedSize > 5 * 1024 * 1024) {
+        throw Exception("L'image reste trop lourde après compression.");
+      }
+      await ref.putData(
+        compressed.bytes,
+        SettableMetadata(
+          contentType: compressed.contentType,
+          customMetadata: {
+            'originalSize': compressed.originalSize.toString(),
+            'compressedSize': compressed.compressedSize.toString(),
+            'width': compressed.width.toString(),
+            'height': compressed.height.toString(),
+          },
+        ),
+      );
+    }
     final mediaUrl = await ref.getDownloadURL();
 
     final docRef = _statuses.doc();

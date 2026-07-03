@@ -113,8 +113,8 @@ service cloud.firestore {
       && optionalString(data, 'phone', 40)
       && optionalString(data, 'telephone', 40)
       && (
-        (data.imageUrls is list && data.imageUrls.size() <= 8)
-        || (data.images is list && data.images.size() <= 8)
+        (data.imageUrls is list && data.imageUrls.size() <= 5)
+        || (data.images is list && data.images.size() <= 5)
       )
       && optionalNumber(data, 'favoritesCount')
       && optionalNumber(data, 'favoris')
@@ -233,6 +233,23 @@ service cloud.firestore {
       match /blockedUsers/{blockedUserId} {
         allow read, create, update, delete: if isOwner(userId);
       }
+    }
+
+    match /publicProfiles/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId)
+        && hasOnly(request.resource.data, [
+          'id', 'name', 'role', 'profileImageUrl', 'identityStatus',
+          'sellerStatus', 'phoneVerified', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.id == userId
+        && optionalString(request.resource.data, 'name', 160)
+        && optionalString(request.resource.data, 'role', 40)
+        && optionalString(request.resource.data, 'profileImageUrl', 2000)
+        && optionalString(request.resource.data, 'identityStatus', 40)
+        && optionalString(request.resource.data, 'sellerStatus', 40)
+        && optionalBool(request.resource.data, 'phoneVerified');
+      allow delete: if isOwner(userId);
     }
 
     match /utilisateurs/{userId} {
@@ -359,6 +376,32 @@ service cloud.firestore {
           || resource.data.userId == request.auth.uid
         )
         && request.resource.data.userId == resource.data.userId;
+    }
+
+    match /transactions/{transactionId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn()
+        && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /orders/{orderId} {
+      allow create: if signedIn()
+        && request.resource.data.buyerId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if signedIn()
+        && (
+          resource.data.buyerId == request.auth.uid
+          || ('sellerIds' in resource.data && request.auth.uid in resource.data.sellerIds)
+        );
+      allow update: if signedIn()
+        && resource.data.buyerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'transactionId', 'updatedAt'
+        ])
+        && request.resource.data.status in ['pending', 'paid', 'cancelled'];
+      allow delete: if false;
     }
 
     match /signalements/{signalementId} {

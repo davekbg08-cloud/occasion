@@ -2,6 +2,8 @@ import 'dart:developer' as developer;
 
 import 'package:injectable/injectable.dart';
 
+import 'phone_number_validator.dart';
+
 @injectable
 class MobileMoneyService {
   Future<bool> payWithMobileMoney({
@@ -14,8 +16,9 @@ class MobileMoneyService {
       throw ArgumentError('Opérateur invalide');
     }
 
-    if (phoneNumber.trim().isEmpty) {
-      throw ArgumentError('Numéro de téléphone invalide');
+    final phoneValidation = PhoneNumberValidator.validate(phoneNumber);
+    if (!phoneValidation.isValid) {
+      throw ArgumentError(phoneValidation.message);
     }
 
     if (amount <= 0) {
@@ -26,7 +29,7 @@ class MobileMoneyService {
 
     developer.log('Paiement Mobile Money initié :');
     developer.log('Opérateur: $operator');
-    developer.log('Numéro: $phoneNumber');
+    developer.log('Numéro: ${phoneValidation.normalized}');
     developer.log('Montant: $amount FCFA');
     if (description.isNotEmpty) {
       developer.log('Description: $description');

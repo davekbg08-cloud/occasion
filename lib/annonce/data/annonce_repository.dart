@@ -1,8 +1,11 @@
+import 'dart:developer' as developer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../services/image_compression_service.dart';
 import '../../shared/models/annonce.dart';
 
 abstract class AnnonceRepository {
@@ -30,6 +33,10 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   CollectionReference<Map<String, dynamic>> get _annoncesRef =>
       _firestore.collection('annonces');
 
+  static const _freeMaxActiveAnnonces = 1;
+  static const _freeMaxImages = 2;
+  static const _sellerMaxImages = 5;
+
   @override
   Future<Annonce> createAnnonce(Annonce annonce, List<XFile> images) async {
     final currentUser = _auth.currentUser;
@@ -45,19 +52,46 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
       throw Exception('Ajoutez au moins une photo avant de publier.');
     }
 
+    final hasSellerSubscription = await _hasActiveSellerSubscription(userId);
+    final maxImages = hasSellerSubscription ? _sellerMaxImages : _freeMaxImages;
+    if (images.length > maxImages) {
+      throw Exception(
+        hasSellerSubscription
+            ? 'La formule vendeur permet jusqu’à 5 photos par annonce.'
+            : 'La formule gratuite permet jusqu’à 2 photos par annonce.',
+      );
+    }
+
+    final wantsPublished =
+        _isPublishedStatus(annonce.status) || annonce.isActive;
+    if (!hasSellerSubscription && wantsPublished) {
+      final activeCount = await _activeAnnonceCount(userId);
+      if (activeCount >= _freeMaxActiveAnnonces) {
+        throw Exception(
+          'La formule gratuite permet 1 annonce active maximum. Désactivez une annonce ou activez la formule vendeur.',
+        );
+      }
+    }
+
     final docRef = _annoncesRef.doc();
     final imageUrls = await _uploadImages(
       sellerId: userId,
       annonceId: docRef.id,
       images: images,
+      maxImages: maxImages,
     );
+    final normalizedStatus = _normalizedStatus(
+      annonce.status,
+      annonce.isActive,
+    );
+    final isPublished = _isPublishedStatus(normalizedStatus);
 
     final prepared = annonce.copyWith(
       id: docRef.id,
       userId: userId,
       imageUrls: imageUrls,
-      isActive: true,
-      status: 'published',
+      isActive: isPublished,
+      status: normalizedStatus,
       views: 0,
       favoritesCount: 0,
     );
@@ -77,7 +111,7 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   @override
   Future<List<Annonce>> getAnnonces({String? search, String? category}) async {
     Query<Map<String, dynamic>> query = _annoncesRef
-        .where('status', isEqualTo: 'published')
+        .where('isPublished', isEqualTo: true)
         .orderBy('dateCreation', descending: true);
 
     if (category != null && category.trim().isNotEmpty) {
@@ -85,7 +119,12 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }
 
     final snapshot = await query.get();
-    var annonces = snapshot.docs.map(_fromFirestore).toList();
+    var annonces = snapshot.docs
+        .map(_fromFirestore)
+        .where(
+          (annonce) => annonce.isActive && _isPublishedStatus(annonce.status),
+        )
+        .toList();
 
     if (search != null && search.trim().isNotEmpty) {
       final keyword = search.trim().toLowerCase();
@@ -173,33 +212,48 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     required String sellerId,
     required String annonceId,
     required List<XFile> images,
+    required int maxImages,
   }) async {
-    if (images.length > 8) {
-      throw Exception('Maximum 8 images par annonce.');
+    if (images.length > maxImages) {
+      throw Exception('Maximum $maxImages photos par annonce.');
     }
 
     final urls = <String>[];
 
     for (var index = 0; index < images.length; index++) {
       final image = images[index];
-      final extension = image.name.split('.').last.toLowerCase();
-      if (!_isAllowedImageExtension(extension)) {
-        throw Exception('Format image non pris en charge.');
-      }
+      final compressed = await ImageCompressionService.compressXFile(
+        image,
+        maxWidth: ImageCompressionService.defaultMaxWidth,
+        quality: ImageCompressionService.defaultQuality,
+      );
 
       final fileName =
-          'image_${index + 1}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+          'image_${index + 1}_${DateTime.now().millisecondsSinceEpoch}.${compressed.extension}';
       final ref = _storage.ref().child(
         'annonces/$sellerId/$annonceId/$fileName',
       );
-      final bytes = await image.readAsBytes();
-      if (bytes.length > 5 * 1024 * 1024) {
-        throw Exception('Chaque image doit faire moins de 5 Mo.');
+      if (compressed.bytes.length > 5 * 1024 * 1024) {
+        throw Exception(
+          'Une photo reste trop lourde après compression. Choisissez une image plus légère.',
+        );
       }
 
       await ref.putData(
-        bytes,
-        SettableMetadata(contentType: _contentType(extension)),
+        compressed.bytes,
+        SettableMetadata(
+          contentType: compressed.contentType,
+          customMetadata: {
+            'originalSize': compressed.originalSize.toString(),
+            'compressedSize': compressed.compressedSize.toString(),
+            'width': compressed.width.toString(),
+            'height': compressed.height.toString(),
+          },
+        ),
+      );
+      developer.log(
+        'Image annonce compressee ${compressed.originalSize} -> ${compressed.compressedSize} octets',
+        name: 'AnnonceRepositoryImpl._uploadImages',
       );
       urls.add(await ref.getDownloadURL());
     }
@@ -213,28 +267,63 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     return Annonce.fromJson({...data, 'id': snapshot.id});
   }
 
-  String _contentType(String extension) {
-    switch (extension) {
-      case 'png':
-        return 'image/png';
-      case 'webp':
-        return 'image/webp';
-      case 'heic':
-      case 'heif':
-        return 'image/heic';
-      default:
-        return 'image/jpeg';
+  Future<bool> _hasActiveSellerSubscription(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('subscriptions')
+          .doc(userId)
+          .get();
+      final data = snapshot.data();
+      if (data == null || data['isActive'] != true) return false;
+      final expiryDate = _toDateTime(data['expiryDate']);
+      return expiryDate != null && expiryDate.isAfter(DateTime.now());
+    } catch (error, stackTrace) {
+      developer.log(
+        'Lecture abonnement vendeur impossible',
+        name: 'AnnonceRepositoryImpl._hasActiveSellerSubscription',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
     }
   }
 
-  bool _isAllowedImageExtension(String extension) {
+  Future<int> _activeAnnonceCount(String userId) async {
+    final snapshot = await _annoncesRef
+        .where('vendeurId', isEqualTo: userId)
+        .where('isPublished', isEqualTo: true)
+        .get();
+
+    return snapshot.docs
+        .map(_fromFirestore)
+        .where(
+          (annonce) => annonce.isActive && _isPublishedStatus(annonce.status),
+        )
+        .length;
+  }
+
+  String _normalizedStatus(String status, bool isActive) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'draft' || normalized == 'pending') return normalized;
+    if (normalized == 'active' || normalized == 'actif') return 'published';
+    if (normalized == 'published' || normalized == 'publie') return 'published';
+    return isActive ? 'published' : 'draft';
+  }
+
+  bool _isPublishedStatus(String status) {
     return const {
-      'jpg',
-      'jpeg',
-      'png',
-      'webp',
-      'heic',
-      'heif',
-    }.contains(extension);
+      'published',
+      'active',
+      'actif',
+      'publie',
+    }.contains(status.trim().toLowerCase());
+  }
+
+  DateTime? _toDateTime(Object? value) {
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 }
