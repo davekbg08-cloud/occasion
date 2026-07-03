@@ -29,6 +29,7 @@ import 'screens/product_list_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/role_selection_screen.dart';
 import 'screens/seller_dashboard_screen.dart';
+import 'screens/seller_orders_screen.dart';
 import 'screens/simple_placeholder_screen.dart';
 import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -190,12 +191,7 @@ class OccasionApp extends StatelessWidget {
         path: '/seller-orders',
         builder: (_, _) => const _RoleGuard(
           role: UserRole.seller,
-          child: SimplePlaceholderScreen(
-            title: 'Commandes reçues',
-            icon: Icons.local_shipping_outlined,
-            message:
-                'Les commandes reçues par votre boutique apparaîtront ici.',
-          ),
+          child: SellerOrdersScreen(),
         ),
       ),
       GoRoute(

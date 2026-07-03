@@ -198,6 +198,31 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.shield_outlined, color: Colors.green, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Paiement protégé : Occasion garde ton argent en "
+                      "sécurité et ne le reverse au vendeur qu'après ta "
+                      "confirmation de réception. Tu peux signaler un "
+                      "problème à tout moment avant de confirmer.",
+                      style: TextStyle(fontSize: 12.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
             Card(
               color: Colors.grey[900],

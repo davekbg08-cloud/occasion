@@ -1,5 +1,6 @@
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
@@ -16,6 +17,7 @@ const fcm = getMessaging();
 const CINETPAY_APIKEY = defineSecret("CINETPAY_APIKEY");
 const CINETPAY_SITE_ID = defineSecret("CINETPAY_SITE_ID");
 const CINETPAY_CHECK_URL = "https://api-checkout.cinetpay.com/v2/payment/check";
+const ESCROW_AUTO_RELEASE_DAYS = 3;
 
 exports.onNewMessage = onDocumentCreated(
   "chats/{chatId}/messages/{messageId}",
@@ -156,15 +158,21 @@ async function applySettlement({
   );
 
   if (intent.type === "order" && intent.orderId) {
-    batch.set(
-      db.collection("orders").doc(intent.orderId),
-      {
-        status: isPaid ? "paid" : "payment_failed",
-        transactionId,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
+    const orderUpdate = {
+      status: isPaid ? "paid" : "payment_failed",
+      transactionId,
+      updatedAt: now,
+    };
+    if (isPaid) {
+      const paidAtDate = new Date();
+      orderUpdate.paidAt = paidAtDate;
+      orderUpdate.autoReleaseAt = new Date(
+        paidAtDate.getTime() + ESCROW_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000
+      );
+    }
+    batch.set(db.collection("orders").doc(intent.orderId), orderUpdate, {
+      merge: true,
+    });
   }
 
   if (intent.type === "subscription" && isPaid && intent.userId) {
@@ -379,3 +387,39 @@ exports.confirmCinetPayPayment = onCall(
     return { status: isPaid ? "paid" : "failed" };
   }
 );
+
+/**
+ * Libération automatique du séquestre : si un acheteur n'a ni confirmé
+ * la réception ni signalé de problème dans les délais, on considère la
+ * transaction acceptée par défaut (évite qu'un acheteur de mauvaise foi
+ * bloque indéfiniment les fonds d'un vendeur). Tourne une fois par jour.
+ */
+exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
+  const now = new Date();
+  const snapshot = await db
+    .collection("orders")
+    .where("status", "==", "paid")
+    .where("autoReleaseAt", "<=", now)
+    .get();
+
+  if (snapshot.empty) {
+    console.log("autoReleaseEscrow: aucune commande à libérer.");
+    return;
+  }
+
+  const batch = db.batch();
+  snapshot.docs.forEach((doc) => {
+    batch.set(
+      doc.ref,
+      {
+        status: "completed",
+        completedAt: FieldValue.serverTimestamp(),
+        completedBy: "auto_release",
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+  await batch.commit();
+  console.log(`autoReleaseEscrow: ${snapshot.size} commande(s) libérée(s).`);
+});

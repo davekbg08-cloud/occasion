@@ -424,20 +424,63 @@ service cloud.firestore {
       // réservé au serveur (Cloud Function), après vérification CinetPay
       // réelle ou confirmation manuelle par un admin.
       allow update: if signedIn()
-        && resource.data.buyerId == request.auth.uid
         && (
           (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'status', 'updatedAt'
-            ])
-            && request.resource.data.status in ['processing_payment', 'cancelled']
+            resource.data.buyerId == request.auth.uid
+            && (
+              (
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'updatedAt'
+                ])
+                && request.resource.data.status in ['processing_payment', 'cancelled']
+              )
+              || (
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'updatedAt', 'manualPaymentMethod', 'manualPaymentReference'
+                ])
+                && request.resource.data.status == 'awaiting_manual_verification'
+                && stringField(request.resource.data, 'manualPaymentReference', 120)
+              )
+              // Séquestre : l'acheteur confirme avoir bien reçu l'article
+              // (libère les fonds pour reversement) uniquement depuis 'paid'.
+              || (
+                resource.data.status == 'paid'
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'updatedAt', 'completedAt'
+                ])
+                && request.resource.data.status == 'completed'
+              )
+              // Séquestre : l'acheteur signale un problème (bloque la
+              // libération automatique, un admin doit trancher).
+              || (
+                resource.data.status == 'paid'
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'status', 'updatedAt', 'disputeReason', 'disputedAt'
+                ])
+                && request.resource.data.status == 'disputed'
+                && stringField(request.resource.data, 'disputeReason', 500)
+              )
+            )
           )
+          // Reversement au vendeur : uniquement un admin, uniquement depuis
+          // 'completed', jamais de retour en arrière possible.
           || (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'status', 'updatedAt', 'manualPaymentMethod', 'manualPaymentReference'
+            isAdmin()
+            && resource.data.status == 'completed'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt', 'payoutSentAt', 'payoutSentBy'
             ])
-            && request.resource.data.status == 'awaiting_manual_verification'
-            && stringField(request.resource.data, 'manualPaymentReference', 120)
+            && request.resource.data.status == 'payout_sent'
+          )
+          // Un admin peut résoudre un litige en le renvoyant vers
+          // 'completed' (reversement) ou 'cancelled' (remboursement).
+          || (
+            isAdmin()
+            && resource.data.status == 'disputed'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt', 'resolutionNote'
+            ])
+            && request.resource.data.status in ['completed', 'cancelled']
           )
         );
       allow delete: if false;
