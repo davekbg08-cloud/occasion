@@ -231,7 +231,98 @@ async function settleCinetPayTransaction(transactionId) {
 }
 
 /**
- * Webhook CinetPay (notify_url). CinetPay appelle cette URL en POST après
+ * Vérifie que l'appelant est un administrateur (présent dans la
+ * collection `admins`). Lève une erreur sinon.
+ */
+async function assertIsAdmin(uid) {
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+  const adminSnap = await db.collection("admins").doc(uid).get();
+  if (!adminSnap.exists) {
+    throw new HttpsError(
+      "permission-denied",
+      "Réservé aux administrateurs."
+    );
+  }
+}
+
+/**
+ * Confirme manuellement un paiement Orange Money envoyé directement par
+ * l'acheteur (hors CinetPay), après vérification humaine par un admin
+ * (ex: l'admin retrouve la référence dans son appli Orange Money).
+ */
+exports.confirmManualPayment = onCall(async (request) => {
+  await assertIsAdmin(request.auth?.uid);
+
+  const orderId = request.data?.orderId;
+  if (!orderId || typeof orderId !== "string") {
+    throw new HttpsError("invalid-argument", "orderId manquant");
+  }
+
+  const orderRef = db.collection("orders").doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new HttpsError("not-found", "Commande introuvable");
+  }
+  const order = orderSnap.data();
+
+  const now = FieldValue.serverTimestamp();
+  const transactionId = `manual_${orderId}`;
+  const batch = db.batch();
+
+  batch.set(
+    db.collection("transactions").doc(transactionId),
+    {
+      id: transactionId,
+      type: "order",
+      userId: order.buyerId,
+      orderId,
+      amount: order.total,
+      currency: order.currency ?? "FC",
+      paymentMethod: order.manualPaymentMethod ?? "Orange Money (manuel)",
+      paymentReference: order.manualPaymentReference ?? null,
+      status: "paid",
+      verifiedBy: request.auth.uid,
+      createdAt: now,
+    },
+    { merge: true }
+  );
+
+  batch.set(
+    orderRef,
+    { status: "paid", transactionId, updatedAt: now },
+    { merge: true }
+  );
+
+  await batch.commit();
+  return { status: "paid" };
+});
+
+/**
+ * Rejette un paiement manuel (référence introuvable / montant incorrect).
+ */
+exports.rejectManualPayment = onCall(async (request) => {
+  await assertIsAdmin(request.auth?.uid);
+
+  const orderId = request.data?.orderId;
+  if (!orderId || typeof orderId !== "string") {
+    throw new HttpsError("invalid-argument", "orderId manquant");
+  }
+
+  await db.collection("orders").doc(orderId).set(
+    {
+      status: "payment_failed",
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return { status: "payment_failed" };
+});
+
+/**
+ * Webhook CinetPay (notify_url).
  * une tentative de paiement, avec au minimum `cpm_trans_id`.
  *
  * Par sécurité on ne fait JAMAIS confiance au contenu du POST : on

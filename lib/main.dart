@@ -15,6 +15,7 @@ import 'providers/chat_provider.dart';
 import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
+import 'screens/admin_orders_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
@@ -282,7 +283,14 @@ class OccasionApp extends StatelessWidget {
           return _AuthGuard(child: _OpenChatScreen(args: args));
         },
       ),
-      GoRoute(path: '/auth', builder: (context, state) => const _AuthPage()),
+      GoRoute(
+        path: '/admin/orders',
+        builder: (_, _) => const AdminOrdersScreen(),
+      ),
+      GoRoute(
+        path: '/auth',
+        builder: (context, state) => const _AuthPage(),
+      ),
       GoRoute(
         path: '/login',
         builder: (context, state) => const PhoneAuthScreen(),

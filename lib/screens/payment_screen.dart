@@ -12,6 +12,8 @@ import '../services/payment_settlement_service.dart';
 import '../services/phone_number_validator.dart';
 import '../services/service_locator.dart';
 
+enum _PaymentMode { orangeManual, card }
+
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key});
 
@@ -20,29 +22,76 @@ class PaymentScreen extends ConsumerStatefulWidget {
 }
 
 class _PaymentScreenState extends ConsumerState<PaymentScreen> {
-  String? selectedOperator = 'orange';
+  _PaymentMode mode = _PaymentMode.orangeManual;
   String phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   final TextEditingController phoneController = TextEditingController();
+  final TextEditingController referenceController = TextEditingController();
   bool isProcessing = false;
-
-  final List<Map<String, Object>> operators = const [
-    {'name': 'Orange Money', 'code': 'orange', 'color': Colors.orange},
-    {'name': 'MTN Mobile Money', 'code': 'mtn', 'color': Colors.amber},
-    {'name': 'Airtel Money', 'code': 'airtel', 'color': Colors.red},
-    {'name': 'M-Pesa', 'code': 'mpesa', 'color': Colors.green},
-    {'name': 'Wave', 'code': 'wave', 'color': Colors.blue},
-    {'name': 'Moov Money', 'code': 'moov', 'color': Colors.lightGreen},
-    {'name': 'CinetPay', 'code': 'cinetpay', 'color': Colors.blueGrey},
-  ];
 
   final _settlement = PaymentSettlementService();
 
-  Future<void> _processPayment() async {
+  @override
+  void dispose() {
+    phoneController.dispose();
+    referenceController.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------
+  // Création de la commande (commune aux deux modes de paiement).
+  // ---------------------------------------------------------------------
+  Future<DocumentReference<Map<String, dynamic>>?> _createPendingOrder({
+    required String buyerId,
+    required String buyerName,
+    required String buyerPhone,
+    required double total,
+    required List<dynamic> cartItems,
+  }) async {
+    final db = FirebaseFirestore.instance;
+    final orderRef = db.collection('orders').doc();
+
+    final normalizedItems = cartItems.map((item) {
+      final product = item.product;
+      return {
+        'productId': product.id,
+        'name': product.name,
+        'quantity': item.quantity,
+        'unitPrice': product.price,
+        'totalPrice': item.totalPrice,
+        if (product is ProductModel) 'sellerId': product.sellerId,
+      };
+    }).toList();
+    final sellerIds = cartItems
+        .map((item) => item.product)
+        .whereType<ProductModel>()
+        .map((product) => product.sellerId)
+        .whereType<String>()
+        .where((sellerId) => sellerId.isNotEmpty)
+        .toSet()
+        .toList();
+
+    await orderRef.set({
+      'id': orderRef.id,
+      'buyerId': buyerId,
+      'buyerName': buyerName,
+      'buyerPhone': buyerPhone,
+      'items': normalizedItems,
+      'sellerIds': sellerIds,
+      'total': total,
+      'currency': 'FC',
+      'status': 'pending_payment',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    return orderRef;
+  }
+
+  // ---------------------------------------------------------------------
+  // Mode 1 : Orange Money envoi direct + vérification manuelle admin.
+  // ---------------------------------------------------------------------
+  Future<void> _submitManualOrangeMoney() async {
     final currentUser = ref.read(authNotifierProvider).currentUser;
-    final phoneValidation = PhoneNumberValidator.validate(
-      phoneController.text,
-      countryIso: phoneCountryIso,
-    );
     final cart = ref.read(cartNotifierProvider.notifier);
     final cartItems = ref.read(cartNotifierProvider);
     final total = cart.totalAmount;
@@ -51,13 +100,36 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       context.go('/auth');
       return;
     }
-
-    if (selectedOperator == null) {
+    if (total <= 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Votre panier est vide')));
+      return;
+    }
+    if (!PaymentConfig.isManualOrangeMoneyConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner un opérateur.')),
+        const SnackBar(
+          content: Text('Numéro Orange Money non configuré côté app.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
+    final reference = referenceController.text.trim();
+    if (reference.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Colle la référence de transaction reçue par SMS Orange Money.',
+          ),
+        ),
+      );
+      return;
+    }
+    final phoneValidation = PhoneNumberValidator.validate(
+      phoneController.text,
+      countryIso: phoneCountryIso,
+    );
     if (!phoneValidation.isValid) {
       ScaffoldMessenger.of(
         context,
@@ -65,79 +137,116 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       return;
     }
 
+    setState(() => isProcessing = true);
+    try {
+      final orderRef = await _createPendingOrder(
+        buyerId: currentUser.id,
+        buyerName: currentUser.name,
+        buyerPhone: phoneValidation.normalized,
+        total: total,
+        cartItems: cartItems,
+      );
+      if (orderRef == null) return;
+
+      await orderRef.set({
+        'status': 'awaiting_manual_verification',
+        'manualPaymentMethod': 'orange_money_manual',
+        'manualPaymentReference': reference,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      cart.clearCart();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Merci ! Ta commande est enregistrée et sera confirmée dès '
+            'vérification du paiement (généralement rapide).',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      context.go('/orders');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_friendlyPaymentError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isProcessing = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Mode 2 : Carte bancaire via CinetPay (acheteurs à l'étranger).
+  // ---------------------------------------------------------------------
+  Future<void> _payByCard() async {
+    final currentUser = ref.read(authNotifierProvider).currentUser;
+    final cart = ref.read(cartNotifierProvider.notifier);
+    final cartItems = ref.read(cartNotifierProvider);
+    final total = cart.totalAmount;
+
+    if (currentUser == null) {
+      context.go('/auth');
+      return;
+    }
     if (total <= 0) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Votre panier est vide')));
       return;
     }
-
     if (!PaymentConfig.isConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Paiement indisponible : configuration CinetPay manquante côté app.',
+            'Paiement par carte indisponible : configuration CinetPay manquante.',
           ),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
+    final phoneValidation = PhoneNumberValidator.validate(
+      phoneController.text,
+      countryIso: phoneCountryIso,
+    );
+    if (!phoneValidation.isValid) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(phoneValidation.message)));
+      return;
+    }
 
     setState(() => isProcessing = true);
-
     try {
-      final db = FirebaseFirestore.instance;
-      final orderRef = db.collection('orders').doc();
+      final orderRef = await _createPendingOrder(
+        buyerId: currentUser.id,
+        buyerName: currentUser.name,
+        buyerPhone: phoneValidation.normalized,
+        total: total,
+        cartItems: cartItems,
+      );
+      if (orderRef == null) return;
       final transactionId = orderRef.id;
 
-      final normalizedItems = cartItems.map((item) {
-        final product = item.product;
-        return {
-          'productId': product.id,
-          'name': product.name,
-          'quantity': item.quantity,
-          'unitPrice': product.price,
-          'totalPrice': item.totalPrice,
-          if (product is ProductModel) 'sellerId': product.sellerId,
-        };
-      }).toList();
-      final sellerIds = cartItems
-          .map((item) => item.product)
-          .whereType<ProductModel>()
-          .map((product) => product.sellerId)
-          .whereType<String>()
-          .where((sellerId) => sellerId.isNotEmpty)
-          .toSet()
-          .toList();
+      await FirebaseFirestore.instance
+          .collection('paymentIntents')
+          .doc(transactionId)
+          .set({
+            'type': 'order',
+            'userId': currentUser.id,
+            'orderId': orderRef.id,
+            'amount': total,
+            'currency': 'FC',
+            'status': 'pending',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
 
-      // 1. On enregistre l'intention de paiement (source de vérité pour
-      //    la Cloud Function) puis la commande en attente de paiement.
-      await db.collection('paymentIntents').doc(transactionId).set({
-        'type': 'order',
-        'userId': currentUser.id,
-        'orderId': orderRef.id,
-        'amount': total,
-        'currency': 'FC',
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      await orderRef.set({
-        'id': orderRef.id,
-        'buyerId': currentUser.id,
-        'buyerName': currentUser.name,
-        'buyerPhone': phoneValidation.normalized,
-        'items': normalizedItems,
-        'sellerIds': sellerIds,
-        'total': total,
-        'currency': 'FC',
-        'status': 'pending_payment',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      // 2. Ouverture du vrai paiement Mobile Money via CinetPay.
       if (!mounted) return;
       await getIt<CinetPayService>().initiatePayment(
         context: context,
@@ -146,14 +255,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         description: 'Commande Occasion',
         customerPhone: phoneValidation.normalized,
         customerName: currentUser.name,
+        channels: 'CREDIT_CARD',
         onSuccess: (_) async {
           await orderRef.set({
             'status': 'processing_payment',
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
-          // Confirmation immédiate côté serveur (le webhook CinetPay
-          // confirmera aussi en arrière-plan si celle-ci échoue).
           final confirmedPaid = await _settlement.confirmPayment(
             transactionId,
           );
@@ -212,12 +320,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   }
 
   @override
-  void dispose() {
-    phoneController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final cartItems = ref.watch(cartNotifierProvider);
     final totalAmount = cartItems.fold(
@@ -226,7 +328,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Paiement Mobile Money')),
+      appBar: AppBar(title: const Text('Paiement')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -240,7 +342,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   children: [
                     const Text('Montant total', style: TextStyle(fontSize: 18)),
                     Text(
-                      '${totalAmount.toInt()} FCFA',
+                      '${totalAmount.toInt()} FC',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -252,40 +354,28 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Choisissez votre opérateur',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...operators.map(
-              (operator) => Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  enabled: !isProcessing,
-                  leading: Icon(
-                    selectedOperator == operator['code']
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_unchecked,
-                    color: operator['color'] as Color,
-                  ),
-                  title: Text(operator['name'] as String),
-                  subtitle: Text(
-                    operator['code'] == 'cinetpay'
-                        ? 'Passerelle optionnelle'
-                        : 'Opérateur mobile prioritaire',
-                  ),
-                  onTap: isProcessing
-                      ? null
-                      : () => setState(
-                          () => selectedOperator = operator['code'] as String,
-                        ),
+            SegmentedButton<_PaymentMode>(
+              segments: const [
+                ButtonSegment(
+                  value: _PaymentMode.orangeManual,
+                  icon: Icon(Icons.phone_iphone),
+                  label: Text('Orange Money'),
                 ),
-              ),
+                ButtonSegment(
+                  value: _PaymentMode.card,
+                  icon: Icon(Icons.credit_card),
+                  label: Text('Carte bancaire'),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: isProcessing
+                  ? null
+                  : (values) => setState(() => mode = values.first),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             const Text(
               'Numéro de téléphone',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
@@ -316,17 +406,30 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               enabled: !isProcessing,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
-                hintText: '+225 07 77 88 99',
+                hintText: '+243 8xx xxx xxx',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.phone),
               ),
             ),
+            const SizedBox(height: 24),
+            if (mode == _PaymentMode.orangeManual)
+              _OrangeManualSection(
+                referenceController: referenceController,
+                totalAmount: totalAmount,
+                isProcessing: isProcessing,
+              )
+            else
+              const _CardSection(),
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
               height: 56,
               child: FilledButton(
-                onPressed: isProcessing ? null : _processPayment,
+                onPressed: isProcessing
+                    ? null
+                    : (mode == _PaymentMode.orangeManual
+                          ? _submitManualOrangeMoney
+                          : _payByCard),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -340,20 +443,122 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                           strokeWidth: 2.5,
                         ),
                       )
-                    : const Text(
-                        'PAYER MAINTENANT',
-                        style: TextStyle(fontSize: 18),
+                    : Text(
+                        mode == _PaymentMode.orangeManual
+                            ? "J'AI ENVOYÉ L'ARGENT"
+                            : 'PAYER PAR CARTE',
+                        style: const TextStyle(fontSize: 18),
                       ),
               ),
             ),
-            const SizedBox(height: 16),
-            const Center(
-              child: Text(
-                'Paiement Mobile Money sécurisé via CinetPay. Vous recevrez une '
-                'demande de confirmation sur votre téléphone.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrangeManualSection extends StatelessWidget {
+  const _OrangeManualSection({
+    required this.referenceController,
+    required this.totalAmount,
+    required this.isProcessing,
+  });
+
+  final TextEditingController referenceController;
+  final double totalAmount;
+  final bool isProcessing;
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = PaymentConfig.isManualOrangeMoneyConfigured;
+    return Card(
+      color: Colors.grey[900],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Comment payer',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '1. Envoie ${totalAmount.toInt()} FC via Orange Money au numéro '
+              'ci-dessous.\n'
+              '2. Colle la référence de transaction reçue par SMS.\n'
+              '3. Ta commande sera confirmée après vérification (généralement '
+              'rapide, pas instantané).',
+              style: TextStyle(color: Colors.grey[400], height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange),
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    configured
+                        ? PaymentConfig.manualOrangeMoneyNumber
+                        : 'Numéro non configuré (contacte le support)',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  Text(
+                    PaymentConfig.manualOrangeMoneyHolderName,
+                    style: TextStyle(color: Colors.grey[400]),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: referenceController,
+              enabled: !isProcessing,
+              decoration: const InputDecoration(
+                labelText: 'Référence de transaction (SMS Orange Money)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.receipt_long_outlined),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CardSection extends StatelessWidget {
+  const _CardSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.grey[900],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paiement par carte bancaire',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Idéal pour les acheteurs hors RDC. Paiement sécurisé via '
+              'CinetPay (Visa, Mastercard).',
+              style: TextStyle(color: Colors.grey[400], height: 1.4),
             ),
           ],
         ),

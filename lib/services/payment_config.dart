@@ -33,4 +33,22 @@ class PaymentConfig {
 
   static bool get isConfigured =>
       cinetpayApiKey != 'TA_CLE_API' && cinetpaySiteId != 'TON_SITE_ID';
+
+  /// Numéro Orange Money sur lequel les acheteurs envoient l'argent
+  /// directement (paiement manuel, vérifié à la main par un admin en
+  /// attendant l'activation complète de CinetPay).
+  /// ⚠️ A REMPLIR : ton vrai numéro Orange Money (ex: '+243 8xx xxx xxx').
+  static const String manualOrangeMoneyNumber = String.fromEnvironment(
+    'MANUAL_ORANGE_MONEY_NUMBER',
+    defaultValue: 'TON_NUMERO_ORANGE_MONEY',
+  );
+
+  /// Nom affiché à l'acheteur pour confirmer qu'il envoie au bon compte.
+  static const String manualOrangeMoneyHolderName = String.fromEnvironment(
+    'MANUAL_ORANGE_MONEY_NAME',
+    defaultValue: 'Occasion',
+  );
+
+  static bool get isManualOrangeMoneyConfigured =>
+      manualOrangeMoneyNumber != 'TON_NUMERO_ORANGE_MONEY';
 }

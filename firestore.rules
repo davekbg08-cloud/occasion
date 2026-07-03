@@ -20,6 +20,11 @@ service cloud.firestore {
       return hasUserRole('seller');
     }
 
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     function hasOnly(data, keys) {
       return data.keys().hasOnly(keys);
     }
@@ -226,6 +231,11 @@ service cloud.firestore {
         );
     }
 
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId);
+      allow write: if false;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow write: if isOwner(userId);
@@ -398,16 +408,30 @@ service cloud.firestore {
         && (
           resource.data.buyerId == request.auth.uid
           || ('sellerIds' in resource.data && request.auth.uid in resource.data.sellerIds)
+          || isAdmin()
         );
-      // Le client peut seulement annuler ou marquer "en cours de
-      // paiement" ; le passage à 'paid'/'payment_failed' est réservé
-      // à la Cloud Function serveur après vérification CinetPay.
+      // Le client peut annuler, marquer "en cours de paiement" (CinetPay), ou
+      // soumettre une référence de paiement manuel Orange Money pour
+      // vérification humaine. Le passage à 'paid'/'payment_failed' est
+      // réservé au serveur (Cloud Function), après vérification CinetPay
+      // réelle ou confirmation manuelle par un admin.
       allow update: if signedIn()
         && resource.data.buyerId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'updatedAt'
-        ])
-        && request.resource.data.status in ['processing_payment', 'cancelled'];
+        && (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt'
+            ])
+            && request.resource.data.status in ['processing_payment', 'cancelled']
+          )
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt', 'manualPaymentMethod', 'manualPaymentReference'
+            ])
+            && request.resource.data.status == 'awaiting_manual_verification'
+            && stringField(request.resource.data, 'manualPaymentReference', 120)
+          )
+        );
       allow delete: if false;
     }
 

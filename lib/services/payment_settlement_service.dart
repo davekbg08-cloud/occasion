@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 
 /// Appelle la Cloud Function `confirmCinetPayPayment`, qui revérifie le
 /// paiement directement auprès de CinetPay (jamais confiance au seul
@@ -10,10 +12,17 @@ import 'package:cloud_functions/cloud_functions.dart';
 /// échoue (réseau coupé juste après paiement, etc.), la confirmation
 /// arrivera quand même via le webhook CinetPay en arrière-plan.
 class PaymentSettlementService {
-  PaymentSettlementService({FirebaseFunctions? functions})
-    : _functions = functions ?? FirebaseFunctions.instance;
+  PaymentSettlementService({
+    FirebaseFunctions? functions,
+    FirebaseFirestore? firestore,
+    firebase_auth.FirebaseAuth? auth,
+  }) : _functions = functions ?? FirebaseFunctions.instance,
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? firebase_auth.FirebaseAuth.instance;
 
   final FirebaseFunctions _functions;
+  final FirebaseFirestore _firestore;
+  final firebase_auth.FirebaseAuth _auth;
 
   Future<bool> confirmPayment(String transactionId) async {
     try {
@@ -27,5 +36,32 @@ class PaymentSettlementService {
       // Le webhook CinetPay confirmera en arrière-plan si besoin.
       return false;
     }
+  }
+
+  /// Vrai si l'utilisateur connecté est un administrateur (collection
+  /// `admins`, lisible uniquement par le propriétaire du document).
+  Future<bool> isCurrentUserAdmin() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return false;
+    try {
+      final snap = await _firestore.collection('admins').doc(uid).get();
+      return snap.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Confirme un paiement Orange Money manuel après vérification humaine
+  /// (admin uniquement, contrôlé côté serveur).
+  Future<void> confirmManualPayment(String orderId) async {
+    final callable = _functions.httpsCallable('confirmManualPayment');
+    await callable.call(<String, dynamic>{'orderId': orderId});
+  }
+
+  /// Rejette un paiement Orange Money manuel (référence introuvable,
+  /// montant incorrect...).
+  Future<void> rejectManualPayment(String orderId) async {
+    final callable = _functions.httpsCallable('rejectManualPayment');
+    await callable.call(<String, dynamic>{'orderId': orderId});
   }
 }

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
+import '../services/payment_settlement_service.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -78,6 +79,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
             const SizedBox(height: 30),
             const Divider(),
+            if (authState.isAuthenticated && user != null) const _AdminEntry(),
             if (authState.isAuthenticated && user != null)
               if (isSeller)
                 _SellerOptions(
@@ -199,6 +201,26 @@ class _ProfileAvatar extends StatelessWidget {
           child: Icon(fallbackIcon, size: 62, color: Colors.white),
         ),
       ),
+    );
+  }
+}
+
+class _AdminEntry extends StatelessWidget {
+  const _AdminEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: PaymentSettlementService().isCurrentUserAdmin(),
+      builder: (context, snapshot) {
+        if (snapshot.data != true) return const SizedBox.shrink();
+        return ListTile(
+          leading: const Icon(Icons.verified_user_outlined, color: Colors.orange),
+          title: const Text('Paiements Orange Money à vérifier'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push('/admin/orders'),
+        );
+      },
     );
   }
 }

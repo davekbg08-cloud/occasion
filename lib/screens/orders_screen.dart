@@ -139,6 +139,7 @@ class _StatusChip extends StatelessWidget {
     final color = switch (status) {
       'paid' => Colors.green,
       'cancelled' || 'payment_failed' => Colors.red,
+      'awaiting_manual_verification' => Colors.amber,
       _ => Colors.orange,
     };
     final label = switch (status) {
@@ -146,6 +147,7 @@ class _StatusChip extends StatelessWidget {
       'cancelled' => 'Annulée',
       'payment_failed' => 'Paiement échoué',
       'processing_payment' => 'Confirmation en cours',
+      'awaiting_manual_verification' => 'Vérification Orange Money en cours',
       _ => 'En attente de paiement',
     };
 
