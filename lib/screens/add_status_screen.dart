@@ -1,5 +1,7 @@
-import 'dart:io';
+import 'dart:io' as io;
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,7 +19,7 @@ class AddStatusScreen extends ConsumerStatefulWidget {
 }
 
 class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
-  File? _file;
+  XFile? _file;
   StatusType? _type;
   VideoPlayerController? _videoController;
   final _captionController = TextEditingController();
@@ -42,7 +44,7 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
 
     _videoController?.dispose();
     setState(() {
-      _file = File(picked.path);
+      _file = picked;
       _type = StatusType.image;
       _videoController = null;
     });
@@ -52,15 +54,16 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     final picked = await _picker.pickVideo(source: ImageSource.gallery);
     if (picked == null) return;
 
-    final videoFile = File(picked.path);
-    final controller = VideoPlayerController.file(videoFile);
+    final controller = kIsWeb
+        ? VideoPlayerController.networkUrl(Uri.parse(picked.path))
+        : VideoPlayerController.file(io.File(picked.path));
     await controller.initialize();
     await controller.setLooping(true);
     await controller.play();
 
     _videoController?.dispose();
     setState(() {
-      _file = videoFile;
+      _file = picked;
       _type = StatusType.video;
       _videoController = controller;
     });
@@ -326,14 +329,24 @@ class _MediaPreview extends StatelessWidget {
     required this.controller,
   });
 
-  final File file;
+  final XFile file;
   final StatusType type;
   final VideoPlayerController? controller;
 
   @override
   Widget build(BuildContext context) {
     if (type == StatusType.image) {
-      return Image.file(file, fit: BoxFit.contain);
+      return FutureBuilder<Uint8List>(
+        future: file.readAsBytes(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            );
+          }
+          return Image.memory(snapshot.data!, fit: BoxFit.contain);
+        },
+      );
     }
 
     final video = controller;

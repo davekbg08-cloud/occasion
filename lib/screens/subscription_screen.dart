@@ -5,6 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
+import '../services/cinetpay_service.dart';
+import '../services/payment_config.dart';
+import '../services/payment_settlement_service.dart';
+import '../services/service_locator.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -15,9 +19,9 @@ class SubscriptionScreen extends ConsumerStatefulWidget {
 
 class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String? selectedPlan = 'seller_monthly';
-  String? selectedOperator = 'orange';
-  bool simulateSuccess = true;
   bool isProcessing = false;
+
+  final _settlement = PaymentSettlementService();
 
   final List<Map<String, Object>> plans = const [
     {
@@ -29,15 +33,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     },
   ];
 
-  final List<Map<String, Object>> operators = const [
-    {'name': 'Orange Money', 'code': 'orange', 'color': Colors.orange},
-    {'name': 'MTN Mobile Money', 'code': 'mtn', 'color': Colors.amber},
-    {'name': 'Airtel Money', 'code': 'airtel', 'color': Colors.red},
-    {'name': 'M-Pesa', 'code': 'mpesa', 'color': Colors.green},
-    {'name': 'Wave', 'code': 'wave', 'color': Colors.blue},
-    {'name': 'CinetPay', 'code': 'cinetpay', 'color': Colors.blueGrey},
-  ];
-
   Future<void> _subscribe() async {
     if (selectedPlan == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -45,38 +40,80 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       );
       return;
     }
-    if (selectedOperator == null) {
+
+    if (!PaymentConfig.isConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choisissez un prestataire de paiement.')),
+        const SnackBar(
+          content: Text(
+            'Paiement indisponible : configuration CinetPay manquante côté app.',
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
     final plan = plans.firstWhere((item) => item['id'] == selectedPlan);
-    final operator = operators.firstWhere(
-      (item) => item['code'] == selectedOperator,
-    );
+    final currentUser = ref.read(authNotifierProvider).currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connecte-toi avant de payer un abonnement.')),
+      );
+      return;
+    }
 
     setState(() => isProcessing = true);
 
     try {
-      final subscription = await ref
+      final price = (plan['price'] as num).toDouble();
+      final transactionId = await ref
           .read(subscriptionNotifierProvider.notifier)
-          .simulateSellerPayment(
+          .createSubscriptionPaymentIntent(
             planId: plan['id'] as String,
             planName: plan['name'] as String,
-            price: (plan['price'] as num).toDouble(),
-            paymentMethod: operator['name'] as String,
-            shouldSucceed: simulateSuccess,
+            price: price,
           );
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Paiement simulé confirmé. Abonnement actif jusqu'au ${subscription.expiryDate.toString().split(' ').first}.",
-          ),
-          backgroundColor: Colors.green,
-        ),
+      await getIt<CinetPayService>().initiatePayment(
+        context: context,
+        amount: price,
+        transactionId: transactionId,
+        description: 'Abonnement vendeur ${plan['name']}',
+        customerPhone: currentUser.phone,
+        customerName: currentUser.name,
+        onSuccess: (_) async {
+          final confirmedPaid = await _settlement.confirmPayment(
+            transactionId,
+          );
+
+          if (confirmedPaid) {
+            await ref
+                .read(subscriptionNotifierProvider.notifier)
+                .loadForUser(currentUser.id);
+          }
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                confirmedPaid
+                    ? 'Paiement confirmé. Abonnement activé.'
+                    : 'Paiement reçu, activation en cours...',
+              ),
+              backgroundColor: confirmedPaid ? Colors.green : Colors.orange,
+            ),
+          );
+        },
+        onError: (_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Paiement refusé ou annulé.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        },
       );
     } catch (error) {
       if (!mounted) return;
@@ -123,8 +160,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   icon: const Icon(Icons.autorenew),
                   label: Text(
                     isProcessing
-                        ? 'Mode test...'
-                        : 'Tester le renouvellement (${subscription.price.toInt()} FC)',
+                        ? 'Paiement en cours...'
+                        : 'Renouveler (${subscription.price.toInt()} FC)',
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.orange,
@@ -153,51 +190,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             _buildExplanationCard(),
             const SizedBox(height: 16),
             ...plans.map(_buildPlanCard),
-            const SizedBox(height: 24),
-            const Text(
-              'Opérateur de paiement',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...operators.map(_buildOperatorCard),
-            const SizedBox(height: 20),
-            Card(
-              color: Colors.grey[900],
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    const Text('Mode simulation'),
-                    const SizedBox(height: 8),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: true,
-                          icon: Icon(Icons.check_circle_outline),
-                          label: Text('Réussi'),
-                        ),
-                        ButtonSegment(
-                          value: false,
-                          icon: Icon(Icons.cancel_outlined),
-                          label: Text('Échoué'),
-                        ),
-                      ],
-                      selected: {simulateSuccess},
-                      onSelectionChanged: isProcessing
-                          ? null
-                          : (values) =>
-                                setState(() => simulateSuccess = values.first),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Aucun débit réel n'est lancé tant qu'un prestataire n'est pas connecté.",
-                      style: TextStyle(color: Colors.grey[400]),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
@@ -218,7 +210,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         ),
                       )
                     : const Text(
-                        'LANCER LA SIMULATION',
+                        'PAYER ET ACTIVER',
                         style: TextStyle(fontSize: 18),
                       ),
               ),
@@ -232,7 +224,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String _friendlyPaymentError(Object error) {
     if (error is StateError) return error.message;
     if (error is ArgumentError) return error.message.toString();
-    return 'Paiement simulé impossible. Réessayez.';
+    return 'Paiement impossible. Réessayez.';
   }
 
   Widget _buildBuyerFreeScaffold(BuildContext context) {
@@ -342,13 +334,13 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              "La publication de base peut rester gratuite selon la configuration. L'abonnement vendeur servira à publier davantage d'annonces ou à activer des options avancées. Le paiement réel sera branché en priorité avec les opérateurs mobiles, avec CinetPay seulement comme passerelle optionnelle.",
+              "La publication de base peut rester gratuite selon la configuration. L'abonnement vendeur sert à publier davantage d'annonces et à activer des options avancées. Le paiement se fait par Mobile Money via CinetPay (Orange, MTN, Airtel, M-Pesa selon disponibilité).",
               style: TextStyle(color: Colors.grey[400], height: 1.35),
             ),
             const SizedBox(height: 10),
             const Chip(
-              avatar: Icon(Icons.science_outlined, size: 18),
-              label: Text('Mobile Money par défaut - Mode test'),
+              avatar: Icon(Icons.verified_outlined, size: 18),
+              label: Text('Paiement réel via CinetPay'),
             ),
           ],
         ),
@@ -386,33 +378,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         onTap: isProcessing
             ? null
             : () => setState(() => selectedPlan = planId),
-      ),
-    );
-  }
-
-  Widget _buildOperatorCard(Map<String, Object> operator) {
-    final operatorCode = operator['code'] as String;
-    final isSelected = selectedOperator == operatorCode;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        enabled: !isProcessing,
-        leading: Icon(
-          isSelected
-              ? Icons.radio_button_checked
-              : Icons.radio_button_unchecked,
-          color: operator['color'] as Color,
-        ),
-        title: Text(operator['name'] as String),
-        subtitle: Text(
-          operatorCode == 'cinetpay'
-              ? 'Passerelle optionnelle'
-              : 'Opérateur mobile prioritaire',
-        ),
-        onTap: isProcessing
-            ? null
-            : () => setState(() => selectedOperator = operatorCode),
       ),
     );
   }

@@ -360,47 +360,54 @@ service cloud.firestore {
     }
 
     match /subscriptions/{subscriptionId} {
-      allow read, delete: if signedIn()
+      allow read: if signedIn()
         && (
           subscriptionId == request.auth.uid
           || resource.data.userId == request.auth.uid
         );
-      allow create: if signedIn()
-        && (
-          subscriptionId == request.auth.uid
-          || request.resource.data.userId == request.auth.uid
-        );
-      allow update: if signedIn()
-        && (
-          subscriptionId == request.auth.uid
-          || resource.data.userId == request.auth.uid
-        )
-        && request.resource.data.userId == resource.data.userId;
+      // Seule la Cloud Function confirmCinetPayPayment / cinetpayNotify
+      // (Admin SDK, contourne ces règles) peut activer un abonnement
+      // après vérification réelle du paiement auprès de CinetPay.
+      allow create, update, delete: if false;
     }
 
     match /transactions/{transactionId} {
-      allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
       allow read: if signedIn()
         && resource.data.userId == request.auth.uid;
+      // Les transactions ne sont créées/mises à jour que côté serveur
+      // (Cloud Functions), après vérification réelle du paiement.
+      allow create, update, delete: if false;
+    }
+
+    match /paymentIntents/{transactionId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if signedIn()
+        && resource.data.userId == request.auth.uid;
+      // Le statut final ('paid'/'failed') n'est écrit que par la
+      // Cloud Function après vérification auprès de CinetPay.
       allow update, delete: if false;
     }
 
     match /orders/{orderId} {
       allow create: if signedIn()
         && request.resource.data.buyerId == request.auth.uid
-        && request.resource.data.status == 'pending';
+        && request.resource.data.status == 'pending_payment';
       allow read: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || ('sellerIds' in resource.data && request.auth.uid in resource.data.sellerIds)
         );
+      // Le client peut seulement annuler ou marquer "en cours de
+      // paiement" ; le passage à 'paid'/'payment_failed' est réservé
+      // à la Cloud Function serveur après vérification CinetPay.
       allow update: if signedIn()
         && resource.data.buyerId == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'transactionId', 'updatedAt'
+          'status', 'updatedAt'
         ])
-        && request.resource.data.status in ['pending', 'paid', 'cancelled'];
+        && request.resource.data.status in ['processing_payment', 'cancelled'];
       allow delete: if false;
     }
 

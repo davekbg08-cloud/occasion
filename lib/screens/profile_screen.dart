@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -172,15 +171,34 @@ class _ProfileAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final url = imageUrl?.trim();
-    return CircleAvatar(
-      radius: 55,
-      backgroundColor: color,
-      backgroundImage: url == null || url.isEmpty
-          ? null
-          : CachedNetworkImageProvider(url),
-      child: url == null || url.isEmpty
-          ? Icon(fallbackIcon, size: 62, color: Colors.white)
-          : null,
+    if (url == null || url.isEmpty) {
+      return CircleAvatar(
+        radius: 55,
+        backgroundColor: color,
+        child: Icon(fallbackIcon, size: 62, color: Colors.white),
+      );
+    }
+
+    return ClipOval(
+      child: Image.network(
+        url,
+        width: 110,
+        height: 110,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return CircleAvatar(
+            radius: 55,
+            backgroundColor: color,
+            child: const CircularProgressIndicator(color: Colors.white),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => CircleAvatar(
+          radius: 55,
+          backgroundColor: color,
+          child: Icon(fallbackIcon, size: 62, color: Colors.white),
+        ),
+      ),
     );
   }
 }

@@ -2,14 +2,12 @@ import 'package:cinetpay/cinetpay.dart';
 import 'package:flutter/material.dart';
 import 'package:injectable/injectable.dart';
 
+import 'payment_config.dart';
 import 'phone_number_validator.dart';
 
 @injectable
 class CinetPayService {
-  static const String _siteId = 'TON_SITE_ID';
-  static const String _apiKey = 'TA_CLE_API';
-  static const String _notifyUrl = 'https://example.com/cinetpay/notify';
-  static const String _currency = 'XOF';
+  static const String _currency = 'CDF';
 
   Future<bool> initiatePayment({
     required BuildContext context,
@@ -23,6 +21,13 @@ class CinetPayService {
     ValueChanged<Map<String, dynamic>>? onSuccess,
     ValueChanged<Map<String, dynamic>>? onError,
   }) async {
+    if (!PaymentConfig.isConfigured) {
+      throw StateError(
+        "Le paiement CinetPay n'est pas encore configuré. "
+        'Renseigne CINETPAY_APIKEY et CINETPAY_SITE_ID (lib/services/payment_config.dart).',
+      );
+    }
+
     if (amount < 100) {
       throw ArgumentError('Le montant CinetPay doit être au moins 100 FCFA');
     }
@@ -52,9 +57,11 @@ class CinetPayService {
             titleBackgroundColor: Colors.green,
             titleStyle: const TextStyle(color: Colors.white),
             configData: <String, dynamic>{
-              'apikey': _apiKey,
-              'site_id': int.tryParse(_siteId) ?? _siteId,
-              'notify_url': _notifyUrl,
+              'apikey': PaymentConfig.cinetpayApiKey,
+              'site_id':
+                  int.tryParse(PaymentConfig.cinetpaySiteId) ??
+                  PaymentConfig.cinetpaySiteId,
+              'notify_url': PaymentConfig.cinetpayNotifyUrl,
             },
             paymentData: <String, dynamic>{
               'transaction_id': transactionId,

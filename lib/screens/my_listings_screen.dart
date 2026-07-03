@@ -24,6 +24,17 @@ class MyListingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Retour',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/seller-dashboard');
+            }
+          },
+        ),
         title: const Text('Mes annonces'),
         actions: [
           IconButton(
@@ -108,6 +119,22 @@ class _ListingCard extends ConsumerWidget {
                         : Image.network(
                             annonce.imageUrls.first,
                             fit: BoxFit.cover,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  color: Colors.grey[850],
+                                  child: const Icon(
+                                    Icons.broken_image_outlined,
+                                    color: Colors.grey,
+                                  ),
+                                ),
                           ),
                   ),
                 ),

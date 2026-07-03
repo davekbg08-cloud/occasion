@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/status.dart';
 import '../services/status_service.dart';
@@ -79,7 +79,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
     required String sellerId,
     required String sellerName,
     String? sellerProfileImageUrl,
-    required File mediaFile,
+    required XFile mediaFile,
     required StatusType type,
     String? caption,
     String? productId,

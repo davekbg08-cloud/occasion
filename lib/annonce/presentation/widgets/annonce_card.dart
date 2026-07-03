@@ -23,11 +23,33 @@ class AnnonceCard extends ConsumerWidget {
       child: ListTile(
         leading: annonce.imageUrls.isEmpty
             ? const Icon(Icons.image_outlined)
-            : Image.network(
-                annonce.imageUrls.first,
-                width: 64,
-                height: 64,
-                fit: BoxFit.cover,
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.network(
+                  annonce.imageUrls.first,
+                  width: 64,
+                  height: 64,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return const SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 64,
+                    height: 64,
+                    color: Colors.grey[850],
+                    child: const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
               ),
         title: Text(annonce.title),
         subtitle: Text(

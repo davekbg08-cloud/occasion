@@ -6,7 +6,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import '../services/cinetpay_service.dart';
+import '../services/payment_config.dart';
+import '../services/payment_settlement_service.dart';
 import '../services/phone_number_validator.dart';
+import '../services/service_locator.dart';
 
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key});
@@ -20,7 +24,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   String phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   final TextEditingController phoneController = TextEditingController();
   bool isProcessing = false;
-  bool simulateSuccess = true;
 
   final List<Map<String, Object>> operators = const [
     {'name': 'Orange Money', 'code': 'orange', 'color': Colors.orange},
@@ -31,6 +34,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     {'name': 'Moov Money', 'code': 'moov', 'color': Colors.lightGreen},
     {'name': 'CinetPay', 'code': 'cinetpay', 'color': Colors.blueGrey},
   ];
+
+  final _settlement = PaymentSettlementService();
 
   Future<void> _processPayment() async {
     final currentUser = ref.read(authNotifierProvider).currentUser;
@@ -59,9 +64,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       ).showSnackBar(SnackBar(content: Text(phoneValidation.message)));
       return;
     }
-    final operator = operators.firstWhere(
-      (item) => item['code'] == selectedOperator,
-    );
 
     if (total <= 0) {
       ScaffoldMessenger.of(
@@ -70,40 +72,122 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       return;
     }
 
+    if (!PaymentConfig.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Paiement indisponible : configuration CinetPay manquante côté app.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => isProcessing = true);
 
     try {
-      final result = await _createSimulatedOrder(
-        buyerId: currentUser.id,
-        buyerName: currentUser.name,
-        buyerPhone: phoneValidation.normalized,
-        provider: operator['name'] as String,
-        providerCode: selectedOperator!,
-        items: cartItems,
-        total: total,
-        shouldSucceed: simulateSuccess,
-      );
+      final db = FirebaseFirestore.instance;
+      final orderRef = db.collection('orders').doc();
+      final transactionId = orderRef.id;
 
+      final normalizedItems = cartItems.map((item) {
+        final product = item.product;
+        return {
+          'productId': product.id,
+          'name': product.name,
+          'quantity': item.quantity,
+          'unitPrice': product.price,
+          'totalPrice': item.totalPrice,
+          if (product is ProductModel) 'sellerId': product.sellerId,
+        };
+      }).toList();
+      final sellerIds = cartItems
+          .map((item) => item.product)
+          .whereType<ProductModel>()
+          .map((product) => product.sellerId)
+          .whereType<String>()
+          .where((sellerId) => sellerId.isNotEmpty)
+          .toSet()
+          .toList();
+
+      // 1. On enregistre l'intention de paiement (source de vérité pour
+      //    la Cloud Function) puis la commande en attente de paiement.
+      await db.collection('paymentIntents').doc(transactionId).set({
+        'type': 'order',
+        'userId': currentUser.id,
+        'orderId': orderRef.id,
+        'amount': total,
+        'currency': 'FC',
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await orderRef.set({
+        'id': orderRef.id,
+        'buyerId': currentUser.id,
+        'buyerName': currentUser.name,
+        'buyerPhone': phoneValidation.normalized,
+        'items': normalizedItems,
+        'sellerIds': sellerIds,
+        'total': total,
+        'currency': 'FC',
+        'status': 'pending_payment',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 2. Ouverture du vrai paiement Mobile Money via CinetPay.
       if (!mounted) return;
-      if (result == 'paid') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Paiement confirmé avec succès !'),
-            backgroundColor: Colors.green,
-          ),
-        );
+      await getIt<CinetPayService>().initiatePayment(
+        context: context,
+        amount: total,
+        transactionId: transactionId,
+        description: 'Commande Occasion',
+        customerPhone: phoneValidation.normalized,
+        customerName: currentUser.name,
+        onSuccess: (_) async {
+          await orderRef.set({
+            'status': 'processing_payment',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
-        cart.clearCart();
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (mounted) context.go('/orders');
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Paiement simulé refusé. Commande annulée.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+          // Confirmation immédiate côté serveur (le webhook CinetPay
+          // confirmera aussi en arrière-plan si celle-ci échoue).
+          final confirmedPaid = await _settlement.confirmPayment(
+            transactionId,
+          );
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                confirmedPaid
+                    ? 'Paiement confirmé avec succès !'
+                    : 'Paiement reçu, confirmation en cours...',
+              ),
+              backgroundColor: confirmedPaid ? Colors.green : Colors.orange,
+            ),
+          );
+
+          cart.clearCart();
+          if (mounted) context.go('/orders');
+        },
+        onError: (_) async {
+          await orderRef.set({
+            'status': 'cancelled',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Paiement refusé ou annulé.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        },
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -116,83 +200,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     } finally {
       if (mounted) setState(() => isProcessing = false);
     }
-  }
-
-  Future<String> _createSimulatedOrder({
-    required String buyerId,
-    required String buyerName,
-    required String buyerPhone,
-    required String provider,
-    required String providerCode,
-    required List<dynamic> items,
-    required double total,
-    required bool shouldSucceed,
-  }) async {
-    final db = FirebaseFirestore.instance;
-    final orderRef = db.collection('orders').doc();
-    final transactionRef = db.collection('transactions').doc();
-    final normalizedItems = items.map((item) {
-      final product = item.product;
-      return {
-        'productId': product.id,
-        'name': product.name,
-        'quantity': item.quantity,
-        'unitPrice': product.price,
-        'totalPrice': item.totalPrice,
-        if (product is ProductModel) 'sellerId': product.sellerId,
-      };
-    }).toList();
-    final sellerIds = items
-        .map((item) => item.product)
-        .whereType<ProductModel>()
-        .map((product) => product.sellerId)
-        .whereType<String>()
-        .where((sellerId) => sellerId.isNotEmpty)
-        .toSet()
-        .toList();
-
-    await orderRef.set({
-      'id': orderRef.id,
-      'buyerId': buyerId,
-      'buyerName': buyerName,
-      'buyerPhone': buyerPhone,
-      'items': normalizedItems,
-      'sellerIds': sellerIds,
-      'total': total,
-      'currency': 'FC',
-      'status': 'pending',
-      'paymentProvider': provider,
-      'paymentProviderCode': providerCode,
-      'simulation': true,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-
-    final status = shouldSucceed ? 'paid' : 'failed';
-    await transactionRef.set({
-      'id': transactionRef.id,
-      'type': 'order',
-      'orderId': orderRef.id,
-      'userId': buyerId,
-      'amount': total,
-      'currency': 'FC',
-      'paymentMethod': provider,
-      'paymentMethodCode': providerCode,
-      'status': status,
-      'simulation': true,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    final orderStatus = shouldSucceed ? 'paid' : 'cancelled';
-    await orderRef.set({
-      'status': orderStatus,
-      'transactionId': transactionRef.id,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    return orderStatus;
   }
 
   String _friendlyPaymentError(Object error) {
@@ -314,30 +321,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 prefixIcon: Icon(Icons.phone),
               ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Mode simulation',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(
-                  value: true,
-                  icon: Icon(Icons.check_circle_outline),
-                  label: Text('Réussi'),
-                ),
-                ButtonSegment(
-                  value: false,
-                  icon: Icon(Icons.cancel_outlined),
-                  label: Text('Échoué'),
-                ),
-              ],
-              selected: {simulateSuccess},
-              onSelectionChanged: isProcessing
-                  ? null
-                  : (values) => setState(() => simulateSuccess = values.first),
-            ),
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
@@ -358,7 +341,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                         ),
                       )
                     : const Text(
-                        'SIMULER LE PAIEMENT',
+                        'PAYER MAINTENANT',
                         style: TextStyle(fontSize: 18),
                       ),
               ),
@@ -366,7 +349,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             const SizedBox(height: 16),
             const Center(
               child: Text(
-                'Par défaut, Occasion privilégie les opérateurs mobiles. CinetPay restera une passerelle optionnelle.',
+                'Paiement Mobile Money sécurisé via CinetPay. Vous recevrez une '
+                'demande de confirmation sur votre téléphone.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey),
               ),

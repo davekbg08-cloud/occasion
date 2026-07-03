@@ -1,0 +1,18 @@
+[
+  {
+    "origin": [
+      "https://davekbg08-cloud.github.io",
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ],
+    "method": ["GET", "HEAD"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Disposition",
+      "ETag",
+      "Cache-Control"
+    ]
+  }
+]

@@ -138,13 +138,15 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (status) {
       'paid' => Colors.green,
-      'cancelled' => Colors.red,
+      'cancelled' || 'payment_failed' => Colors.red,
       _ => Colors.orange,
     };
     final label = switch (status) {
       'paid' => 'Payée',
       'cancelled' => 'Annulée',
-      _ => 'En attente',
+      'payment_failed' => 'Paiement échoué',
+      'processing_payment' => 'Confirmation en cours',
+      _ => 'En attente de paiement',
     };
 
     return Chip(

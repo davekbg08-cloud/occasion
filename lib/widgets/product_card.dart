@@ -72,15 +72,7 @@ class ProductCard extends ConsumerWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 28,
-                  backgroundImage: product.imageUrl == null
-                      ? null
-                      : NetworkImage(product.imageUrl!),
-                  child: product.imageUrl == null
-                      ? const Icon(Icons.image_outlined)
-                      : null,
-                ),
+                _ProductThumbnail(imageUrl: product.imageUrl),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -253,6 +245,44 @@ class ProductCard extends ConsumerWidget {
       return sellerName;
     }
     return '$sellerName - inscrit depuis ${DateFormat('MM/yyyy').format(createdAt)}';
+  }
+}
+
+class _ProductThumbnail extends StatelessWidget {
+  const _ProductThumbnail({required this.imageUrl});
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl;
+    if (url == null || url.isEmpty) {
+      return const CircleAvatar(
+        radius: 28,
+        child: Icon(Icons.image_outlined),
+      );
+    }
+
+    return ClipOval(
+      child: Image.network(
+        url,
+        width: 56,
+        height: 56,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return const SizedBox(
+            width: 56,
+            height: 56,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => const CircleAvatar(
+          radius: 28,
+          child: Icon(Icons.broken_image_outlined),
+        ),
+      ),
+    );
   }
 }
 

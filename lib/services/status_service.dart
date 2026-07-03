@@ -1,7 +1,6 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/status.dart';
 import 'image_compression_service.dart';
@@ -48,25 +47,28 @@ class StatusService {
     required String sellerId,
     required String sellerName,
     String? sellerProfileImageUrl,
-    required File mediaFile,
+    required XFile mediaFile,
     required StatusType type,
     String? caption,
     String? productId,
   }) async {
-    if (type == StatusType.video &&
-        await mediaFile.length() > 50 * 1024 * 1024) {
-      throw Exception('La vidéo doit faire moins de 50 Mo.');
-    }
-
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final ref = type == StatusType.video
         ? _storage.ref().child('annonces/$sellerId/statuses/$timestamp.mp4')
         : _storage.ref().child('annonces/$sellerId/statuses/$timestamp.jpg');
+
     if (type == StatusType.video) {
-      await ref.putFile(mediaFile, SettableMetadata(contentType: 'video/mp4'));
+      final videoBytes = await mediaFile.readAsBytes();
+      if (videoBytes.lengthInBytes > 50 * 1024 * 1024) {
+        throw Exception('La vidéo doit faire moins de 50 Mo.');
+      }
+      await ref.putData(
+        videoBytes,
+        SettableMetadata(contentType: 'video/mp4'),
+      );
     } else {
-      final compressed = ImageCompressionService.compressBytes(
-        await mediaFile.readAsBytes(),
+      final compressed = await ImageCompressionService.compressXFile(
+        mediaFile,
       );
       if (compressed.compressedSize > 5 * 1024 * 1024) {
         throw Exception("L'image reste trop lourde après compression.");

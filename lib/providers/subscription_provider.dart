@@ -44,12 +44,15 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     }
   }
 
-  Future<Subscription> simulateSellerPayment({
+  /// Crée l'intention de paiement pour un abonnement vendeur. Le
+  /// paiement réel se fait ensuite via CinetPay (UI), et l'abonnement
+  /// n'est activé dans Firestore qu'après vérification serveur du
+  /// paiement (Cloud Function `confirmCinetPayPayment` / `cinetpayNotify`).
+  /// Retourne le transactionId à transmettre à CinetPay.
+  Future<String> createSubscriptionPaymentIntent({
     required String planId,
     required String planName,
     required double price,
-    required String paymentMethod,
-    required bool shouldSucceed,
     int durationDays = 30,
   }) async {
     final user = _auth.currentUser;
@@ -57,56 +60,20 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
       throw StateError('Connecte-toi avant de payer un abonnement.');
     }
 
-    final transactionRef = _firestore.collection('transactions').doc();
-    final now = DateTime.now();
-
-    await transactionRef.set({
-      'id': transactionRef.id,
+    final intentRef = _firestore.collection('paymentIntents').doc();
+    await intentRef.set({
       'type': 'subscription',
       'userId': user.uid,
       'planId': planId,
+      'planName': planName,
       'amount': price,
       'currency': 'FC',
-      'paymentMethod': paymentMethod,
-      'status': shouldSucceed ? 'paid' : 'failed',
-      'simulation': true,
+      'durationDays': durationDays,
+      'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    if (!shouldSucceed) {
-      throw StateError('Paiement refusé en mode simulation.');
-    }
-
-    final subscription = Subscription(
-      id: user.uid,
-      userId: user.uid,
-      planId: planId,
-      planName: planName,
-      price: price,
-      startDate: now,
-      expiryDate: now.add(Duration(days: durationDays)),
-      isActive: true,
-      paymentMethod: paymentMethod,
-      transactionId: transactionRef.id,
-    );
-
-    await _firestore.collection('subscriptions').doc(user.uid).set({
-      ...subscription.toMap(),
-      'startDate': Timestamp.fromDate(subscription.startDate),
-      'expiryDate': Timestamp.fromDate(subscription.expiryDate),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await _firestore.collection('users').doc(user.uid).set({
-      'sellerSubscriptionActive': true,
-      'sellerSubscriptionExpiresAt': Timestamp.fromDate(
-        subscription.expiryDate,
-      ),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    state = subscription;
-    return subscription;
+    return intentRef.id;
   }
 }
 
