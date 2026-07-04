@@ -101,7 +101,28 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final subscription = ref.watch(subscriptionNotifierProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Abonnement vendeur')),
+      appBar: AppBar(
+        title: const Text('Abonnement vendeur'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Vérifier mon abonnement',
+            onPressed: () {
+              ref
+                  .read(subscriptionNotifierProvider.notifier)
+                  .loadForUser(currentUser?.id);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    "Abonnement mis à jour automatiquement dès qu'un admin "
+                    'confirme ton paiement.',
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

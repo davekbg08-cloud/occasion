@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/status.dart';
 import 'image_compression_service.dart';
+import 'seller_subscription_service.dart';
 
 class StatusService {
   StatusService([this._firestore, this._storageOverride]);
@@ -13,6 +14,8 @@ class StatusService {
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
   FirebaseStorage get _storage => _storageOverride ?? FirebaseStorage.instance;
+  SellerSubscriptionService get _subscriptionService =>
+      SellerSubscriptionService(firestore: _db);
 
   CollectionReference<Map<String, dynamic>> get _statuses {
     return _db.collection('statuses');
@@ -52,6 +55,15 @@ class StatusService {
     String? caption,
     String? productId,
   }) async {
+    final hasActiveSubscription = await _subscriptionService
+        .hasActiveSubscription(sellerId);
+    if (!hasActiveSubscription) {
+      throw Exception(
+        'Un abonnement vendeur actif est nécessaire pour publier un statut. '
+        'Active ou renouvelle ton abonnement.',
+      );
+    }
+
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final ref = type == StatusType.video
         ? _storage.ref().child('annonces/$sellerId/statuses/$timestamp.mp4')

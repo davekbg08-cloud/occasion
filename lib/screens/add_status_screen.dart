@@ -114,6 +114,10 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     if (message.contains('network')) {
       return 'Connexion réseau indisponible. Réessayez.';
     }
+    if (message.contains('abonnement')) {
+      return 'Un abonnement vendeur actif est nécessaire pour publier un '
+          'statut.';
+    }
     return 'Publication impossible pour le moment.';
   }
 

@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/image_compression_service.dart';
+import '../../services/seller_subscription_service.dart';
 import '../../shared/models/annonce.dart';
 
 abstract class AnnonceRepository {
@@ -22,13 +23,18 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
     firebase_auth.FirebaseAuth? auth,
+    SellerSubscriptionService? subscriptionService,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
        _storage = storage ?? FirebaseStorage.instance,
-       _auth = auth ?? firebase_auth.FirebaseAuth.instance;
+       _auth = auth ?? firebase_auth.FirebaseAuth.instance,
+       _subscriptionService =
+           subscriptionService ??
+           SellerSubscriptionService(firestore: firestore);
 
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
   final firebase_auth.FirebaseAuth _auth;
+  final SellerSubscriptionService _subscriptionService;
 
   CollectionReference<Map<String, dynamic>> get _annoncesRef =>
       _firestore.collection('annonces');
@@ -52,7 +58,8 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
       throw Exception('Ajoutez au moins une photo avant de publier.');
     }
 
-    final hasSellerSubscription = await _hasActiveSellerSubscription(userId);
+    final hasSellerSubscription = await _subscriptionService
+        .hasActiveSubscription(userId);
     final maxImages = hasSellerSubscription ? _sellerMaxImages : _freeMaxImages;
     if (images.length > maxImages) {
       throw Exception(
@@ -172,9 +179,8 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
 
     var updated = annonce;
     if (newImages.isNotEmpty) {
-      final hasSellerSubscription = await _hasActiveSellerSubscription(
-        annonce.userId,
-      );
+      final hasSellerSubscription = await _subscriptionService
+          .hasActiveSubscription(annonce.userId);
       final maxImages = hasSellerSubscription
           ? _sellerMaxImages
           : _freeMaxImages;
@@ -294,27 +300,6 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     return Annonce.fromJson({...data, 'id': snapshot.id});
   }
 
-  Future<bool> _hasActiveSellerSubscription(String userId) async {
-    try {
-      final snapshot = await _firestore
-          .collection('subscriptions')
-          .doc(userId)
-          .get();
-      final data = snapshot.data();
-      if (data == null || data['isActive'] != true) return false;
-      final expiryDate = _toDateTime(data['expiryDate']);
-      return expiryDate != null && expiryDate.isAfter(DateTime.now());
-    } catch (error, stackTrace) {
-      developer.log(
-        'Lecture abonnement vendeur impossible',
-        name: 'AnnonceRepositoryImpl._hasActiveSellerSubscription',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      return false;
-    }
-  }
-
   Future<int> _activeAnnonceCount(String userId) async {
     final snapshot = await _annoncesRef
         .where('vendeurId', isEqualTo: userId)
@@ -346,11 +331,4 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }.contains(status.trim().toLowerCase());
   }
 
-  DateTime? _toDateTime(Object? value) {
-    if (value is DateTime) return value;
-    if (value is Timestamp) return value.toDate();
-    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is String) return DateTime.tryParse(value);
-    return null;
-  }
 }

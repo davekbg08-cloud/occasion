@@ -17,31 +17,46 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
 
   final FirebaseFirestore _firestore;
   final firebase_auth.FirebaseAuth _auth;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
 
   void activateSubscription(Subscription newSub) {
     state = newSub;
   }
 
+  /// Écoute en temps réel l'abonnement de l'utilisateur connecté : dès
+  /// qu'un admin confirme un paiement manuel (Cloud Function
+  /// confirmManualPayment), le statut "Actif" apparaît immédiatement côté
+  /// vendeur, sans avoir à redémarrer l'app ni à rafraîchir manuellement.
   Future<void> loadForUser(String? userId) async {
+    await _subscription?.cancel();
+    _subscription = null;
+
     if (userId == null || userId.trim().isEmpty) {
       state = null;
       return;
     }
 
-    try {
-      final snapshot = await _firestore
-          .collection('subscriptions')
-          .doc(userId)
-          .get();
-      if (!snapshot.exists) {
-        state = null;
-        return;
-      }
+    _subscription = _firestore
+        .collection('subscriptions')
+        .doc(userId)
+        .snapshots()
+        .listen(
+          (snapshot) {
+            state = snapshot.exists
+                ? Subscription.fromMap({
+                    ...?snapshot.data(),
+                    'id': snapshot.id,
+                  })
+                : null;
+          },
+          onError: (_) => state = null,
+        );
+  }
 
-      state = Subscription.fromMap({...?snapshot.data(), 'id': snapshot.id});
-    } catch (_) {
-      state = null;
-    }
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   /// Soumet une demande de paiement d'abonnement vendeur via Orange Money
