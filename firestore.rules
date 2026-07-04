@@ -384,7 +384,17 @@ service cloud.firestore {
           request.resource.data.buyerId == request.auth.uid
           || request.resource.data.sellerId == request.auth.uid
         );
-      allow read, update, delete: if signedIn()
+      // 'read' autorise aussi un document inexistant (le client fait un
+      // get-then-create dans getOrCreateChat) : sans cette garde,
+      // resource.data serait null et Firestore refuserait systématiquement
+      // le tout premier message de chaque conversation.
+      allow read: if signedIn()
+        && (
+          !exists(/databases/$(database)/documents/chats/$(chatId))
+          || resource.data.buyerId == request.auth.uid
+          || resource.data.sellerId == request.auth.uid
+        );
+      allow update, delete: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid

@@ -119,6 +119,11 @@ class _DashboardContent extends StatelessWidget {
             route: '/publish-product',
           ),
           _DashboardAction(
+            icon: Icons.auto_awesome_outlined,
+            title: 'Publier un statut',
+            route: '/add-status',
+          ),
+          _DashboardAction(
             icon: Icons.chat_bubble_outline,
             title: 'Messages acheteurs',
             route: '/seller-messages',

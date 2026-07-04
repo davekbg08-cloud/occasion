@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
@@ -23,7 +25,13 @@ class PaymentSettlementService {
     try {
       final snap = await _firestore.collection('admins').doc(uid).get();
       return snap.exists;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Vérification admin impossible',
+        name: 'PaymentSettlementService.isCurrentUserAdmin',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }

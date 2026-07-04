@@ -55,6 +55,17 @@ class _PendingVerificationTab extends StatefulWidget {
 class _PendingVerificationTabState extends State<_PendingVerificationTab> {
   final _settlement = PaymentSettlementService();
   final Set<String> _processing = {};
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
+        .collection('paymentIntents')
+        .where('status', isEqualTo: 'awaiting_manual_verification')
+        .orderBy('updatedAt', descending: true)
+        .snapshots();
+  }
 
   Future<void> _confirm(String transactionId) async {
     setState(() => _processing.add(transactionId));
@@ -103,14 +114,8 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
 
   @override
   Widget build(BuildContext context) {
-    final query = FirebaseFirestore.instance
-        .collection('paymentIntents')
-        .where('status', isEqualTo: 'awaiting_manual_verification')
-        .orderBy('updatedAt', descending: true)
-        .snapshots();
-
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: query,
+      stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -234,6 +239,17 @@ class _ReadyForPayoutTab extends StatefulWidget {
 
 class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
   final Set<String> _processing = {};
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
+        .collection('orders')
+        .where('status', isEqualTo: 'completed')
+        .orderBy('completedAt', descending: false)
+        .snapshots();
+  }
 
   Future<void> _markPaidOut(String orderId) async {
     setState(() => _processing.add(orderId));
@@ -265,14 +281,8 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
 
   @override
   Widget build(BuildContext context) {
-    final query = FirebaseFirestore.instance
-        .collection('orders')
-        .where('status', isEqualTo: 'completed')
-        .orderBy('completedAt', descending: false)
-        .snapshots();
-
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: query,
+      stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -360,6 +370,17 @@ class _DisputesTab extends StatefulWidget {
 
 class _DisputesTabState extends State<_DisputesTab> {
   final Set<String> _processing = {};
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
+        .collection('orders')
+        .where('status', isEqualTo: 'disputed')
+        .orderBy('disputedAt', descending: true)
+        .snapshots();
+  }
 
   Future<void> _resolve(String orderId, String newStatus) async {
     setState(() => _processing.add(orderId));
@@ -394,14 +415,8 @@ class _DisputesTabState extends State<_DisputesTab> {
 
   @override
   Widget build(BuildContext context) {
-    final query = FirebaseFirestore.instance
-        .collection('orders')
-        .where('status', isEqualTo: 'disputed')
-        .orderBy('disputedAt', descending: true)
-        .snapshots();
-
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: query,
+      stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

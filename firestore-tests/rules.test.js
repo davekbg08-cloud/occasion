@@ -124,3 +124,30 @@ test("un client ne peut pas créer/modifier un document admins", async () => {
     buyer.collection("admins").doc("buyer1").set({ uid: "buyer1" })
   );
 });
+
+test("un utilisateur peut lire un chat inexistant sans permission-denied (check-then-create)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("chats").doc("chat-inexistant").get());
+});
+
+test("un participant peut lire son propre chat existant", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("chats").doc("chat1").get());
+});
+
+test("un utilisateur qui n'est pas participant ne peut pas lire un chat existant", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(outsider.collection("chats").doc("chat1").get());
+});
