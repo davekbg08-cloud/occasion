@@ -1,7 +1,6 @@
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
-const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
@@ -11,12 +10,6 @@ initializeApp();
 const db = getFirestore();
 const fcm = getMessaging();
 
-// Identifiants CinetPay côté serveur (jamais exposés au client).
-// A configurer avec : firebase functions:secrets:set CINETPAY_APIKEY
-//                      firebase functions:secrets:set CINETPAY_SITE_ID
-const CINETPAY_APIKEY = defineSecret("CINETPAY_APIKEY");
-const CINETPAY_SITE_ID = defineSecret("CINETPAY_SITE_ID");
-const CINETPAY_CHECK_URL = "https://api-checkout.cinetpay.com/v2/payment/check";
 const ESCROW_AUTO_RELEASE_DAYS = 3;
 
 exports.onNewMessage = onDocumentCreated(
@@ -125,8 +118,7 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
 /**
  * Applique le résultat d'un paiement (payé ou non) à Firestore : crée la
  * transaction, met à jour la commande ou active l'abonnement, et met à
- * jour l'intention de paiement elle-même. Factorisé pour être utilisé à
- * la fois par la vérification CinetPay et la confirmation manuelle admin.
+ * jour l'intention de paiement elle-même.
  */
 async function applySettlement({
   transactionId,
@@ -217,44 +209,19 @@ async function applySettlement({
     { merge: true }
   );
 
-  await batch.commit();
-}
-
-/**
- * Revérifie un paiement CinetPay auprès de leur API et met à jour Firestore
- * (orders / subscriptions / transactions / paymentIntents) en conséquence.
- * Idempotent : peut être appelée plusieurs fois sans effet de bord (merge).
- */
-async function settleCinetPayTransaction(transactionId) {
-  const intentRef = db.collection("paymentIntents").doc(transactionId);
-  const intentSnap = await intentRef.get();
-  if (!intentSnap.exists) {
-    throw new Error(`Intent de paiement inconnu : ${transactionId}`);
+  try {
+    await batch.commit();
+  } catch (err) {
+    // Un paiement déjà vérifié qui échoue à s'écrire en base est le pire des
+    // cas silencieux (argent reçu, jamais reflété côté app) : log distinct et
+    // explicite pour pouvoir être alerté dessus (Cloud Logging / Error
+    // Reporting), plutôt que de se perdre parmi les logs normaux.
+    console.error(
+      `PAYMENT_ALERT applySettlement: échec d'écriture Firestore pour la transaction ${transactionId}`,
+      err
+    );
+    throw err;
   }
-  const intent = intentSnap.data();
-
-  const checkResponse = await fetch(CINETPAY_CHECK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      apikey: CINETPAY_APIKEY.value(),
-      site_id: CINETPAY_SITE_ID.value(),
-      transaction_id: transactionId,
-    }),
-  });
-  const checkResult = await checkResponse.json();
-  const cinetpayStatus = checkResult?.data?.status;
-  const isPaid = cinetpayStatus === "ACCEPTED";
-
-  await applySettlement({
-    transactionId,
-    intent,
-    isPaid,
-    paymentMethod: "CinetPay",
-    extra: { cinetpayRawStatus: cinetpayStatus ?? "UNKNOWN" },
-  });
-
-  return isPaid;
 }
 
 /**
@@ -276,7 +243,7 @@ async function assertIsAdmin(uid) {
 
 /**
  * Confirme manuellement un paiement Orange Money envoyé directement par
- * l'acheteur ou le vendeur (hors CinetPay), après vérification humaine
+ * l'acheteur ou le vendeur, après vérification humaine
  * par un admin (ex: l'admin retrouve la référence dans son appli Orange
  * Money). Fonctionne aussi bien pour une commande que pour un abonnement
  * vendeur, via la collection unifiée `paymentIntents`.
@@ -292,6 +259,9 @@ exports.confirmManualPayment = onCall(async (request) => {
   const intentRef = db.collection("paymentIntents").doc(transactionId);
   const intentSnap = await intentRef.get();
   if (!intentSnap.exists) {
+    console.error(
+      `PAYMENT_ALERT confirmManualPayment: intention de paiement introuvable pour ${transactionId}`
+    );
     throw new HttpsError("not-found", "Intention de paiement introuvable");
   }
   const intent = intentSnap.data();
@@ -321,6 +291,9 @@ exports.rejectManualPayment = onCall(async (request) => {
   const intentRef = db.collection("paymentIntents").doc(transactionId);
   const intentSnap = await intentRef.get();
   if (!intentSnap.exists) {
+    console.error(
+      `PAYMENT_ALERT rejectManualPayment: intention de paiement introuvable pour ${transactionId}`
+    );
     throw new HttpsError("not-found", "Intention de paiement introuvable");
   }
   const intent = intentSnap.data();
@@ -335,58 +308,6 @@ exports.rejectManualPayment = onCall(async (request) => {
 
   return { status: "payment_failed" };
 });
-
-/**
- * Webhook CinetPay (notify_url).
- * une tentative de paiement, avec au minimum `cpm_trans_id`.
- *
- * Par sécurité on ne fait JAMAIS confiance au contenu du POST : on
- * revérifie systématiquement le statut réel auprès de l'API CinetPay
- * (endpoint /v2/payment/check) avec les identifiants secrets serveur,
- * avant de mettre à jour Firestore. C'est la seule source de vérité.
- */
-exports.cinetpayNotify = onRequest(
-  { secrets: [CINETPAY_APIKEY, CINETPAY_SITE_ID] },
-  async (req, res) => {
-    try {
-      const transactionId = req.body?.cpm_trans_id || req.query?.cpm_trans_id;
-      if (!transactionId) {
-        console.error("cinetpayNotify: cpm_trans_id manquant");
-        res.status(400).send("cpm_trans_id manquant");
-        return;
-      }
-
-      const isPaid = await settleCinetPayTransaction(transactionId);
-      console.log(
-        `cinetpayNotify: transaction ${transactionId} -> ${
-          isPaid ? "paid" : "failed"
-        }`
-      );
-      res.status(200).send("OK");
-    } catch (err) {
-      console.error("cinetpayNotify: erreur", err);
-      res.status(200).send("OK");
-    }
-  }
-);
-
-/**
- * Fonction callable depuis l'app Flutter juste après le callback
- * "waitResponse" du SDK CinetPay côté client. Permet une confirmation
- * quasi immédiate dans l'UI, sans attendre le webhook asynchrone (qui
- * reste néanmoins le filet de sécurité en arrière-plan).
- */
-exports.confirmCinetPayPayment = onCall(
-  { secrets: [CINETPAY_APIKEY, CINETPAY_SITE_ID] },
-  async (request) => {
-    const transactionId = request.data?.transactionId;
-    if (!transactionId || typeof transactionId !== "string") {
-      throw new HttpsError("invalid-argument", "transactionId manquant");
-    }
-    const isPaid = await settleCinetPayTransaction(transactionId);
-    return { status: isPaid ? "paid" : "failed" };
-  }
-);
 
 /**
  * Libération automatique du séquestre : si un acheteur n'a ni confirmé

@@ -1,0 +1,10 @@
+{
+  "name": "occasion-firestore-rules-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1"
+  }
+}

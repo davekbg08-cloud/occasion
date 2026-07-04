@@ -29,6 +29,14 @@ service cloud.firestore {
       return data.keys().hasOnly(keys);
     }
 
+    // Statuts que le client peut légitimement s'attribuer lui-même (avant
+    // toute vérification humaine). 'verified' et 'rejected' ne sont jamais
+    // posés par le client : ce sont des décisions admin (Cloud Function /
+    // Admin SDK, qui contourne ces règles).
+    function isClientSettableIdentityStatus(value) {
+      return value in ['unverified', 'phone_verified', 'identity_submitted'];
+    }
+
     function stringField(data, field, max) {
       return data[field] is string && data[field].size() <= max;
     }
@@ -238,7 +246,35 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow write: if isOwner(userId);
+
+      // Création du compte (inscription) : le client choisit son rôle et
+      // son statut d'identité initial, mais ne peut jamais se créer déjà
+      // "vérifié", ni s'attribuer un abonnement vendeur.
+      allow create: if isOwner(userId)
+        && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller'])
+        && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
+        && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
+        && !('sellerSubscriptionActive' in request.resource.data)
+        && !('sellerSubscriptionExpiresAt' in request.resource.data);
+
+      // Mise à jour : le rôle et l'abonnement vendeur ne sont plus jamais
+      // modifiables par le client une fois le compte créé (uniquement par
+      // une Cloud Function via l'Admin SDK, qui contourne ces règles).
+      // Le statut d'identité ne peut être déplacé que vers un statut de
+      // "soumission" (jamais 'verified'/'rejected', décision admin).
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(
+            ['role', 'sellerSubscriptionActive', 'sellerSubscriptionExpiresAt']
+          )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['identityStatus', 'sellerStatus'])
+          || (
+            isClientSettableIdentityStatus(request.resource.data.identityStatus)
+            && isClientSettableIdentityStatus(request.resource.data.sellerStatus)
+          )
+        );
+
+      allow delete: if false;
 
       match /blockedUsers/{blockedUserId} {
         allow read, create, update, delete: if isOwner(userId);
@@ -375,9 +411,9 @@ service cloud.firestore {
           subscriptionId == request.auth.uid
           || resource.data.userId == request.auth.uid
         );
-      // Seule la Cloud Function confirmCinetPayPayment / cinetpayNotify
-      // (Admin SDK, contourne ces règles) peut activer un abonnement
-      // après vérification réelle du paiement auprès de CinetPay.
+      // Seules les Cloud Functions confirmManualPayment / rejectManualPayment
+      // (Admin SDK, contournent ces règles) peuvent activer un abonnement,
+      // après vérification manuelle du paiement par un admin.
       allow create, update, delete: if false;
     }
 
@@ -418,11 +454,11 @@ service cloud.firestore {
           || ('sellerIds' in resource.data && request.auth.uid in resource.data.sellerIds)
           || isAdmin()
         );
-      // Le client peut annuler, marquer "en cours de paiement" (CinetPay), ou
+      // Le client peut annuler, marquer "en cours de paiement", ou
       // soumettre une référence de paiement manuel Orange Money pour
       // vérification humaine. Le passage à 'paid'/'payment_failed' est
-      // réservé au serveur (Cloud Function), après vérification CinetPay
-      // réelle ou confirmation manuelle par un admin.
+      // réservé au serveur (Cloud Function), après confirmation manuelle
+      // par un admin.
       allow update: if signedIn()
         && (
           (

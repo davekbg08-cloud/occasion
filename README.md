@@ -28,7 +28,6 @@ Construire une marketplace mobile avec profils utilisateurs, catalogue produits,
 - Riverpod
 - GoRouter
 - GetIt / Injectable
-- CinetPay
 - Camera / Image Picker / Google ML Kit OCR
 - Notifications locales
 
