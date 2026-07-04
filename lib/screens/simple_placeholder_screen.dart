@@ -45,7 +45,7 @@ class SimplePlaceholderScreen extends StatelessWidget {
               if (primaryLabel != null && primaryRoute != null) ...[
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: () => context.go(primaryRoute!),
+                  onPressed: () => context.push(primaryRoute!),
                   child: Text(primaryLabel!),
                 ),
               ],

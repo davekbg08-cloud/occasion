@@ -21,17 +21,36 @@ class StatusService {
     return _db.collection('statuses');
   }
 
-  Stream<List<Status>> feed() {
+  static const feedPageSize = 20;
+
+  /// Première page du feed, en temps réel (les nouveaux statuts et les
+  /// likes apparaissent immédiatement). Les pages suivantes sont chargées
+  /// via [fetchMoreFeed], qui paginé avec un curseur Firestore plutôt que
+  /// de tout charger d'un coup.
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> feed({
+    int pageSize = feedPageSize,
+  }) {
     return _statuses
         .where('active', isEqualTo: true)
         .orderBy('createdAt', descending: true)
-        .limit(100)
+        .limit(pageSize)
         .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((doc) => Status.fromMap({...doc.data(), 'id': doc.id}))
-              .toList(),
-        );
+        .map((snap) => snap.docs);
+  }
+
+  /// Page suivante du feed après le dernier document chargé. Ponctuelle
+  /// (pas de flux temps réel) : suffisant pour du contenu déjà consulté.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> fetchMoreFeed({
+    required DocumentSnapshot<Map<String, dynamic>> after,
+    int pageSize = feedPageSize,
+  }) async {
+    final snap = await _statuses
+        .where('active', isEqualTo: true)
+        .orderBy('createdAt', descending: true)
+        .startAfterDocument(after)
+        .limit(pageSize)
+        .get();
+    return snap.docs;
   }
 
   Stream<List<Status>> sellerStatuses(String sellerId) {
@@ -71,8 +90,12 @@ class StatusService {
 
     if (type == StatusType.video) {
       final videoBytes = await mediaFile.readAsBytes();
-      if (videoBytes.lengthInBytes > 50 * 1024 * 1024) {
-        throw Exception('La vidéo doit faire moins de 50 Mo.');
+      // Contenu éphémère limité à 60s côté sélection (add_status_screen) :
+      // un plafond plus bas que les 50 Mo d'origine réduit le coût de
+      // stockage/bande passante. Une vraie transcodification (ffmpeg côté
+      // serveur) réduirait davantage mais dépasse la portée de ce correctif.
+      if (videoBytes.lengthInBytes > 20 * 1024 * 1024) {
+        throw Exception('La vidéo doit faire moins de 20 Mo (60s max).');
       }
       await ref.putData(
         videoBytes,
@@ -81,8 +104,10 @@ class StatusService {
     } else {
       final compressed = await ImageCompressionService.compressXFile(
         mediaFile,
+        maxWidth: 1080,
+        quality: 75,
       );
-      if (compressed.compressedSize > 5 * 1024 * 1024) {
+      if (compressed.compressedSize > 2 * 1024 * 1024) {
         throw Exception("L'image reste trop lourde après compression.");
       }
       await ref.putData(

@@ -74,6 +74,12 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                   itemCount: visibleStatuses.length,
                   onPageChanged: (index) {
                     setState(() => _currentPage = index);
+                    // Pagine le feed : on charge la page suivante quand
+                    // l'utilisateur approche de la fin des statuts déjà
+                    // chargés, plutôt que de tout charger d'un coup.
+                    if (index >= visibleStatuses.length - 3) {
+                      ref.read(statusNotifierProvider.notifier).loadMore();
+                    }
                   },
                   itemBuilder: (context, index) {
                     final status = visibleStatuses[index];

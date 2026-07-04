@@ -69,7 +69,7 @@ class ImageCompressionService {
     }
 
     final encoded = Uint8List.fromList(
-      img.encodeJpg(normalized, quality: quality.clamp(80, 85).toInt()),
+      img.encodeJpg(normalized, quality: quality.clamp(60, 85).toInt()),
     );
 
     return CompressedImage(

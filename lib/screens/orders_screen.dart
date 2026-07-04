@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/auth_provider.dart';
@@ -24,7 +25,14 @@ class OrdersScreen extends ConsumerWidget {
         .snapshots();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes commandes')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () =>
+              context.canPop() ? context.pop() : context.go('/home'),
+        ),
+        title: const Text('Mes commandes'),
+      ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: ordersStream,
         builder: (context, snapshot) {

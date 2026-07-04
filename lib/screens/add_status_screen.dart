@@ -34,11 +34,17 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     super.dispose();
   }
 
+  // Un statut est un contenu éphémère consulté en plein écran mobile :
+  // pas besoin de la résolution/qualité maximale utilisée pour les
+  // annonces, ce qui réduit le coût de stockage/bande passante Firebase.
+  static const _feedImageMaxWidth = 1080.0;
+  static const _feedVideoMaxDuration = Duration(seconds: 60);
+
   Future<void> _pickImage() async {
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 85,
-      maxWidth: 1600,
+      imageQuality: 80,
+      maxWidth: _feedImageMaxWidth,
     );
     if (picked == null) return;
 
@@ -51,7 +57,10 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
   }
 
   Future<void> _pickVideo() async {
-    final picked = await _picker.pickVideo(source: ImageSource.gallery);
+    final picked = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: _feedVideoMaxDuration,
+    );
     if (picked == null) return;
 
     final controller = kIsWeb

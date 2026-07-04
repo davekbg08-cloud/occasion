@@ -623,15 +623,22 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
       throw StateError('Acheteur introuvable.');
     }
 
+    // Le rôle de `me` dans CETTE conversation dépend de qui il est
+    // réellement (buyerId/sellerId résolus ci-dessus), pas du rôle de son
+    // compte : un compte vendeur qui contacte un autre vendeur depuis
+    // /products est bien l'acheteur de cet échange précis. Utiliser
+    // me.isBuyer/me.isSeller ici écrasait sellerId par me.id dans ce cas,
+    // créant un chat corrompu (buyerId == sellerId) invisible pour le vrai
+    // destinataire.
     return ref
         .read(chatNotifierProvider.notifier)
         .openChat(
-          buyerId: me.isBuyer ? me.id : buyerId,
-          sellerId: me.isSeller ? me.id : sellerId,
-          buyerName: me.isBuyer ? me.name : buyerName,
-          sellerName: me.isSeller ? me.name : sellerName,
-          buyerProfileImageUrl: me.isBuyer ? me.profileImageUrl : null,
-          sellerProfileImageUrl: me.isSeller ? me.profileImageUrl : null,
+          buyerId: buyerId,
+          sellerId: sellerId,
+          buyerName: buyerName,
+          sellerName: sellerName,
+          buyerProfileImageUrl: me.id == buyerId ? me.profileImageUrl : null,
+          sellerProfileImageUrl: me.id == sellerId ? me.profileImageUrl : null,
           listingId: listingId,
           listingTitle: listingTitle,
         );
