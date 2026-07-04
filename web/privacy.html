@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Politique de confidentialite - Occasion</title>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --card: #1a1a1a;
+      --border: #2a2a2a;
+      --blue: #2f80ed;
+      --text: #f2f2f2;
+      --muted: #9a9a9a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.6;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 80px;
+    }
+    .logo {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 26px;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      color: var(--muted);
+      margin-bottom: 32px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 17px;
+      margin-top: 0;
+    }
+    ul {
+      padding-left: 20px;
+      margin: 12px 0;
+    }
+    li { margin-bottom: 6px; }
+    a { color: var(--blue); }
+    .muted {
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">Occasion</div>
+    <h1>Politique de confidentialite</h1>
+    <p class="subtitle">
+      Derniere mise a jour : juillet 2026. Cette page decrit quelles donnees
+      Occasion collecte, pourquoi, et comment les gerer.
+    </p>
+
+    <div class="card">
+      <h2>Qui nous sommes</h2>
+      <p>
+        Occasion est une application de petites annonces entre particuliers
+        (achat/vente d'articles d'occasion), editee par Mediavision RDC.
+        Pour toute question sur cette politique ou vos donnees, contactez-nous
+        a <strong>support@mediavision-rdc.com</strong>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Donnees liees a votre compte</h2>
+      <ul>
+        <li>Nom, numero de telephone (verifie par SMS), photo de profil</li>
+        <li>Role choisi (acheteur ou vendeur)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Verification d'identite vendeur</h2>
+      <p>
+        Pour activer certaines fonctionnalites vendeur, nous demandons un
+        selfie et une photo d'une piece d'identite. Ces documents servent
+        uniquement a verifier l'identite du vendeur et a lutter contre la
+        fraude. Ils sont consultes uniquement par notre equipe de moderation,
+        stockes de maniere securisee (Firebase Storage), et ne sont jamais
+        partages avec d'autres utilisateurs ni revendus a des tiers.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Contenu que vous publiez</h2>
+      <ul>
+        <li>Annonces : titre, description, prix, photos, localisation (ville/quartier saisis manuellement)</li>
+        <li>Statuts (feed) : photos ou courtes videos</li>
+        <li>Messages echanges avec d'autres utilisateurs via la messagerie de l'app</li>
+        <li>Avis, signalements et blocages d'utilisateurs</li>
+      </ul>
+      <p class="muted">
+        Nous ne collectons pas votre position GPS precise : l'application ne
+        demande aucune permission de localisation.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Paiements</h2>
+      <p>
+        Les paiements (achat d'annonces, abonnement vendeur) se font par
+        Orange Money, en dehors de l'application (transfert manuel puis
+        reference de transaction saisie dans l'app pour verification). Nous
+        ne recevons ni ne stockons aucune information bancaire ou de carte de
+        paiement.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Donnees techniques</h2>
+      <ul>
+        <li>Jeton de notification push (pour vous prevenir d'un nouveau message ou d'une mise a jour de commande)</li>
+        <li>Rapports de plantage anonymises (Firebase Crashlytics), pour corriger les bugs</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Avec qui vos donnees sont partagees</h2>
+      <p>
+        Vos donnees sont hebergees et traitees par Firebase / Google Cloud,
+        notre prestataire d'infrastructure. Elles ne sont ni vendues, ni
+        partagees a des fins publicitaires. Les autres utilisateurs ne
+        voient que les informations que vous publiez volontairement
+        (annonces, profil public, messages que vous envoyez).
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Vos droits</h2>
+      <p>
+        Vous pouvez a tout moment consulter, corriger ou supprimer vos
+        donnees. La suppression de compte est disponible directement dans
+        l'application (Profil > Supprimer mon compte) ou via
+        <a href="./delete-account.html">cette page</a>. Pour toute autre
+        demande (acces, correction), ecrivez-nous a
+        <strong>support@mediavision-rdc.com</strong> ; nous repondons sous
+        72 heures.
+      </p>
+    </div>
+
+    <p class="muted">
+      Cette politique peut evoluer ; toute modification importante sera
+      annoncee dans l'application.
+    </p>
+  </div>
+</body>
+</html>

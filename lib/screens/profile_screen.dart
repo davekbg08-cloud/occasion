@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
+
+const _privacyPolicyUrl =
+    'https://davekbg08-cloud.github.io/occasion/privacy.html';
+
+Future<void> _openPrivacyPolicy() =>
+    launchUrl(Uri.parse(_privacyPolicyUrl), mode: LaunchMode.externalApplication);
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -271,6 +278,11 @@ class _BuyerOptions extends StatelessWidget {
           onTap: () => context.push('/blocked-users', extra: userId),
         ),
         _ProfileTile(
+          icon: Icons.privacy_tip_outlined,
+          title: 'Politique de confidentialité',
+          onTap: _openPrivacyPolicy,
+        ),
+        _ProfileTile(
           icon: Icons.delete_outline,
           title: 'Supprimer mon compte',
           onTap: () => context.push('/delete-account', extra: userId),
@@ -332,6 +344,11 @@ class _SellerOptions extends StatelessWidget {
           icon: Icons.chat_bubble_outline,
           title: 'Messages',
           onTap: () => context.push('/seller-messages'),
+        ),
+        _ProfileTile(
+          icon: Icons.privacy_tip_outlined,
+          title: 'Politique de confidentialité',
+          onTap: _openPrivacyPolicy,
         ),
         _ProfileTile(
           icon: Icons.delete_outline,

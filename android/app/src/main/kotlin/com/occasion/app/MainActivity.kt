@@ -1,4 +1,4 @@
-package com.example.occasion
+package com.occasion.app
 
 import io.flutter.embedding.android.FlutterActivity
 
