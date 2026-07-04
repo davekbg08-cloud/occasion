@@ -12,6 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Node (functions/, firestore-tests/)
+node_modules/
+
 # Local environment / secrets
 .env
 .env.*
