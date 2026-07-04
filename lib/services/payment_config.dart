@@ -18,4 +18,13 @@ class PaymentConfig {
 
   static bool get isManualOrangeMoneyConfigured =>
       manualOrangeMoneyNumber != 'TON_NUMERO_ORANGE_MONEY';
+
+  /// Page web où payer/renouveler l'abonnement vendeur. Google Play impose
+  /// sa propre facturation pour tout contenu numérique payé DANS une app
+  /// Android ; le paiement Orange Money manuel de l'abonnement (contenu
+  /// numérique, contrairement au paiement d'une annonce entre particuliers
+  /// pour un bien physique) est donc redirigé vers le site web sur Android,
+  /// seule plateforme concernée par cette règle.
+  static const String subscriptionWebUrl =
+      'https://davekbg08-cloud.github.io/occasion/#/subscription';
 }
