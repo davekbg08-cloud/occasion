@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/auth_provider.dart';
@@ -24,7 +25,14 @@ class SellerOrdersScreen extends ConsumerWidget {
         .snapshots();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Commandes reçues')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () =>
+              context.canPop() ? context.pop() : context.go('/seller-dashboard'),
+        ),
+        title: const Text('Commandes reçues'),
+      ),
       body: Column(
         children: [
           Container(
@@ -61,8 +69,23 @@ class SellerOrdersScreen extends ConsumerWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return const Center(
-                    child: Text('Impossible de charger les commandes.'),
+                  final error = snapshot.error;
+                  var message = 'Impossible de charger les commandes.';
+                  if (error is FirebaseException) {
+                    if (error.code == 'failed-precondition') {
+                      message =
+                          'Configuration en cours côté serveur. Réessaie dans '
+                          'quelques minutes.';
+                    } else if (error.code == 'permission-denied') {
+                      message =
+                          "Accès refusé. Reconnecte-toi puis réessaie.";
+                    }
+                  }
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(message, textAlign: TextAlign.center),
+                    ),
                   );
                 }
                 final docs = snapshot.data?.docs ?? const [];
