@@ -62,7 +62,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
        _storage = storage ?? FirebaseStorage.instance,
        super(const AuthState(isAuthenticated: false, isLoading: true)) {
     _authSubscription = _auth.authStateChanges().listen(
-      _restoreSession,
+      (firebaseUser) {
+        if (_isRegistering) return;
+        _restoreSession(firebaseUser);
+      },
       onError: (error) {
         state = state.copyWith(
           isAuthenticated: false,
@@ -79,6 +82,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
   StreamSubscription<firebase_auth.User?>? _authSubscription;
+  bool _isRegistering = false;
 
   CollectionReference<Map<String, dynamic>> get _users =>
       _firestore.collection('users');
@@ -138,6 +142,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       selectedRole: role,
       clearError: true,
     );
+    _isRegistering = true;
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -193,6 +198,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           : 'Inscription impossible. Réessaie dans un instant.';
       _fail(message);
       rethrow;
+    } finally {
+      _isRegistering = false;
     }
   }
 
@@ -289,8 +296,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
 
     try {
-      final snapshot = await _users.doc(firebaseUser.uid).get();
-      final data = snapshot.data();
+      Map<String, dynamic>? data;
+      // Jusqu'à 3 tentatives (0ms, 400ms, 900ms) : le document Firestore peut
+      // ne pas être immédiatement lisible juste après sa création (latence
+      // réseau/cohérence), on évite de déconnecter l'utilisateur à tort.
+      for (final delayMs in [0, 400, 900]) {
+        if (delayMs > 0) {
+          await Future<void>.delayed(Duration(milliseconds: delayMs));
+        }
+        final snapshot = await _users.doc(firebaseUser.uid).get();
+        data = snapshot.data();
+        if (data != null) break;
+      }
+
       if (data == null) {
         await _auth.signOut();
         state = state.copyWith(
