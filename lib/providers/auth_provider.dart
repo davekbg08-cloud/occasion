@@ -174,7 +174,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         'id': firebaseUser.uid,
         'name': name,
         'role': role.name,
-        'profileImageUrl': null,
         'identityStatus': SellerIdentityStatus.unverified.firestoreValue,
         'sellerStatus': SellerIdentityStatus.unverified.firestoreValue,
         'phoneVerified': false,
