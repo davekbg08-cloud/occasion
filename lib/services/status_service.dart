@@ -1,10 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import '../models/status.dart';
 import 'image_compression_service.dart';
 import 'seller_subscription_service.dart';
+import 'video_compression_service.dart';
+
+enum StatusUploadPhase { compressing, uploading }
+
+class StatusUploadProgress {
+  const StatusUploadProgress(this.phase, this.progress);
+
+  final StatusUploadPhase phase;
+  final double progress;
+}
 
 class StatusService {
   StatusService([this._firestore, this._storageOverride]);
@@ -73,6 +84,7 @@ class StatusService {
     required StatusType type,
     String? caption,
     String? productId,
+    void Function(StatusUploadProgress progress)? onProgress,
   }) async {
     final hasActiveSubscription = await _subscriptionService
         .hasActiveSubscription(sellerId);
@@ -89,18 +101,55 @@ class StatusService {
         : _storage.ref().child('annonces/$sellerId/statuses/$timestamp.jpg');
 
     if (type == StatusType.video) {
-      final videoBytes = await mediaFile.readAsBytes();
-      // Contenu éphémère limité à 60s côté sélection (add_status_screen) :
-      // un plafond plus bas que les 50 Mo d'origine réduit le coût de
-      // stockage/bande passante. Une vraie transcodification (ffmpeg côté
-      // serveur) réduirait davantage mais dépasse la portée de ce correctif.
-      if (videoBytes.lengthInBytes > 20 * 1024 * 1024) {
-        throw Exception('La vidéo doit faire moins de 20 Mo (60s max).');
+      if (kIsWeb) {
+        // Pas de transcodage natif disponible sur le web : on applique
+        // uniquement le plafond de taille, sans recompression.
+        final videoBytes = await mediaFile.readAsBytes();
+        if (videoBytes.lengthInBytes > VideoCompressionService.maxOutputBytes) {
+          throw Exception('La vidéo doit faire moins de 12 Mo (30s max).');
+        }
+        final uploadTask = ref.putData(
+          videoBytes,
+          SettableMetadata(contentType: 'video/mp4'),
+        );
+        uploadTask.snapshotEvents.listen((snapshot) {
+          if (snapshot.totalBytes <= 0) return;
+          onProgress?.call(
+            StatusUploadProgress(
+              StatusUploadPhase.uploading,
+              snapshot.bytesTransferred / snapshot.totalBytes,
+            ),
+          );
+        });
+        await uploadTask;
+      } else {
+        final compressed = await VideoCompressionService.compress(
+          mediaFile,
+          onProgress: (progress) => onProgress?.call(
+            StatusUploadProgress(StatusUploadPhase.compressing, progress),
+          ),
+        );
+        final uploadTask = ref.putFile(
+          compressed.file,
+          SettableMetadata(
+            contentType: 'video/mp4',
+            customMetadata: {
+              'originalSize': compressed.originalSize.toString(),
+              'compressedSize': compressed.compressedSize.toString(),
+            },
+          ),
+        );
+        uploadTask.snapshotEvents.listen((snapshot) {
+          if (snapshot.totalBytes <= 0) return;
+          onProgress?.call(
+            StatusUploadProgress(
+              StatusUploadPhase.uploading,
+              snapshot.bytesTransferred / snapshot.totalBytes,
+            ),
+          );
+        });
+        await uploadTask;
       }
-      await ref.putData(
-        videoBytes,
-        SettableMetadata(contentType: 'video/mp4'),
-      );
     } else {
       final compressed = await ImageCompressionService.compressXFile(
         mediaFile,

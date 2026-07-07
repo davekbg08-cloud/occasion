@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../favoris/providers/favoris_provider.dart';
 import '../../../models/annonce.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../widgets/fullscreen_image_viewer.dart';
 
 class AnnonceCard extends ConsumerWidget {
   const AnnonceCard({super.key, required this.annonce});
@@ -20,52 +21,76 @@ class AnnonceCard extends ConsumerWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: ListTile(
-        leading: annonce.imageUrls.isEmpty
-            ? const Icon(Icons.image_outlined)
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Image.network(
-                  annonce.imageUrls.first,
-                  width: 64,
-                  height: 64,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return const SizedBox(
-                      width: 64,
-                      height: 64,
-                      child: Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    width: 64,
-                    height: 64,
-                    color: Colors.grey[850],
-                    child: const Icon(
-                      Icons.broken_image_outlined,
-                      color: Colors.grey,
-                    ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: annonce.imageUrls.isEmpty
+                ? null
+                : () => FullscreenImageViewer.open(
+                    context,
+                    imageUrls: annonce.imageUrls,
                   ),
-                ),
-              ),
-        title: Text(annonce.title),
-        subtitle: Text(
-          '${annonce.price.toStringAsFixed(0)} ${annonce.currency}\n${annonce.category}',
-        ),
-        isThreeLine: true,
-        trailing: canFavorite
-            ? IconButton(
-                icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
-                onPressed: userId.isEmpty
-                    ? null
-                    : () => ref
-                          .read(favorisProvider(userId).notifier)
-                          .toggleFavori(annonce.id),
-              )
-            : null,
+            child: AspectRatio(
+              aspectRatio: 4 / 3,
+              child: annonce.imageUrls.isEmpty
+                  ? Container(
+                      color: Colors.grey[850],
+                      child: const Center(
+                        child: Icon(
+                          Icons.image_outlined,
+                          color: Colors.grey,
+                          size: 48,
+                        ),
+                      ),
+                    )
+                  : Image.network(
+                      annonce.imageUrls.first,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: Colors.grey[850],
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: Colors.grey[850],
+                        child: const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.grey,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          ListTile(
+            title: Text(annonce.title),
+            subtitle: Text(
+              '${annonce.price.toStringAsFixed(0)} ${annonce.currency}\n${annonce.category}',
+            ),
+            isThreeLine: true,
+            trailing: canFavorite
+                ? IconButton(
+                    icon: Icon(
+                      isFavorite ? Icons.favorite : Icons.favorite_border,
+                    ),
+                    onPressed: userId.isEmpty
+                        ? null
+                        : () => ref
+                              .read(favorisProvider(userId).notifier)
+                              .toggleFavori(annonce.id),
+                  )
+                : null,
+          ),
+        ],
       ),
     );
   }

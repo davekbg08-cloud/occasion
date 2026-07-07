@@ -15,6 +15,7 @@ class StatusState {
     this.isLoadingMore = false,
     this.hasMore = true,
     this.isUploading = false,
+    this.uploadProgress,
     this.error,
   });
 
@@ -24,6 +25,7 @@ class StatusState {
   final bool isLoadingMore;
   final bool hasMore;
   final bool isUploading;
+  final StatusUploadProgress? uploadProgress;
   final String? error;
 
   bool isLiked(String statusId) => likedIds.contains(statusId);
@@ -35,6 +37,8 @@ class StatusState {
     bool? isLoadingMore,
     bool? hasMore,
     bool? isUploading,
+    StatusUploadProgress? uploadProgress,
+    bool clearUploadProgress = false,
     String? error,
     bool clearError = false,
   }) {
@@ -45,6 +49,9 @@ class StatusState {
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       hasMore: hasMore ?? this.hasMore,
       isUploading: isUploading ?? this.isUploading,
+      uploadProgress: clearUploadProgress
+          ? null
+          : uploadProgress ?? this.uploadProgress,
       error: clearError ? null : error ?? this.error,
     );
   }
@@ -129,7 +136,11 @@ class StatusNotifier extends StateNotifier<StatusState> {
     String? caption,
     String? productId,
   }) async {
-    state = state.copyWith(isUploading: true, clearError: true);
+    state = state.copyWith(
+      isUploading: true,
+      clearUploadProgress: true,
+      clearError: true,
+    );
 
     try {
       await _service.createStatus(
@@ -140,11 +151,22 @@ class StatusNotifier extends StateNotifier<StatusState> {
         type: type,
         caption: caption,
         productId: productId,
+        onProgress: (progress) {
+          state = state.copyWith(uploadProgress: progress);
+        },
       );
-      state = state.copyWith(isUploading: false, clearError: true);
+      state = state.copyWith(
+        isUploading: false,
+        clearUploadProgress: true,
+        clearError: true,
+      );
       return true;
     } catch (error) {
-      state = state.copyWith(isUploading: false, error: error.toString());
+      state = state.copyWith(
+        isUploading: false,
+        clearUploadProgress: true,
+        error: error.toString(),
+      );
       return false;
     }
   }

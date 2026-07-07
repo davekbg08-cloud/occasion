@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
+import '../services/status_service.dart';
 
 class AddStatusScreen extends ConsumerStatefulWidget {
   const AddStatusScreen({super.key});
@@ -38,7 +39,7 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
   // pas besoin de la résolution/qualité maximale utilisée pour les
   // annonces, ce qui réduit le coût de stockage/bande passante Firebase.
   static const _feedImageMaxWidth = 1080.0;
-  static const _feedVideoMaxDuration = Duration(seconds: 60);
+  static const _feedVideoMaxDuration = Duration(seconds: 30);
 
   Future<void> _pickImage() async {
     final picked = await _picker.pickImage(
@@ -169,6 +170,8 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
       ),
       body: Column(
         children: [
+          if (statusState.isUploading)
+            _UploadProgressBanner(progress: statusState.uploadProgress),
           Expanded(
             child: _file == null
                 ? _PickerPlaceholder(
@@ -373,6 +376,47 @@ class _MediaPreview extends StatelessWidget {
     }
 
     return const Center(child: CircularProgressIndicator(color: Colors.white));
+  }
+}
+
+class _UploadProgressBanner extends StatelessWidget {
+  const _UploadProgressBanner({required this.progress});
+
+  final StatusUploadProgress? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = progress?.progress;
+    final label = switch (progress?.phase) {
+      StatusUploadPhase.compressing => 'Compression de la vidéo...',
+      StatusUploadPhase.uploading => 'Envoi en cours...',
+      null => 'Préparation...',
+    };
+    final percent = value == null ? null : (value.clamp(0, 1) * 100).round();
+
+    return Container(
+      color: Colors.grey[900],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            percent == null ? label : '$label $percent%',
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: value?.clamp(0, 1),
+              minHeight: 4,
+              backgroundColor: Colors.grey[800],
+              color: Colors.blue,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

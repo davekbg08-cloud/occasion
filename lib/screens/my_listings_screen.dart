@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/fullscreen_image_viewer.dart';
 
 class MyListingsScreen extends ConsumerWidget {
   const MyListingsScreen({super.key});
@@ -98,137 +99,148 @@ class _ListingCard extends ConsumerWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: annonce.imageUrls.isEmpty
+                ? null
+                : () => FullscreenImageViewer.open(
+                    context,
+                    imageUrls: annonce.imageUrls,
+                  ),
+            child: AspectRatio(
+              aspectRatio: 4 / 3,
+              child: annonce.imageUrls.isEmpty
+                  ? Container(
+                      color: Colors.grey[850],
+                      child: const Center(
+                        child: Icon(
+                          Icons.image_outlined,
+                          color: Colors.grey,
+                          size: 48,
+                        ),
+                      ),
+                    )
+                  : Image.network(
+                      annonce.imageUrls.first,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: Colors.grey[850],
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: Colors.grey[850],
+                        child: const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.grey,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 78,
-                    height: 78,
-                    child: annonce.imageUrls.isEmpty
-                        ? Container(
-                            color: Colors.grey[850],
-                            child: const Icon(Icons.image_outlined),
-                          )
-                        : Image.network(
-                            annonce.imageUrls.first,
-                            fit: BoxFit.cover,
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) return child;
-                              return const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                                  color: Colors.grey[850],
-                                  child: const Icon(
-                                    Icons.broken_image_outlined,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              annonce.title,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          _StatusChip(status: annonce.status),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${annonce.price.toStringAsFixed(0)} ${annonce.currency}',
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        annonce.title,
                         style: const TextStyle(
-                          color: Colors.blue,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_conditionLabel(annonce.condition)} • $date',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                _InfoPill(
-                  icon: Icons.visibility_outlined,
-                  label: '${annonce.views} vues',
-                ),
-                _InfoPill(
-                  icon: Icons.mark_unread_chat_alt_outlined,
-                  label: '${annonce.messagesCount} messages',
-                ),
-                _InfoPill(
-                  icon: Icons.category_outlined,
-                  label: annonce.category,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () =>
-                        context.push('/publish-product', extra: annonce),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('Modifier'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _toggleStatus(context, ref, isOnline),
-                    icon: Icon(
-                      isOnline
-                          ? Icons.pause_circle_outline
-                          : Icons.play_circle_outline,
-                      size: 18,
                     ),
-                    label: Text(isOnline ? 'Désactiver' : 'Activer'),
+                    _StatusChip(status: annonce.status),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${annonce.price.toStringAsFixed(0)} ${annonce.currency}',
+                  style: const TextStyle(
+                    color: Colors.blue,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  tooltip: 'Supprimer',
-                  onPressed: () => _confirmDelete(context, ref),
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                const SizedBox(height: 4),
+                Text(
+                  '${_conditionLabel(annonce.condition)} • $date',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    _InfoPill(
+                      icon: Icons.visibility_outlined,
+                      label: '${annonce.views} vues',
+                    ),
+                    _InfoPill(
+                      icon: Icons.mark_unread_chat_alt_outlined,
+                      label: '${annonce.messagesCount} messages',
+                    ),
+                    _InfoPill(
+                      icon: Icons.category_outlined,
+                      label: annonce.category,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            context.push('/publish-product', extra: annonce),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('Modifier'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _toggleStatus(context, ref, isOnline),
+                        icon: Icon(
+                          isOnline
+                              ? Icons.pause_circle_outline
+                              : Icons.play_circle_outline,
+                          size: 18,
+                        ),
+                        label: Text(isOnline ? 'Désactiver' : 'Activer'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      tooltip: 'Supprimer',
+                      onPressed: () => _confirmDelete(context, ref),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

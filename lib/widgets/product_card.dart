@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import 'fullscreen_image_viewer.dart';
 import 'report_block_sheet.dart';
 
 class ProductCard extends ConsumerWidget {
@@ -64,176 +65,172 @@ class ProductCard extends ConsumerWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ProductImage(imageUrl: product.imageUrl),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _ProductThumbnail(imageUrl: product.imageUrl),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        product.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    if (product.isSellerVerified)
+                      const Tooltip(
+                        message: 'Vendeur vérifié',
+                        child: Icon(
+                          Icons.verified,
+                          color: Colors.blue,
+                          size: 16,
+                        ),
+                      ),
+                    if (canModerate)
+                      IconButton(
+                        tooltip: 'Signaler ou bloquer',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => showReportOrBlockSheet(
+                          context,
+                          currentUserId: currentUserId,
+                          targetUserId: product.sellerId!,
+                          targetUserName: product.sellerName ?? 'Vendeur',
+                          targetType: ReportTargetType.product,
+                          contentId: product.id,
+                        ),
+                        icon: const Icon(Icons.more_vert, size: 18),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  product.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${product.price.toInt()} FCFA',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                    fontSize: 14,
+                  ),
+                ),
+                if (product.sellerName != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    _sellerLine(product),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    if (product.isSellerPhoneVerified)
+                      const _TrustChip(
+                        icon: Icons.phone_android_outlined,
+                        label: 'Téléphone vérifié',
+                      ),
+                    if (product.isSellerVerified)
+                      const _TrustChip(
+                        icon: Icons.verified_user_outlined,
+                        label: 'Vendeur vérifié',
+                      ),
+                    const _TrustChip(
+                      icon: Icons.shield_outlined,
+                      label: 'Payez après vérification',
+                    ),
+                  ],
+                ),
+                if (product.category != null) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      product.category!,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                    ),
+                  ),
+                ],
+                if (showBuyerActions) ...[
+                  const SizedBox(height: 12),
+                  Column(
                     children: [
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              product.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPrivateMessage(context, ref),
+                              icon: const Icon(
+                                Icons.chat_bubble_outline,
+                                size: 18,
+                              ),
+                              label: const Text('Contacter'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                               ),
                             ),
                           ),
-                          if (product.isSellerVerified)
-                            const Tooltip(
-                              message: 'Vendeur vérifié',
-                              child: Icon(
-                                Icons.verified,
-                                color: Colors.blue,
-                                size: 16,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed: () => _addToCart(context, ref),
+                              icon: const Icon(
+                                Icons.shopping_cart_outlined,
+                                size: 18,
                               ),
+                              label: const Text('Ajouter'),
                             ),
-                          if (canModerate)
-                            IconButton(
-                              tooltip: 'Signaler ou bloquer',
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () => showReportOrBlockSheet(
-                                context,
-                                currentUserId: currentUserId,
-                                targetUserId: product.sellerId!,
-                                targetUserName: product.sellerName ?? 'Vendeur',
-                                targetType: ReportTargetType.product,
-                                contentId: product.id,
-                              ),
-                              icon: const Icon(Icons.more_vert, size: 18),
-                            ),
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        product.description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        '${product.price.toInt()} FCFA',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                          fontSize: 14,
-                        ),
-                      ),
-                      if (product.sellerName != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          _sellerLine(product),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          if (product.isSellerPhoneVerified)
-                            const _TrustChip(
-                              icon: Icons.phone_android_outlined,
-                              label: 'Téléphone vérifié',
-                            ),
-                          if (product.isSellerVerified)
-                            const _TrustChip(
-                              icon: Icons.verified_user_outlined,
-                              label: 'Vendeur vérifié',
-                            ),
-                          const _TrustChip(
-                            icon: Icons.shield_outlined,
-                            label: 'Payez après vérification',
-                          ),
-                        ],
-                      ),
-                      if (product.category != null) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            product.category!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (showBuyerActions) ...[
-              const SizedBox(height: 12),
-              Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openPrivateMessage(context, ref),
-                          icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                          label: const Text('Contacter'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton.tonalIcon(
-                          onPressed: () => _addToCart(context, ref),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            _addToCart(context, ref);
+                            context.push('/cart');
+                          },
                           icon: const Icon(
-                            Icons.shopping_cart_outlined,
+                            Icons.shopping_bag_outlined,
                             size: 18,
                           ),
-                          label: const Text('Ajouter'),
+                          label: const Text('Acheter'),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        _addToCart(context, ref);
-                        context.push('/cart');
-                      },
-                      icon: const Icon(Icons.shopping_bag_outlined, size: 18),
-                      label: const Text('Acheter'),
-                    ),
-                  ),
                 ],
-              ),
-            ],
-          ],
-        ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -248,39 +245,47 @@ class ProductCard extends ConsumerWidget {
   }
 }
 
-class _ProductThumbnail extends StatelessWidget {
-  const _ProductThumbnail({required this.imageUrl});
+class _ProductImage extends StatelessWidget {
+  const _ProductImage({required this.imageUrl});
 
   final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
     final url = imageUrl;
-    if (url == null || url.isEmpty) {
-      return const CircleAvatar(
-        radius: 28,
-        child: Icon(Icons.image_outlined),
-      );
-    }
-
-    return ClipOval(
-      child: Image.network(
-        url,
-        width: 56,
-        height: 56,
-        fit: BoxFit.cover,
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return const SizedBox(
-            width: 56,
-            height: 56,
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => const CircleAvatar(
-          radius: 28,
-          child: Icon(Icons.broken_image_outlined),
-        ),
+    return GestureDetector(
+      onTap: url == null || url.isEmpty
+          ? null
+          : () => FullscreenImageViewer.open(context, imageUrls: [url]),
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: url == null || url.isEmpty
+            ? Container(
+                color: Colors.grey[300],
+                child: const Center(
+                  child: Icon(Icons.image_outlined, size: 48),
+                ),
+              )
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey[300],
+                  child: const Center(
+                    child: Icon(Icons.broken_image_outlined, size: 48),
+                  ),
+                ),
+              ),
       ),
     );
   }
