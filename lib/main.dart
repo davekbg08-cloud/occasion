@@ -19,6 +19,8 @@ import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
 import 'screens/admin_orders_screen.dart';
+import 'screens/admin_reports_screen.dart';
+import 'screens/annonce_detail_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
@@ -295,6 +297,15 @@ class OccasionApp extends StatelessWidget {
       GoRoute(
         path: '/admin/orders',
         builder: (_, _) => const AdminOrdersScreen(),
+      ),
+      GoRoute(
+        path: '/admin/reports',
+        builder: (_, _) => const AdminReportsScreen(),
+      ),
+      GoRoute(
+        path: '/annonce/:id',
+        builder: (context, state) =>
+            AnnonceDetailScreen(annonceId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/auth',

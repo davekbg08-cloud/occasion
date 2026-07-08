@@ -40,6 +40,7 @@ final productNotifierProvider = FutureProvider<List<ProductModel>>((ref) async {
       name: annonce.title,
       description: annonce.description,
       price: annonce.price,
+      currency: annonce.currency,
       imageUrl: annonce.imageUrls.isEmpty ? null : annonce.imageUrls.first,
       imageUrls: annonce.imageUrls,
       sellerId: annonce.userId,

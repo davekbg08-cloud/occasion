@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -155,24 +156,32 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: () async {
-                        await ref
-                            .read(moderationServiceProvider)
-                            .submitReport(
-                              reporterId: currentUserId,
-                              targetId: contentId ?? targetUserId,
-                              targetType: targetType,
-                              reason: selected,
-                              details: detailsController.text.trim().isEmpty
-                                  ? null
-                                  : detailsController.text.trim(),
-                            );
+                        String? errorMessage;
+                        try {
+                          await ref
+                              .read(moderationServiceProvider)
+                              .submitReport(
+                                reporterId: currentUserId,
+                                targetId: contentId ?? targetUserId,
+                                targetType: targetType,
+                                reason: selected,
+                                details: detailsController.text.trim().isEmpty
+                                    ? null
+                                    : detailsController.text.trim(),
+                              );
+                        } on FirebaseException catch (e) {
+                          errorMessage = e.code == 'permission-denied'
+                              ? 'Vous avez déjà signalé ceci.'
+                              : 'Signalement impossible. Réessayez.';
+                        }
 
                         if (sheetContext.mounted) Navigator.pop(sheetContext);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Signalement envoye. Merci de nous aider a garder Occasion sur.',
+                                errorMessage ??
+                                    'Signalement envoye. Merci de nous aider a garder Occasion sur.',
                               ),
                             ),
                           );

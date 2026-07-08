@@ -27,6 +27,12 @@ final sellerAnnoncesProvider = FutureProvider.autoDispose
       return repo.getSellerAnnonces(sellerId);
     });
 
+final annonceByIdProvider = FutureProvider.autoDispose
+    .family<Annonce?, String>((ref, id) async {
+      final repo = ref.watch(annonceRepositoryProvider);
+      return repo.getAnnonceById(id);
+    });
+
 final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
   final query = ref.watch(searchQueryProvider);
   final filters = ref.watch(searchFiltersProvider);

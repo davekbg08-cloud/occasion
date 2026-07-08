@@ -15,6 +15,9 @@ class ModerationService {
     return _db.collection('users').doc(userId).collection('blockedUsers');
   }
 
+  /// ID déterministe : un même utilisateur ne peut signaler une même cible
+  /// qu'une fois (retenter est rejeté par les règles Firestore, qui
+  /// interdisent la mise à jour d'un rapport existant par un non-admin).
   Future<void> submitReport({
     required String reporterId,
     required String targetId,
@@ -22,7 +25,8 @@ class ModerationService {
     required ReportReason reason,
     String? details,
   }) async {
-    await _reportsRef.add({
+    final id = '${reporterId}_${targetType.name}_$targetId';
+    await _reportsRef.doc(id).set({
       'reporterId': reporterId,
       'targetId': targetId,
       'targetType': targetType.name,
@@ -30,6 +34,34 @@ class ModerationService {
       'details': details,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Réservé aux admins (voir firestore.rules) : liste des signalements,
+  /// filtrés par statut si précisé.
+  Stream<List<Map<String, dynamic>>> reportsStream({String? status}) {
+    Query<Map<String, dynamic>> query = _reportsRef.orderBy(
+      'createdAt',
+      descending: true,
+    );
+    if (status != null) {
+      query = query.where('status', isEqualTo: status);
+    }
+    return query.snapshots().map(
+      (snapshot) =>
+          snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
+  }
+
+  Future<void> updateReportStatus({
+    required String reportId,
+    required String status,
+    String? reviewedBy,
+  }) {
+    return _reportsRef.doc(reportId).update({
+      'status': status,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (reviewedBy != null) 'reviewedBy': reviewedBy,
     });
   }
 

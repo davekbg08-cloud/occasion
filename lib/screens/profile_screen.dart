@@ -221,11 +221,24 @@ class _AdminEntry extends StatelessWidget {
       future: PaymentSettlementService().isCurrentUserAdmin(),
       builder: (context, snapshot) {
         if (snapshot.data != true) return const SizedBox.shrink();
-        return ListTile(
-          leading: const Icon(Icons.verified_user_outlined, color: Colors.orange),
-          title: const Text('Paiements Orange Money à vérifier'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => context.push('/admin/orders'),
+        return Column(
+          children: [
+            ListTile(
+              leading: const Icon(
+                Icons.verified_user_outlined,
+                color: Colors.orange,
+              ),
+              title: const Text('Paiements Orange Money à vérifier'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/admin/orders'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: Colors.orange),
+              title: const Text('Signalements'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/admin/reports'),
+            ),
+          ],
         );
       },
     );

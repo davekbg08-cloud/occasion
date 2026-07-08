@@ -228,7 +228,7 @@ service cloud.firestore {
               || resource.data.userId == request.auth.uid
             )
           )
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'dateModification'])
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'messagesCount', 'dateModification'])
         );
       allow delete: if signedIn()
         && isSeller()
@@ -542,7 +542,11 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if signedIn()
         && request.resource.data.reporterId == request.auth.uid;
-      allow read, update, delete: if false;
+      allow read: if signedIn() && isAdmin();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'reviewedBy'])
+        && request.resource.data.status in ['pending', 'resolved', 'dismissed'];
+      allow delete: if false;
     }
 
     match /categories/{categorieId} {

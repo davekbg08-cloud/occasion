@@ -16,6 +16,8 @@ abstract class AnnonceRepository {
   Future<Annonce> updateAnnonce(Annonce annonce, {List<XFile> newImages});
   Future<Annonce> updateAnnonceStatus(Annonce annonce, String status);
   Future<void> deleteAnnonce(String id);
+  Future<void> incrementViews(String id);
+  Future<Annonce?> getAnnonceById(String id);
 }
 
 class AnnonceRepositoryImpl implements AnnonceRepository {
@@ -232,13 +234,30 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
       throw Exception('Tu ne peux supprimer que tes propres annonces.');
     }
 
-    await _annoncesRef.doc(id).update({
-      'status': 'deleted',
-      'statut': 'deleted',
-      'active': false,
-      'isPublished': false,
-      'dateModification': FieldValue.serverTimestamp(),
-    });
+    for (final url in annonce.imageUrls) {
+      try {
+        await _storage.refFromURL(url).delete();
+      } catch (error) {
+        developer.log(
+          'Suppression photo Storage échouée pour $url: $error',
+          name: 'AnnonceRepositoryImpl.deleteAnnonce',
+        );
+      }
+    }
+
+    await _annoncesRef.doc(id).delete();
+  }
+
+  @override
+  Future<void> incrementViews(String id) {
+    return _annoncesRef.doc(id).update({'vues': FieldValue.increment(1)});
+  }
+
+  @override
+  Future<Annonce?> getAnnonceById(String id) async {
+    final snapshot = await _annoncesRef.doc(id).get();
+    if (!snapshot.exists) return null;
+    return _fromFirestore(snapshot);
   }
 
   Future<List<String>> _uploadImages({

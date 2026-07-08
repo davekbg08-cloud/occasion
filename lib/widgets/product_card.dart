@@ -7,7 +7,6 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
-import 'fullscreen_image_viewer.dart';
 import 'report_block_sheet.dart';
 
 class ProductCard extends ConsumerWidget {
@@ -43,14 +42,32 @@ class ProductCard extends ConsumerWidget {
     );
   }
 
-  void _addToCart(BuildContext context, WidgetRef ref) {
-    ref.read(cartNotifierProvider.notifier).addToCart(product);
+  bool _addToCart(BuildContext context, WidgetRef ref) {
+    final added = ref.read(cartNotifierProvider.notifier).addToCart(product);
+    if (!added) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ton panier contient déjà des articles en ${_cartCurrency(ref)}. '
+            'Vide-le d\'abord pour ajouter un article en ${product.currency}.',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return false;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${product.name} ajouté au panier'),
         duration: const Duration(seconds: 2),
       ),
     );
+    return true;
+  }
+
+  String _cartCurrency(WidgetRef ref) {
+    final cart = ref.read(cartNotifierProvider);
+    return cart.isEmpty ? product.currency : cart.first.product.currency;
   }
 
   @override
@@ -71,7 +88,7 @@ class ProductCard extends ConsumerWidget {
         children: [
           _ProductImage(
             imageUrl: product.imageUrl,
-            imageUrls: product.imageUrls,
+            annonceId: product.id,
           ),
           Padding(
             padding: const EdgeInsets.all(12),
@@ -125,7 +142,7 @@ class ProductCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${product.price.toInt()} FCFA',
+                  '${product.price.toInt()} ${product.currency}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.blue,
@@ -217,8 +234,9 @@ class ProductCard extends ConsumerWidget {
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed: () {
-                            _addToCart(context, ref);
-                            context.push('/cart');
+                            if (_addToCart(context, ref)) {
+                              context.push('/cart');
+                            }
                           },
                           icon: const Icon(
                             Icons.shopping_bag_outlined,
@@ -249,22 +267,16 @@ class ProductCard extends ConsumerWidget {
 }
 
 class _ProductImage extends StatelessWidget {
-  const _ProductImage({required this.imageUrl, this.imageUrls = const []});
+  const _ProductImage({required this.imageUrl, required this.annonceId});
 
   final String? imageUrl;
-  final List<String> imageUrls;
+  final String annonceId;
 
   @override
   Widget build(BuildContext context) {
     final url = imageUrl;
-    // Utilise la liste complète si disponible, sinon retombe sur l'unique url.
-    final gallery = imageUrls.isNotEmpty
-        ? imageUrls
-        : (url == null || url.isEmpty ? const <String>[] : [url]);
     return GestureDetector(
-      onTap: gallery.isEmpty
-          ? null
-          : () => FullscreenImageViewer.open(context, imageUrls: gallery),
+      onTap: () => context.push('/annonce/$annonceId'),
       child: AspectRatio(
         aspectRatio: 4 / 3,
         child: url == null || url.isEmpty

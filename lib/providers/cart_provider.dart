@@ -6,14 +6,21 @@ import '../models/product_model.dart';
 class CartNotifier extends StateNotifier<List<CartItem>> {
   CartNotifier() : super(const []);
 
-  void addToCart(ProductModel product) {
+  /// Retourne `false` (sans rien ajouter) si le panier contient déjà des
+  /// articles dans une devise différente — on n'autorise qu'une seule devise
+  /// par panier pour que le total affiché/payé ait un sens.
+  bool addToCart(ProductModel product) {
+    if (state.isNotEmpty && state.first.product.currency != product.currency) {
+      return false;
+    }
+
     final existingIndex = state.indexWhere(
       (item) => item.product.id == product.id,
     );
 
     if (existingIndex == -1) {
       state = [...state, CartItem(product: product)];
-      return;
+      return true;
     }
 
     final updatedItems = [...state];
@@ -22,6 +29,7 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
       quantity: existingItem.quantity + 1,
     );
     state = updatedItems;
+    return true;
   }
 
   void removeFromCart(String productId) {

@@ -53,6 +53,16 @@ class ChatService {
         listingTitle: listingTitle,
       );
       await _chats.doc(id).set(chat.toMap());
+      if (listingId != null && listingId.trim().isNotEmpty) {
+        // Un seul incrément par nouveau fil de discussion, pas par message.
+        try {
+          await _db.collection('annonces').doc(listingId).update({
+            'messagesCount': FieldValue.increment(1),
+          });
+        } catch (_) {
+          // Best-effort : ne doit jamais bloquer la création du chat.
+        }
+      }
       return chat;
     }
 

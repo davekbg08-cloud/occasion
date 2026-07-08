@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../favoris/providers/favoris_provider.dart';
 import '../../../models/annonce.dart';
 import '../../../providers/auth_provider.dart';
-import '../../../widgets/fullscreen_image_viewer.dart';
 
 class AnnonceCard extends ConsumerWidget {
   const AnnonceCard({super.key, required this.annonce});
@@ -26,12 +26,7 @@ class AnnonceCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
-            onTap: annonce.imageUrls.isEmpty
-                ? null
-                : () => FullscreenImageViewer.open(
-                    context,
-                    imageUrls: annonce.imageUrls,
-                  ),
+            onTap: () => context.push('/annonce/${annonce.id}'),
             child: AspectRatio(
               aspectRatio: 4 / 3,
               child: annonce.imageUrls.isEmpty

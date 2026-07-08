@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,7 +30,7 @@ class SellerDashboardScreen extends ConsumerWidget {
           },
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const _DashboardError(),
+        error: (error, stackTrace) => _DashboardError(error: error),
       ),
     );
   }
@@ -91,7 +93,7 @@ class _DashboardContent extends StatelessWidget {
               const _MetricCard(
                 icon: Icons.query_stats,
                 label: 'Statistiques',
-                value: '--',
+                value: 'Bientôt',
               ),
             ],
           ),
@@ -208,10 +210,16 @@ class _DashboardAction extends StatelessWidget {
 }
 
 class _DashboardError extends StatelessWidget {
-  const _DashboardError();
+  const _DashboardError({required this.error});
+
+  final Object error;
 
   @override
   Widget build(BuildContext context) {
+    developer.log(
+      'Erreur chargement tableau de bord vendeur: $error',
+      name: 'SellerDashboardScreen',
+    );
     return const Center(
       child: Padding(
         padding: EdgeInsets.all(24),

@@ -34,6 +34,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     final cart = ref.read(cartNotifierProvider.notifier);
     final cartItems = ref.read(cartNotifierProvider);
     final total = cart.totalAmount;
+    // Le panier ne peut contenir qu'une seule devise (voir cart_provider.addToCart).
+    final cartCurrency = cartItems.isEmpty
+        ? 'FC'
+        : cartItems.first.product.currency;
 
     if (currentUser == null) {
       context.go('/auth');
@@ -101,7 +105,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         'items': normalizedItems,
         'sellerIds': sellerIds,
         'total': total,
-        'currency': 'FC',
+        'currency': cartCurrency,
         'status': 'pending_payment',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -112,7 +116,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         'userId': currentUser.id,
         'orderId': orderRef.id,
         'amount': total,
-        'currency': 'FC',
+        'currency': cartCurrency,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -171,6 +175,9 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       0.0,
       (runningTotal, item) => runningTotal + item.totalPrice,
     );
+    final cartCurrency = cartItems.isEmpty
+        ? 'FC'
+        : cartItems.first.product.currency;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Paiement Orange Money')),
@@ -187,7 +194,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   children: [
                     const Text('Montant total', style: TextStyle(fontSize: 18)),
                     Text(
-                      '${totalAmount.toInt()} FC',
+                      '${totalAmount.toInt()} $cartCurrency',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -237,7 +244,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '1. Envoie ${totalAmount.toInt()} FC via Orange Money au '
+                      '1. Envoie ${totalAmount.toInt()} $cartCurrency via Orange Money au '
                       'numéro ci-dessous.\n'
                       '2. Colle la référence de transaction reçue par SMS.\n'
                       '3. Ta commande sera confirmée après vérification '
