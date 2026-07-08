@@ -69,7 +69,10 @@ class ProductCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _ProductImage(imageUrl: product.imageUrl),
+          _ProductImage(
+            imageUrl: product.imageUrl,
+            imageUrls: product.imageUrls,
+          ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -246,17 +249,22 @@ class ProductCard extends ConsumerWidget {
 }
 
 class _ProductImage extends StatelessWidget {
-  const _ProductImage({required this.imageUrl});
+  const _ProductImage({required this.imageUrl, this.imageUrls = const []});
 
   final String? imageUrl;
+  final List<String> imageUrls;
 
   @override
   Widget build(BuildContext context) {
     final url = imageUrl;
+    // Utilise la liste complète si disponible, sinon retombe sur l'unique url.
+    final gallery = imageUrls.isNotEmpty
+        ? imageUrls
+        : (url == null || url.isEmpty ? const <String>[] : [url]);
     return GestureDetector(
-      onTap: url == null || url.isEmpty
+      onTap: gallery.isEmpty
           ? null
-          : () => FullscreenImageViewer.open(context, imageUrls: [url]),
+          : () => FullscreenImageViewer.open(context, imageUrls: gallery),
       child: AspectRatio(
         aspectRatio: 4 / 3,
         child: url == null || url.isEmpty

@@ -7,6 +7,7 @@ class ProductModel extends Product {
     required super.description,
     required super.price,
     this.imageUrl,
+    this.imageUrls = const <String>[],
     this.sellerId,
     this.sellerName,
     this.sellerPhone,
@@ -17,6 +18,7 @@ class ProductModel extends Product {
   });
 
   final String? imageUrl;
+  final List<String> imageUrls;
   final String? sellerId;
   final String? sellerName;
   final String? sellerPhone;
@@ -32,6 +34,12 @@ class ProductModel extends Product {
       description: map['description'] as String? ?? '',
       price: (map['price'] as num?)?.toDouble() ?? 0,
       imageUrl: map['imageUrl'] as String?,
+      imageUrls:
+          (map['imageUrls'] as List<dynamic>? ??
+                  map['images'] as List<dynamic>? ??
+                  const <dynamic>[])
+              .map((e) => e.toString())
+              .toList(),
       sellerId: map['sellerId'] as String?,
       sellerName: map['sellerName'] as String?,
       sellerPhone: map['sellerPhone'] as String?,
@@ -48,6 +56,7 @@ class ProductModel extends Product {
     'description': description,
     'price': price,
     'imageUrl': imageUrl,
+    'imageUrls': imageUrls,
     'sellerId': sellerId,
     'sellerName': sellerName,
     'sellerPhone': sellerPhone,
@@ -63,6 +72,7 @@ class ProductModel extends Product {
     String? description,
     double? price,
     String? imageUrl,
+    List<String>? imageUrls,
     String? sellerId,
     String? sellerName,
     String? sellerPhone,
@@ -77,6 +87,7 @@ class ProductModel extends Product {
       description: description ?? this.description,
       price: price ?? this.price,
       imageUrl: imageUrl ?? this.imageUrl,
+      imageUrls: imageUrls ?? this.imageUrls,
       sellerId: sellerId ?? this.sellerId,
       sellerName: sellerName ?? this.sellerName,
       sellerPhone: sellerPhone ?? this.sellerPhone,

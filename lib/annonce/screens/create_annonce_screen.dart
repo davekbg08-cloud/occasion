@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/subscription_provider.dart';
-import '../../services/seller_subscription_guard.dart';
 import '../../services/phone_number_validator.dart';
 import '../../shared/models/annonce.dart';
 import '../providers/annonce_provider.dart';
@@ -125,7 +124,6 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
   }
 
   Future<void> _publish() async {
-    if (!checkSellerSubscription(context, ref)) return;
     if (!_formKey.currentState!.validate()) return;
 
     final currentUser = ref.read(authNotifierProvider).currentUser;
