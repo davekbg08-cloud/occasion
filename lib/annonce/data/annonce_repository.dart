@@ -19,6 +19,10 @@ abstract class AnnonceRepository {
   Future<void> deleteAnnonce(String id);
   Future<void> incrementViews(String id);
   Future<Annonce?> getAnnonceById(String id);
+
+  /// Flux temps réel des annonces publiées et actives (marketplace),
+  /// triées par date de création décroissante.
+  Stream<List<Annonce>> watchActiveAnnonces({String? category});
 }
 
 class AnnonceRepositoryImpl implements AnnonceRepository {
@@ -157,6 +161,26 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     }
 
     return annonces;
+  }
+
+  @override
+  Stream<List<Annonce>> watchActiveAnnonces({String? category}) {
+    Query<Map<String, dynamic>> query = _annoncesRef
+        .where('isPublished', isEqualTo: true)
+        .orderBy('dateCreation', descending: true);
+
+    if (category != null && category.trim().isNotEmpty) {
+      query = query.where('categorie', isEqualTo: category.trim());
+    }
+
+    return query.snapshots().map(
+      (snapshot) => snapshot.docs
+          .map(_fromFirestore)
+          .where(
+            (annonce) => annonce.isActive && _isPublishedStatus(annonce.status),
+          )
+          .toList(),
+    );
   }
 
   @override
