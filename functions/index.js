@@ -12,6 +12,14 @@ const fcm = getMessaging();
 
 const ESCROW_AUTO_RELEASE_DAYS = 3;
 const NOTIFICATIONS_COLLECTION = "notifications";
+const NOTIFICATION_ENTITY_FIELDS = [
+  "chatId",
+  "listingId",
+  "statusId",
+  "orderId",
+  "paymentIntentId",
+  "entityId",
+];
 
 /**
  * Jetons FCM actifs d'un utilisateur, un par appareil connecté
@@ -48,6 +56,14 @@ async function sendToUser({
 }) {
   if (!recipientId) return;
 
+  // Promeut au premier niveau du document les identifiants d'entité connus
+  // du modèle client `AppNotification` (chatId, orderId, ...), en plus de
+  // les garder dans `data` (nécessaire pour le payload push).
+  const entityFields = {};
+  for (const key of NOTIFICATION_ENTITY_FIELDS) {
+    if (data[key] !== undefined) entityFields[key] = data[key];
+  }
+
   const docId = notificationId || db.collection(NOTIFICATIONS_COLLECTION).doc().id;
   await db
     .collection(NOTIFICATIONS_COLLECTION)
@@ -62,6 +78,7 @@ async function sendToUser({
         route,
         isRead: false,
         createdAt: FieldValue.serverTimestamp(),
+        ...entityFields,
         data,
       },
       { merge: true }

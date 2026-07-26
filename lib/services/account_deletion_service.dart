@@ -19,7 +19,6 @@ class AccountDeletionService {
       'name': 'Utilisateur supprime',
       'phone': '',
       'profileImageUrl': null,
-      'fcmToken': FieldValue.delete(),
       'isDeleted': true,
       'deletedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -42,6 +41,11 @@ class AccountDeletionService {
 
     final blocked = await userRef.collection('blockedUsers').get();
     for (final doc in blocked.docs) {
+      batch.delete(doc.reference);
+    }
+
+    final devices = await userRef.collection('devices').get();
+    for (final doc in devices.docs) {
       batch.delete(doc.reference);
     }
 
