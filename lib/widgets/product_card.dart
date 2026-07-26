@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import 'photo_carousel.dart';
 import 'report_block_sheet.dart';
 
 class ProductCard extends ConsumerWidget {
@@ -86,10 +87,7 @@ class ProductCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _ProductImage(
-            imageUrl: product.imageUrl,
-            annonceId: product.id,
-          ),
+          PhotoCarousel(imageUrls: product.imageUrls),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -98,11 +96,15 @@ class ProductCard extends ConsumerWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        product.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => context.push('/annonce/${product.id}'),
+                        child: Text(
+                          product.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
                         ),
                       ),
                     ),
@@ -133,20 +135,29 @@ class ProductCard extends ConsumerWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  product.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${product.price.toInt()} ${product.currency}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                    fontSize: 14,
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => context.push('/annonce/${product.id}'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(
+                        product.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${product.price.toInt()} ${product.currency}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (product.sellerName != null) ...[
@@ -263,51 +274,6 @@ class ProductCard extends ConsumerWidget {
       return sellerName;
     }
     return '$sellerName - inscrit depuis ${DateFormat('MM/yyyy').format(createdAt)}';
-  }
-}
-
-class _ProductImage extends StatelessWidget {
-  const _ProductImage({required this.imageUrl, required this.annonceId});
-
-  final String? imageUrl;
-  final String annonceId;
-
-  @override
-  Widget build(BuildContext context) {
-    final url = imageUrl;
-    return GestureDetector(
-      onTap: () => context.push('/annonce/$annonceId'),
-      child: AspectRatio(
-        aspectRatio: 4 / 3,
-        child: url == null || url.isEmpty
-            ? Container(
-                color: Colors.grey[300],
-                child: const Center(
-                  child: Icon(Icons.image_outlined, size: 48),
-                ),
-              )
-            : Image.network(
-                url,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    color: Colors.grey[300],
-                    child: const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: Colors.grey[300],
-                  child: const Center(
-                    child: Icon(Icons.broken_image_outlined, size: 48),
-                  ),
-                ),
-              ),
-      ),
-    );
   }
 }
 

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../favoris/providers/favoris_provider.dart';
 import '../../../models/annonce.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../widgets/photo_carousel.dart';
 
 class AnnonceCard extends ConsumerWidget {
   const AnnonceCard({super.key, required this.annonce});
@@ -25,48 +26,9 @@ class AnnonceCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: () => context.push('/annonce/${annonce.id}'),
-            child: AspectRatio(
-              aspectRatio: 4 / 3,
-              child: annonce.imageUrls.isEmpty
-                  ? Container(
-                      color: Colors.grey[850],
-                      child: const Center(
-                        child: Icon(
-                          Icons.image_outlined,
-                          color: Colors.grey,
-                          size: 48,
-                        ),
-                      ),
-                    )
-                  : Image.network(
-                      annonce.imageUrls.first,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        return Container(
-                          color: Colors.grey[850],
-                          child: const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: Colors.grey[850],
-                        child: const Center(
-                          child: Icon(
-                            Icons.broken_image_outlined,
-                            color: Colors.grey,
-                            size: 48,
-                          ),
-                        ),
-                      ),
-                    ),
-            ),
-          ),
+          PhotoCarousel(imageUrls: annonce.imageUrls),
           ListTile(
+            onTap: () => context.push('/annonce/${annonce.id}'),
             title: Text(annonce.title),
             subtitle: Text(
               '${annonce.price.toStringAsFixed(0)} ${annonce.currency}\n${annonce.category}',
