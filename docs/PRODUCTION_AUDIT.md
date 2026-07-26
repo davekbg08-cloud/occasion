@@ -134,8 +134,9 @@ depuis la correction de session précédente) mais la tuile "Statistiques"
 affiche un texte statique ("Bientôt", corrigé précédemment ; auparavant
 `'--'`). Aucun agrégat serveur (`sellerStatistics/{sellerId}`) n'existe.
 
-**Décision** : agrégats serveur via Cloud Functions différés à une phase
-ultérieure. Non traité en Phase 1.
+**Traité en Phase 3** : voir section "Phase 3" ci-dessous (agrégat serveur
+`sellerStatistics/{sellerId}`, comptage de vues anti-fraude, écran
+`/seller-statistics` réel).
 
 ## 9. Système de fidélité / récompenses — inexistant
 
@@ -275,12 +276,52 @@ branché). Un seul système désormais :
    règles `notifications`/`devices` côté émulateur (8 nouveaux cas dans
    `firestore-tests/rules.test.js`).
 
+**Corrections post-vérification** (avant d'entamer la Phase 3) : nettoyage de
+`users/{uid}/devices` à la suppression de compte (manquait, contrairement à
+`blockedUsers`) ; `sendToUser()` promeut désormais `chatId`/`orderId`/... au
+premier niveau du document notification (le modèle les lisait à ce niveau
+mais ils n'étaient écrits que dans `data`) ; nouveau workflow `ci.yml`
+déclenché sur `pull_request` — la CI bloquante de la Phase 1 ne tournait
+jusque-là qu'après fusion sur `main`, jamais sur la PR elle-même.
+
+## Phase 3 — Statistiques vendeur réelles + vues anti-fraude
+
+Remplace la tuile "Statistiques" statique du tableau de bord vendeur et
+l'écran `/seller-statistics` (placeholder générique) par des données
+réellement agrégées côté serveur, et corrige au passage une faille trouvée en
+l'analysant : `annonces/{id}.vues` était modifiable avec n'importe quelle
+valeur par n'importe quel utilisateur connecté (seule la liste des champs
+était contrainte, pas qui écrit ni de combien).
+
+1. Comptage de vues déplacé côté serveur : nouvelle Cloud Function callable
+   `recordAnnonceView`, dédupliquée par `annonces/{id}/viewers/{uid}` (un
+   document par couple annonce/visiteur, idempotent). Les visiteurs non
+   connectés ne sont pas comptabilisés (pas d'identité fiable à dédupliquer).
+   Le client n'a plus le droit d'écrire `vues` directement
+   (`firestore.rules`, retiré du `hasOnly` client-écrivable des `annonces`) ;
+   `viewers/{viewerId}` est entièrement fermé côté client.
+2. Nouvel agrégat `sellerStatistics/{sellerId}` (`totalViews`,
+   `totalMessages`, `totalSales`, `revenue` par devise — jamais mélangées),
+   écrit uniquement par les Cloud Functions (`bumpSellerStats()`), lu
+   uniquement par le vendeur propriétaire. Alimenté par `recordAnnonceView`
+   (vues), `onNewMessage` (messages reçus par un vendeur) et
+   `notifySettlement` (ventes + revenu, au sous-total par vendeur d'une
+   commande potentiellement multi-vendeur — jamais le total complet de la
+   commande crédité à chacun).
+3. Écran `/seller-statistics` réellement branché (`SellerStatisticsScreen`,
+   provider `sellerStatisticsProvider`), tuile "Ventes" cliquable sur le
+   tableau de bord vendeur (plus de `'Bientôt'` statique).
+4. Tests : parsing `SellerStatistics.fromFirestore`
+   (`test/seller_statistics_test.dart`), 6 nouveaux cas de règles côté
+   émulateur (`vues` non écrivable côté client, `favoris` toujours OK,
+   `viewers`/`sellerStatistics` fermés en écriture, lecture `sellerStatistics`
+   réservée au propriétaire).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
   d'activation sécurisée.
 - Système de fidélité/récompenses acheteur et vendeur (entièrement nouveau).
-- Statistiques serveur agrégées via Cloud Functions.
 - Unification complète des deux piles de providers d'annonces.
 - App Check.
 - Documentation d'optimisation des coûts Firestore.
