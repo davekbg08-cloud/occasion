@@ -304,3 +304,94 @@ test("un utilisateur ne peut pas lire les jetons d'appareil d'autrui", async () 
       .get()
   );
 });
+
+function validAnnonceSeed(overrides) {
+  return {
+    sellerId: "seller1",
+    title: "Annonce test",
+    description: "Description test",
+    price: 100,
+    currency: "FC",
+    category: "Divers",
+    imageUrls: [],
+    isPublished: true,
+    status: "published",
+    vues: 0,
+    favoris: 0,
+    ...overrides,
+  };
+}
+
+test("un utilisateur ne peut plus incrémenter directement les vues d'une annonce", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("annonces").doc("annonce1").update({ vues: 1 })
+  );
+});
+
+test("un utilisateur peut toujours (dé)favoriser une annonce (non affecté par le retrait de vues)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("annonces").doc("annonce1").update({ favoris: 1 })
+  );
+});
+
+test("un client ne peut pas écrire dans la sous-collection viewers d'une annonce", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("annonces")
+      .doc("annonce1")
+      .collection("viewers")
+      .doc("buyer1")
+      .set({ viewedAt: new Date() })
+  );
+});
+
+test("un vendeur peut lire ses propres statistiques", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("sellerStatistics").doc("seller1").set({
+      totalViews: 10,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller.collection("sellerStatistics").doc("seller1").get()
+  );
+});
+
+test("un vendeur ne peut pas lire les statistiques d'un autre vendeur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("sellerStatistics").doc("seller1").set({
+      totalViews: 10,
+    });
+  });
+  const outsider = testEnv.authenticatedContext("seller2").firestore();
+  await assertFails(
+    outsider.collection("sellerStatistics").doc("seller1").get()
+  );
+});
+
+test("un vendeur ne peut pas écrire directement ses propres statistiques", async () => {
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("sellerStatistics")
+      .doc("seller1")
+      .set({ totalViews: 999 })
+  );
+});

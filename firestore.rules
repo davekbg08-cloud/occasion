@@ -219,7 +219,7 @@ service cloud.firestore {
               || resource.data.userId == request.auth.uid
             )
           )
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'messagesCount', 'dateModification'])
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'messagesCount', 'dateModification'])
         );
       allow delete: if signedIn()
         && isSeller()
@@ -228,6 +228,14 @@ service cloud.firestore {
           || resource.data.vendeurId == request.auth.uid
           || resource.data.userId == request.auth.uid
         );
+
+      // Comptage des vues uniquement côté serveur (Cloud Function
+      // recordAnnonceView, dédupliquée par visiteur), jamais par le client
+      // directement — évite qu'un utilisateur écrive n'importe quelle valeur
+      // dans `vues`.
+      match /viewers/{viewerId} {
+        allow read, write: if false;
+      }
     }
 
     match /admins/{adminId} {
@@ -582,6 +590,13 @@ service cloud.firestore {
         && resource.data.recipientId == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt']);
       allow delete: if signedIn() && resource.data.recipientId == request.auth.uid;
+    }
+
+    match /sellerStatistics/{sellerId} {
+      allow read: if isOwner(sellerId);
+      // Écrit uniquement par les Cloud Functions (Admin SDK) : le vendeur ne
+      // peut jamais gonfler ses propres statistiques.
+      allow write: if false;
     }
 
     match /{document=**} {

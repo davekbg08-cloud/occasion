@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
+import '../providers/seller_statistics_provider.dart';
 
 class SellerDashboardScreen extends ConsumerWidget {
   const SellerDashboardScreen({super.key});
@@ -25,6 +26,7 @@ class SellerDashboardScreen extends ConsumerWidget {
       body: annoncesAsync.when(
         data: (annonces) => _DashboardContent(
           annonces: annonces,
+          sellerId: user.id,
           onRefresh: () async {
             ref.invalidate(sellerAnnoncesProvider(user.id));
           },
@@ -36,14 +38,19 @@ class SellerDashboardScreen extends ConsumerWidget {
   }
 }
 
-class _DashboardContent extends StatelessWidget {
-  const _DashboardContent({required this.annonces, required this.onRefresh});
+class _DashboardContent extends ConsumerWidget {
+  const _DashboardContent({
+    required this.annonces,
+    required this.sellerId,
+    required this.onRefresh,
+  });
 
   final List<Annonce> annonces;
+  final String sellerId;
   final Future<void> Function() onRefresh;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final active = annonces.where((annonce) => annonce.isActive).length;
     final pending = annonces.length - active;
     final views = annonces.fold<int>(0, (sum, annonce) => sum + annonce.views);
@@ -51,6 +58,10 @@ class _DashboardContent extends StatelessWidget {
       0,
       (sum, annonce) => sum + annonce.messagesCount,
     );
+    final totalSales = ref
+        .watch(sellerStatisticsProvider(sellerId))
+        .valueOrNull
+        ?.totalSales;
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -90,10 +101,11 @@ class _DashboardContent extends StatelessWidget {
                 label: 'En attente',
                 value: '$pending',
               ),
-              const _MetricCard(
+              _MetricCard(
                 icon: Icons.query_stats,
-                label: 'Statistiques',
-                value: 'Bientôt',
+                label: 'Ventes',
+                value: totalSales == null ? '…' : '$totalSales',
+                onTap: () => context.push('/seller-statistics'),
               ),
             ],
           ),
@@ -156,31 +168,37 @@ class _MetricCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.onTap,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: Colors.blue),
-            const Spacer(),
-            Text(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: Colors.grey[400])),
-          ],
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: Colors.blue),
+              const Spacer(),
+              Text(
+                value,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(label, style: TextStyle(color: Colors.grey[400])),
+            ],
+          ),
         ),
       ),
     );

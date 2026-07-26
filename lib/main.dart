@@ -35,6 +35,7 @@ import 'screens/profile_screen.dart';
 import 'screens/role_selection_screen.dart';
 import 'screens/seller_dashboard_screen.dart';
 import 'screens/seller_orders_screen.dart';
+import 'screens/seller_statistics_screen.dart';
 import 'screens/simple_placeholder_screen.dart';
 import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -225,11 +226,7 @@ class OccasionApp extends StatelessWidget {
         path: '/seller-statistics',
         builder: (_, _) => const _RoleGuard(
           role: UserRole.seller,
-          child: SimplePlaceholderScreen(
-            title: 'Statistiques',
-            icon: Icons.bar_chart_outlined,
-            message: 'Les statistiques de vos annonces apparaîtront ici.',
-          ),
+          child: SellerStatisticsScreen(),
         ),
       ),
       GoRoute(

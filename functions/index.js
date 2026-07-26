@@ -126,6 +126,36 @@ async function sendToUser({
   }
 }
 
+const SELLER_STATISTICS_COLLECTION = "sellerStatistics";
+
+/**
+ * Incrémente un ou plusieurs compteurs de `sellerStatistics/{sellerId}`.
+ * `increments` est un objet de chemins de champs (notation pointée pour les
+ * champs imbriqués) -> delta, ex. `{ totalViews: 1 }` ou
+ * `{ totalSales: 1, "revenue.FC": 15000 }`. Construit un objet imbriqué
+ * (plutôt qu'une clé littérale contenant un point) pour que `set(...,
+ * {merge:true})` fusionne correctement sans écraser les autres clés du même
+ * champ imbriqué (ex. les autres devises sous `revenue`). Toujours une
+ * écriture serveur (Admin SDK), jamais accessible en écriture client.
+ */
+async function bumpSellerStats(sellerId, increments) {
+  if (!sellerId) return;
+  const data = { updatedAt: FieldValue.serverTimestamp() };
+  for (const [path, delta] of Object.entries(increments)) {
+    const parts = path.split(".");
+    let node = data;
+    for (let i = 0; i < parts.length - 1; i++) {
+      node[parts[i]] = node[parts[i]] ?? {};
+      node = node[parts[i]];
+    }
+    node[parts[parts.length - 1]] = FieldValue.increment(delta);
+  }
+  await db
+    .collection(SELLER_STATISTICS_COLLECTION)
+    .doc(sellerId)
+    .set(data, { merge: true });
+}
+
 exports.onNewMessage = onDocumentCreated(
   "chats/{chatId}/messages/{messageId}",
   async (event) => {
@@ -135,7 +165,10 @@ exports.onNewMessage = onDocumentCreated(
     const chatId = event.params.chatId;
     const messageId = event.params.messageId;
 
-    const senderDoc = await db.collection("users").doc(senderId).get();
+    const [senderDoc, receiverDoc] = await Promise.all([
+      db.collection("users").doc(senderId).get(),
+      db.collection("users").doc(receiverId).get(),
+    ]);
     const senderName = senderDoc.data()?.name ?? "Quelqu'un";
     const content = msg.content ?? "";
     const body = content.length > 80 ? `${content.substring(0, 80)}...` : content;
@@ -150,6 +183,12 @@ exports.onNewMessage = onDocumentCreated(
       route: "/chat-list",
       data: { chatId },
     });
+
+    if (receiverDoc.data()?.role === "seller") {
+      await bumpSellerStats(receiverId, { totalMessages: 1 }).catch((err) =>
+        console.error(`Erreur bumpSellerStats totalMessages ${receiverId} :`, err)
+      );
+    }
 
     return null;
   }
@@ -350,19 +389,38 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
 
       if (isPaid) {
         const orderSnap = await db.collection("orders").doc(intent.orderId).get();
-        const sellerIds = orderSnap.data()?.sellerIds ?? [];
+        const order = orderSnap.data() ?? {};
+        const sellerIds = order.sellerIds ?? [];
+        const items = order.items ?? [];
+        const currency = order.currency ?? "FC";
+
         await Promise.all(
-          sellerIds.map((sellerId) =>
-            sendToUser({
-              recipientId: sellerId,
-              notificationId: `order_${transactionId}_seller_${sellerId}`,
-              type: "order",
-              title: "🛍️ Nouvelle commande payée",
-              body: "Un acheteur a payé une commande. Préparez l'envoi.",
-              route: "/seller-orders",
-              data: { orderId: intent.orderId },
-            })
-          )
+          sellerIds.map(async (sellerId) => {
+            // Un même montant `order.total` peut couvrir plusieurs vendeurs
+            // (panier multi-vendeur) : on ne crédite chacun que de son
+            // propre sous-total, pas du total de la commande.
+            const sellerSubtotal = items
+              .filter((item) => item.sellerId === sellerId)
+              .reduce((sum, item) => sum + (item.totalPrice ?? 0), 0);
+
+            await Promise.all([
+              sendToUser({
+                recipientId: sellerId,
+                notificationId: `order_${transactionId}_seller_${sellerId}`,
+                type: "order",
+                title: "🛍️ Nouvelle commande payée",
+                body: "Un acheteur a payé une commande. Préparez l'envoi.",
+                route: "/seller-orders",
+                data: { orderId: intent.orderId },
+              }),
+              bumpSellerStats(sellerId, {
+                totalSales: 1,
+                [`revenue.${currency}`]: sellerSubtotal,
+              }).catch((err) =>
+                console.error(`Erreur bumpSellerStats totalSales ${sellerId} :`, err)
+              ),
+            ]);
+          })
         );
       }
     } else if (intent.type === "subscription") {
@@ -398,6 +456,55 @@ async function assertIsAdmin(uid) {
     );
   }
 }
+
+/**
+ * Enregistre une vue unique par (annonce, visiteur connecté) : idempotent,
+ * incrémente `annonces/{id}.vues` et `sellerStatistics/{sellerId}.totalViews`
+ * seulement la première fois qu'un utilisateur donné consulte une annonce
+ * donnée (protection anti-fraude — un même visiteur qui rouvre l'annonce
+ * plusieurs fois ne la fait plus progresser). Les visiteurs non connectés ne
+ * sont pas comptabilisés, faute d'identité fiable à dédupliquer.
+ */
+exports.recordAnnonceView = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const annonceId = request.data?.annonceId;
+  if (!annonceId || typeof annonceId !== "string") {
+    throw new HttpsError("invalid-argument", "annonceId manquant");
+  }
+
+  const annonceRef = db.collection("annonces").doc(annonceId);
+  const viewerRef = annonceRef.collection("viewers").doc(uid);
+
+  await db.runTransaction(async (tx) => {
+    const viewerSnap = await tx.get(viewerRef);
+    if (viewerSnap.exists) return;
+
+    const annonceSnap = await tx.get(annonceRef);
+    if (!annonceSnap.exists) return;
+
+    tx.set(viewerRef, { viewedAt: FieldValue.serverTimestamp() });
+    tx.update(annonceRef, { vues: FieldValue.increment(1) });
+
+    const sellerId =
+      annonceSnap.data()?.sellerId ?? annonceSnap.data()?.vendeurId;
+    if (sellerId) {
+      tx.set(
+        db.collection(SELLER_STATISTICS_COLLECTION).doc(sellerId),
+        {
+          totalViews: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+  });
+
+  return { status: "ok" };
+});
 
 /**
  * Confirme manuellement un paiement Orange Money envoyé directement par
