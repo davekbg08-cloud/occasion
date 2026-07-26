@@ -12,14 +12,13 @@ final searchQueryProvider = StateProvider<String>((ref) => '');
 
 final searchFiltersProvider = StateProvider<Map<String, dynamic>>((ref) => {});
 
-final annoncesProvider = FutureProvider.autoDispose
-    .family<List<Annonce>, Map<String, dynamic>>((ref, filters) async {
-      final repo = ref.watch(annonceRepositoryProvider);
-      return repo.getAnnonces(
-        search: filters['search'] as String?,
-        category: filters['category'] as String?,
-      );
-    });
+/// Flux temps réel des annonces publiées et actives (marketplace), source
+/// unique désormais pour tout écran qui liste les annonces en direct
+/// (remplace l'ancienne pile `AnnoncesCrudRepository`/`activeAnnoncesStreamProvider`).
+final activeAnnoncesProvider = StreamProvider.autoDispose<List<Annonce>>((ref) {
+  final repo = ref.watch(annonceRepositoryProvider);
+  return repo.watchActiveAnnonces();
+});
 
 final sellerAnnoncesProvider = FutureProvider.autoDispose
     .family<List<Annonce>, String>((ref, sellerId) async {
@@ -33,17 +32,6 @@ final annonceByIdProvider = FutureProvider.autoDispose.family<Annonce?, String>(
     return repo.getAnnonceById(id);
   },
 );
-
-final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
-  final query = ref.watch(searchQueryProvider);
-  final filters = ref.watch(searchFiltersProvider);
-  final repo = ref.watch(annonceRepositoryProvider);
-
-  return repo.getAnnonces(
-    search: query.trim().isEmpty ? null : query.trim(),
-    category: filters['category'] as String?,
-  );
-});
 
 final createAnnonceProvider =
     StateNotifierProvider<CreateAnnonceNotifier, AsyncValue<Annonce?>>((ref) {

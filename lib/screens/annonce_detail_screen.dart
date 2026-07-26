@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import '../providers/product_provider.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -98,21 +99,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
             return const Center(child: Text('Cette annonce est introuvable.'));
           }
 
-          final product = ProductModel(
-            id: annonce.id,
-            name: annonce.title,
-            description: annonce.description,
-            price: annonce.price,
-            currency: annonce.currency,
-            imageUrl: annonce.imageUrls.isEmpty
-                ? null
-                : annonce.imageUrls.first,
-            imageUrls: annonce.imageUrls,
-            sellerId: annonce.userId,
-            sellerName: 'Vendeur',
-            sellerPhone: annonce.phone,
-            category: annonce.category,
-          );
+          final productAsync = ref.watch(productFromAnnonceProvider(annonce));
 
           final showBuyerActions = currentUser == null || currentUser.isBuyer;
           final canModerate =
@@ -189,24 +176,34 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                       ),
                       if (showBuyerActions) ...[
                         const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _contactSeller(product),
-                                icon: const Icon(Icons.chat_bubble_outline),
-                                label: const Text('Contacter'),
+                        productAsync.maybeWhen(
+                          data: (product) => Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _contactSeller(product),
+                                  icon: const Icon(Icons.chat_bubble_outline),
+                                  label: const Text('Contacter'),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () => _addToCart(product),
-                                icon: const Icon(Icons.shopping_cart_outlined),
-                                label: const Text('Ajouter'),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () => _addToCart(product),
+                                  icon: const Icon(
+                                    Icons.shopping_cart_outlined,
+                                  ),
+                                  label: const Text('Ajouter'),
+                                ),
                               ),
+                            ],
+                          ),
+                          orElse: () => const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(8),
+                              child: CircularProgressIndicator(),
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ],

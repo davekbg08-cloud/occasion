@@ -55,10 +55,10 @@ Deux implémentations de notifications coexistent, indépendantes :
 sur ce token unique via l'API single-token, donc un utilisateur connecté sur 2
 appareils ne reçoit la notification que sur le dernier connecté.
 
-**Décision** : refonte complète différée à une phase ultérieure (chantier
-important : nouvelle collection `notifications` réellement branchée,
-multi-appareils `users/{uid}/devices/{deviceId}`, Cloud Function idempotente,
-`NotificationRouter`). Non traité dans la Phase 1.
+**Traité en Phase 2** : voir section "Phase 2" ci-dessous (nouvelle collection
+`notifications` réellement branchée, multi-appareils
+`users/{uid}/devices/{deviceId}`, Cloud Functions idempotentes, code mort
+supprimé).
 
 ## 3. Annonces — deux piles de providers parallèles
 
@@ -83,11 +83,9 @@ anglais) en lecture et écrit les deux à chaque sauvegarde
 (`lib/models/annonce.dart`) — fonctionnel mais fragile (double écriture
 permanente au lieu d'une source de vérité unique).
 
-**Décision** : unification complète (fusionner les deux piles, une seule
-conversion `Annonce → ProductModel`, un seul schéma canonique de champs)
-différée à une phase ultérieure — changement transverse à fort risque de
-régression, à traiter isolément avec sa propre suite de tests. Non traité
-dans la Phase 1.
+**Traité en Phase 4** : voir section "Phase 4" ci-dessous. Le champ `Annonce`
+dual français/anglais n'a pas été touché (hors périmètre, aucun rapport avec
+la duplication des deux piles de lecture).
 
 ## 4. Widgets image / carrousel
 
@@ -134,8 +132,9 @@ depuis la correction de session précédente) mais la tuile "Statistiques"
 affiche un texte statique ("Bientôt", corrigé précédemment ; auparavant
 `'--'`). Aucun agrégat serveur (`sellerStatistics/{sellerId}`) n'existe.
 
-**Décision** : agrégats serveur via Cloud Functions différés à une phase
-ultérieure. Non traité en Phase 1.
+**Traité en Phase 3** : voir section "Phase 3" ci-dessous (agrégat serveur
+`sellerStatistics/{sellerId}`, comptage de vues anti-fraude, écran
+`/seller-statistics` réel).
 
 ## 9. Système de fidélité / récompenses — inexistant
 
@@ -143,10 +142,7 @@ Recherche exhaustive (lib/, functions/, règles, index) : **aucune trace** de
 points, récompenses, cadeaux, conversion de points. `UserModel` n'a aucun
 champ de ce type. Confirmé entièrement absent.
 
-**Décision** : chantier complet différé à une phase ultérieure dédiée
-(sections 18-25 du cahier des charges original) — nouveau sous-système
-produit à part entière (modèles, Cloud Functions, écrans acheteur/vendeur/
-admin, anti-fraude, tests). Non traité en Phase 1.
+**Traité en Phase 5** : voir section "Phase 5" ci-dessous.
 
 ## 10. Abonnement vendeur
 
@@ -228,19 +224,203 @@ existante (11 tests contre l'émulateur), écrite mais jamais lancée en CI.
    `Image.network` bruts et l'affichage mono-photo des cartes produit/annonce.
 6. Grille responsive pour la liste produits (1/2/3 colonnes selon largeur).
 
+## Phase 2 — Notifications : persistance réelle + multi-appareils
+
+Remplace intégralement le système décrit en section 2 (`NotificationNotifier`
+en mémoire + `NotificationsOccasionRepository` mort, code français, jamais
+branché). Un seul système désormais :
+
+1. Modèle `AppNotification` (`lib/models/app_notification.dart`, champs
+   anglais : `recipientId`, `senderId`, `type`, `title`, `body`, `route`,
+   `entityId`/`chatId`/`listingId`/`statusId`/`orderId`/`paymentIntentId`,
+   `isRead`, `createdAt`, `readAt`, `data`), persistée dans
+   `notifications/{id}`.
+2. Suppression du code mort : `NotificationOccasion`,
+   `NotificationsOccasionRepository`, `notificationsOccasionRepositoryProvider`,
+   `notificationsByUserProvider` — évite deux systèmes concurrents sur la
+   même collection.
+3. `firestore.rules` : `notifications/{id}` n'est **créable que côté serveur**
+   (`allow create: if false`, Cloud Functions via l'Admin SDK contournent les
+   règles) ; le destinataire peut lire, marquer lu/non lu (`isRead`/`readAt`
+   uniquement) et supprimer sa propre notification. Index composite
+   `recipientId`+`createdAt` (et `+isRead`) ajouté.
+4. Multi-appareils : `users/{uid}/devices/{deviceId}` remplace le champ
+   unique `fcmToken`. `deviceId` généré une fois et persisté localement
+   (`shared_preferences`), donc stable par appareil/installation — un même
+   compte connecté sur 2 téléphones reçoit désormais les push sur les deux.
+   Règles : lecture/écriture réservées au propriétaire.
+5. `functions/index.js` : helper `sendToUser()` unique — persiste la
+   notification Firestore (ID déterministe = idempotent aux retries Cloud
+   Functions) et envoie un multicast à tous les appareils du destinataire,
+   avec nettoyage des jetons invalides. Branché sur :
+   - `onNewMessage` (notification + push par message reçu) ;
+   - `applySettlement` (paiement de commande confirmé/rejeté → acheteur, et
+     vendeurs notifiés d'une commande payée ; abonnement activé/rejeté →
+     vendeur) ;
+   - `autoReleaseEscrow` (fonds libérés → vendeur).
+   `onNewStatus` reste push-only (diffusion à tous les acheteurs) : pas de
+   notification persistée par destinataire, décision volontaire de maîtrise
+   des coûts Firestore vu le volume potentiel (un document par acheteur et
+   par statut publié serait disproportionné).
+6. Écran `/notifications` réellement branché sur Firestore (liste, swipe pour
+   supprimer, "tout marquer comme lu", tap = marque lu + navigue via
+   `route`). Point d'entrée ajouté dans `ProfileScreen` (icône cloche avec
+   badge du nombre de non-lues) — l'écran était auparavant inatteignable
+   depuis l'UI.
+7. Tests : parsing `AppNotification.fromFirestore` (`test/app_notification_test.dart`),
+   règles `notifications`/`devices` côté émulateur (8 nouveaux cas dans
+   `firestore-tests/rules.test.js`).
+
+**Corrections post-vérification** (avant d'entamer la Phase 3) : nettoyage de
+`users/{uid}/devices` à la suppression de compte (manquait, contrairement à
+`blockedUsers`) ; `sendToUser()` promeut désormais `chatId`/`orderId`/... au
+premier niveau du document notification (le modèle les lisait à ce niveau
+mais ils n'étaient écrits que dans `data`) ; nouveau workflow `ci.yml`
+déclenché sur `pull_request` — la CI bloquante de la Phase 1 ne tournait
+jusque-là qu'après fusion sur `main`, jamais sur la PR elle-même.
+
+## Phase 3 — Statistiques vendeur réelles + vues anti-fraude
+
+Remplace la tuile "Statistiques" statique du tableau de bord vendeur et
+l'écran `/seller-statistics` (placeholder générique) par des données
+réellement agrégées côté serveur, et corrige au passage une faille trouvée en
+l'analysant : `annonces/{id}.vues` était modifiable avec n'importe quelle
+valeur par n'importe quel utilisateur connecté (seule la liste des champs
+était contrainte, pas qui écrit ni de combien).
+
+1. Comptage de vues déplacé côté serveur : nouvelle Cloud Function callable
+   `recordAnnonceView`, dédupliquée par `annonces/{id}/viewers/{uid}` (un
+   document par couple annonce/visiteur, idempotent). Les visiteurs non
+   connectés ne sont pas comptabilisés (pas d'identité fiable à dédupliquer).
+   Le client n'a plus le droit d'écrire `vues` directement
+   (`firestore.rules`, retiré du `hasOnly` client-écrivable des `annonces`) ;
+   `viewers/{viewerId}` est entièrement fermé côté client.
+2. Nouvel agrégat `sellerStatistics/{sellerId}` (`totalViews`,
+   `totalMessages`, `totalSales`, `revenue` par devise — jamais mélangées),
+   écrit uniquement par les Cloud Functions (`bumpSellerStats()`), lu
+   uniquement par le vendeur propriétaire. Alimenté par `recordAnnonceView`
+   (vues), `onNewMessage` (messages reçus par un vendeur) et
+   `notifySettlement` (ventes + revenu, au sous-total par vendeur d'une
+   commande potentiellement multi-vendeur — jamais le total complet de la
+   commande crédité à chacun).
+3. Écran `/seller-statistics` réellement branché (`SellerStatisticsScreen`,
+   provider `sellerStatisticsProvider`), tuile "Ventes" cliquable sur le
+   tableau de bord vendeur (plus de `'Bientôt'` statique).
+4. Tests : parsing `SellerStatistics.fromFirestore`
+   (`test/seller_statistics_test.dart`), 6 nouveaux cas de règles côté
+   émulateur (`vues` non écrivable côté client, `favoris` toujours OK,
+   `viewers`/`sellerStatistics` fermés en écriture, lecture `sellerStatistics`
+   réservée au propriétaire).
+
+**Correctif post-Phase 3** : `confirmManualPayment`/`rejectManualPayment`
+(`functions/index.js`) ne vérifiaient pas si l'intention de paiement était
+déjà réglée avant de rappeler `applySettlement` — un double-tap admin ou un
+retry réseau doublait les compteurs `sellerStatistics` et réinitialisait la
+date de départ d'un abonnement déjà activé. Les deux callables sont
+désormais des no-op silencieux sur un `transactionId` déjà dans un état
+terminal (`paid`/`failed`).
+
+## Phase 4 — Unification des deux piles de providers d'annonces
+
+Avant de trancher entre les deux prochains gros chantiers (fidélité/points ou
+unification des annonces), une relecture de `functions/index.js` a mis en
+évidence un bug financier à corriger en priorité : `confirmManualPayment`/
+`rejectManualPayment` ne vérifiaient pas l'état déjà réglé d'une intention de
+paiement avant de rappeler `applySettlement` (double-tap admin/retry réseau
+→ double comptage `sellerStatistics`, réinitialisation de la date de départ
+d'un abonnement). Corrigé (voir ci-dessus).
+
+L'unification des annonces s'est avérée moins risquée que redouté une fois
+scopée en détail (exploration dédiée) : les deux piles utilisaient déjà le
+même modèle `Annonce` — la duplication n'était qu'au niveau de la requête
+Firestore elle-même, pas de la forme des données.
+
+1. `AnnonceRepositoryImpl.watchActiveAnnonces({category})` (Pile A) remplace
+   `AnnoncesCrudRepository.activeByDate()` (Pile B) — requête identique
+   (`isPublished` + `dateCreation`, + `categorie` optionnel), mêmes index
+   déjà en place, aucun redéploiement Firestore nécessaire.
+2. Conversion `Annonce → ProductModel` (nécessaire pour le panier/paiement,
+   volontairement inchangés) factorisée en une fonction pure unique
+   `annonceToProductModel()` (`lib/providers/product_provider.dart`),
+   réutilisée par la liste marketplace et l'écran de détail d'annonce.
+   **Bug corrigé au passage** : le détail d'annonce recopiait cette
+   conversion à la main sans l'enrichissement vendeur, ce qui masquait les
+   badges "vendeur vérifié"/"téléphone vérifié" sur cet écran précis alors
+   qu'ils s'affichaient correctement sur la liste.
+3. Suppression du code mort : `AnnoncesCrudRepository`,
+   `annoncesCrudRepositoryProvider`, `activeAnnoncesStreamProvider` (Pile B
+   entière), et `annoncesProvider`/`searchResultsProvider` de
+   `lib/annonce/providers/annonce_provider.dart` (zéro appelant, doublons du
+   vrai `searchResultsProvider` de `lib/search/providers/search_provider.dart`).
+4. Le dual-écriture français/anglais du modèle `Annonce` lui-même n'a pas été
+   touchée (hors périmètre — aucun rapport avec la duplication des deux
+   piles de lecture).
+5. Tests : `test/annonce_to_product_model_test.dart` (conversion pure, y
+   compris le cas "avec profil vendeur" qui couvre la régression corrigée).
+
+## Phase 5 — Système de fidélité/points (acheteur + vendeur)
+
+Dernier gros chantier du cahier des charges original (section 9), entièrement
+nouveau (rien n'existait). Quatre décisions produit validées par
+l'utilisateur avant conception : barème acheteur proportionnel au montant
+dépensé, crédit à la réception confirmée de la commande (pas au simple
+paiement), échange scopé par vendeur (pas un pool global), barème vendeur
+par vente confirmée.
+
+**Point de conception trouvé en creusant `orders.status`** : la transition
+vers `'completed'` peut venir de trois chemins différents (confirmation
+acheteur, libération auto du séquestre, résolution d'un litige admin) — deux
+sont des écritures client directes, pas des Cloud Functions. Un crédit de
+points branché uniquement sur `autoReleaseEscrow` (comme `sellerStatistics`
+en Phase 3) aurait silencieusement raté les deux autres chemins. Résolu par
+un unique trigger générique `onDocumentUpdated('orders/{orderId}')` qui
+détecte la transition quel que soit le chemin emprunté.
+
+1. Modèle de données : `loyaltyPoints/{buyerId}_{sellerId}` (solde acheteur
+   par vendeur, id déterministe), `sellerStatistics.loyaltyPoints` (points
+   vendeur — pas de nouvelle collection, même agrégat que Phase 3),
+   `giftCatalogItems/{id}` (catalogue par vendeur), `giftRedemptions/{id}`
+   (demandes d'échange, créées/modifiées uniquement par Cloud Functions),
+   `loyaltyPointsAuditLog/{id}` (trace des resets admin).
+2. `functions/index.js` : `onOrderCompleted` (crédit acheteur + vendeur,
+   sous-total par vendeur comme `notifySettlement`), `requestGiftRedemption`
+   (transaction : vérifie solde, débite, crée la demande — anti-double-
+   dépense), `respondToGiftRedemption` (vendeur ou admin valide/rejette,
+   rejet = remboursement atomique), `adminResetLoyaltyPoints` (reset
+   exceptionnel, motif obligatoire, trace d'audit).
+3. Barème (`LOYALTY_POINTS_RATE`, placeholder business ajustable) : 1 point
+   par 1000 FC ou 1 USD dépensé/vendu, compté indépendamment par devise
+   (même principe que `revenue` en Phase 3 — pas de taux de change inventé).
+4. Écrans : `LoyaltyPointsScreen` (acheteur — soldes par vendeur, catalogue,
+   échange, historique), `SellerGiftCatalogScreen` (CRUD du catalogue),
+   `SellerGiftRedemptionsScreen` (file d'attente à onglets, motif réutilisé
+   de `admin_reports_screen.dart`), `AdminLoyaltyScreen` (reset exceptionnel,
+   `_AdminGuard`). Carte "Points fidélité" ajoutée à `SellerStatisticsScreen`.
+5. Bug trouvé et corrigé pendant l'implémentation : `GiftCatalogItem.toFirestore()`
+   écrivait `imageUrl: null` explicitement quand l'image est absente, ce que
+   la règle `validGiftCatalogItem` (`optionalString`) rejette (un champ
+   présent doit être une string, `null` échoue) — un vendeur créant un cadeau
+   sans photo aurait vu sa création systématiquement refusée. Corrigé en
+   omettant la clé plutôt que d'écrire `null`.
+6. Tests : parsing des 3 nouveaux modèles, 15 nouveaux cas de règles côté
+   émulateur (solde de points fermé en écriture, catalogue public si actif/
+   géré par le propriétaire, demandes d'échange fermées en écriture client
+   y compris création, journal d'audit réservé aux admins).
+
 ## Phases suivantes (hors de portée de cette session)
 
-- Refonte complète des notifications (persistance réelle + multi-appareils +
-  Cloud Function idempotente + routeur de notifications).
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
-  d'activation sécurisée.
-- Système de fidélité/récompenses acheteur et vendeur (entièrement nouveau).
-- Statistiques serveur agrégées via Cloud Functions.
-- Unification complète des deux piles de providers d'annonces.
+  d'activation sécurisée (évalué en Phase 4 : faible valeur ajoutée,
+  l'écran générique différencie déjà commande/abonnement).
 - App Check.
 - Documentation d'optimisation des coûts Firestore.
-- Migrations généralisées (anciens signalements, anciens champs, anciens
-  tokens FCM).
+- Migrations généralisées (anciens signalements, anciens champs). Le champ
+  legacy `users/{uid}.fcmToken` n'est plus écrit à partir de cette phase ;
+  les appareils déjà connectés migrent automatiquement vers
+  `users/{uid}/devices/{deviceId}` à la prochaine ouverture de l'app (pas de
+  script de migration dédié — bascule naturelle, pas de perte de
+  fonctionnalité entre-temps puisque `sendToUser` ne lit que la nouvelle
+  sous-collection).
 - Suite de tests Firebase Emulator exhaustive (rôles, sécurité, tous les
   scénarios listés dans le cahier des charges original).
 - Plan de validation sur appareils physiques.

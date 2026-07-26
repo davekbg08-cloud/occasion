@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
 
@@ -143,25 +148,61 @@ class NotificationService {
     String? payload,
     GlobalKey<NavigatorState> navigatorKey,
   ) {
-    if (payload == null) return;
+    if (payload == null || payload.isEmpty) return;
 
     final context = navigatorKey.currentContext;
     if (context == null) return;
 
-    if (payload.startsWith('message')) {
-      context.push('/chat-list');
-      return;
-    }
+    context.push(payload);
+  }
 
-    if (payload.startsWith('status')) {
-      context.go('/home');
+  /// Résout la route de destination au tap : priorité au champ `route`
+  /// (envoyé explicitement par la Cloud Function pour chaque notification),
+  /// sinon déduite du `type` pour compatibilité avec d'anciens messages.
+  static String _buildPayload(Map<String, dynamic> data) {
+    final explicitRoute = data['route'] as String?;
+    if (explicitRoute != null && explicitRoute.isNotEmpty) {
+      return explicitRoute;
+    }
+    switch (data['type'] as String?) {
+      case 'message':
+        return '/chat-list';
+      case 'status':
+        return '/home';
+      case 'order':
+        return '/orders';
+      case 'subscription':
+        return '/subscription';
+      default:
+        return '/notifications';
     }
   }
 
-  static String _buildPayload(Map<String, dynamic> data) {
-    final type = data['type'] ?? '';
-    final id = data['chatId'] ?? data['statusId'] ?? '';
-    return '$type:$id';
+  static String? _deviceId;
+
+  /// Identifiant stable de cet appareil/installation, généré une seule fois
+  /// et persisté localement (survit aux reconnexions, différent par
+  /// appareil pour supporter plusieurs appareils connectés au même compte).
+  static Future<String> _currentDeviceId() async {
+    final cached = _deviceId;
+    if (cached != null) return cached;
+
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString('device_id');
+    if (id == null) {
+      final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+      id = base64UrlEncode(bytes).replaceAll('=', '');
+      await prefs.setString('device_id', id);
+    }
+    _deviceId = id;
+    return id;
+  }
+
+  static String _platformName() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return Platform.operatingSystem;
   }
 
   static Future<void> saveToken(String userId) async {
@@ -182,19 +223,34 @@ class NotificationService {
   }
 
   static Future<void> _updateToken(String userId, String token) async {
-    await FirebaseFirestore.instance.collection('users').doc(userId).set({
-      'fcmToken': token,
-    }, SetOptions(merge: true));
+    final deviceId = await _currentDeviceId();
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('devices')
+        .doc(deviceId)
+        .set({
+          'token': token,
+          'platform': _platformName(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
+  /// Ne supprime que le jeton de CET appareil (déconnexion locale) : les
+  /// autres appareils connectés au même compte continuent de recevoir les
+  /// notifications.
   static Future<void> clearToken(String userId) async {
     try {
       await _tokenRefreshSubscription?.cancel();
       _tokenRefreshSubscription = null;
       await _fcm.deleteToken();
-      await FirebaseFirestore.instance.collection('users').doc(userId).set({
-        'fcmToken': FieldValue.delete(),
-      }, SetOptions(merge: true));
+      final deviceId = await _currentDeviceId();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('devices')
+          .doc(deviceId)
+          .delete();
     } catch (error) {
       debugPrint('Token FCM non supprimé : $error');
     }

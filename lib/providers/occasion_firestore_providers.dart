@@ -1,17 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/annonce.dart';
 import '../models/favori.dart';
 import '../models/firestore/occasion_models.dart';
 import '../repositories/occasion_firestore_repositories.dart';
 
 final occasionFirestoreProvider = Provider<FirebaseFirestore>((ref) {
   return FirebaseFirestore.instance;
-});
-
-final annoncesCrudRepositoryProvider = Provider<AnnoncesCrudRepository>((ref) {
-  return AnnoncesCrudRepository(ref.watch(occasionFirestoreProvider));
 });
 
 final favorisCrudRepositoryProvider = Provider<FavorisCrudRepository>((ref) {
@@ -50,19 +45,6 @@ final categoriesOccasionRepositoryProvider =
       return CategoriesOccasionRepository(ref.watch(occasionFirestoreProvider));
     });
 
-final notificationsOccasionRepositoryProvider =
-    Provider<NotificationsOccasionRepository>((ref) {
-      return NotificationsOccasionRepository(
-        ref.watch(occasionFirestoreProvider),
-      );
-    });
-
-final activeAnnoncesStreamProvider = StreamProvider.autoDispose<List<Annonce>>((
-  ref,
-) {
-  return ref.watch(annoncesCrudRepositoryProvider).activeByDate();
-});
-
 final categoriesStreamProvider =
     StreamProvider.autoDispose<List<CategorieOccasion>>((ref) {
       return ref.watch(categoriesOccasionRepositoryProvider).ordered();
@@ -85,9 +67,4 @@ final messagesByConversationProvider = StreamProvider.autoDispose
       return ref
           .watch(messagesOccasionRepositoryProvider)
           .byConversation(conversationId);
-    });
-
-final notificationsByUserProvider = StreamProvider.autoDispose
-    .family<List<NotificationOccasion>, String>((ref, userId) {
-      return ref.watch(notificationsOccasionRepositoryProvider).byUser(userId);
     });

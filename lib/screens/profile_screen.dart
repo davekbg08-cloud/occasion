@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
@@ -42,10 +43,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ? "Actif jusqu'au ${subscription.expiryDate.toString().split(' ').first}"
         : 'Aucun abonnement vendeur actif';
 
+    final unreadNotifications = user == null
+        ? 0
+        : ref.watch(unreadNotificationsCountProvider(user.id));
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isSeller ? 'Mon compte vendeur' : 'Mon compte acheteur'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Notifications',
+            onPressed: () => context.push('/notifications'),
+            icon: Badge(
+              isLabelVisible: unreadNotifications > 0,
+              label: Text('$unreadNotifications'),
+              child: const Icon(Icons.notifications_outlined),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -229,6 +245,12 @@ class _AdminEntry extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/admin/reports'),
             ),
+            ListTile(
+              leading: const Icon(Icons.stars_outlined, color: Colors.orange),
+              title: const Text('Remise à zéro des points (exceptionnelle)'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/admin/loyalty'),
+            ),
           ],
         );
       },
@@ -270,6 +292,11 @@ class _BuyerOptions extends StatelessWidget {
           icon: Icons.favorite_outline,
           title: 'Favoris',
           onTap: () => context.push('/favorites'),
+        ),
+        _ProfileTile(
+          icon: Icons.stars_outlined,
+          title: 'Mes points de fidélité',
+          onTap: () => context.push('/loyalty-points'),
         ),
         _ProfileTile(
           icon: Icons.chat_bubble_outline,
@@ -337,6 +364,16 @@ class _SellerOptions extends StatelessWidget {
           icon: Icons.bar_chart_outlined,
           title: 'Statistiques',
           onTap: () => context.push('/seller-statistics'),
+        ),
+        _ProfileTile(
+          icon: Icons.card_giftcard_outlined,
+          title: 'Mon catalogue de cadeaux',
+          onTap: () => context.push('/gift-catalog'),
+        ),
+        _ProfileTile(
+          icon: Icons.redeem_outlined,
+          title: 'Demandes d\'échange',
+          onTap: () => context.push('/gift-redemptions'),
         ),
         _ProfileTile(
           icon: Icons.card_membership,

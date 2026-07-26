@@ -1,6 +1,7 @@
 import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
@@ -18,6 +19,10 @@ abstract class AnnonceRepository {
   Future<void> deleteAnnonce(String id);
   Future<void> incrementViews(String id);
   Future<Annonce?> getAnnonceById(String id);
+
+  /// Flux temps réel des annonces publiées et actives (marketplace),
+  /// triées par date de création décroissante.
+  Stream<List<Annonce>> watchActiveAnnonces({String? category});
 }
 
 class AnnonceRepositoryImpl implements AnnonceRepository {
@@ -26,17 +31,26 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     FirebaseStorage? storage,
     firebase_auth.FirebaseAuth? auth,
     SellerSubscriptionService? subscriptionService,
+    FirebaseFunctions? functions,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
        _storage = storage ?? FirebaseStorage.instance,
        _auth = auth ?? firebase_auth.FirebaseAuth.instance,
        _subscriptionService =
            subscriptionService ??
-           SellerSubscriptionService(firestore: firestore);
+           SellerSubscriptionService(firestore: firestore),
+       _functionsOverride = functions;
 
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
   final firebase_auth.FirebaseAuth _auth;
   final SellerSubscriptionService _subscriptionService;
+  // Résolu paresseusement (pas dans l'initializer list) pour ne jamais
+  // toucher FirebaseFunctions.instance tant qu'incrementViews n'est pas
+  // réellement appelé — évite de casser les tests qui construisent ce
+  // repository sans avoir initialisé Firebase.
+  final FirebaseFunctions? _functionsOverride;
+  FirebaseFunctions get _functions =>
+      _functionsOverride ?? FirebaseFunctions.instance;
 
   CollectionReference<Map<String, dynamic>> get _annoncesRef =>
       _firestore.collection('annonces');
@@ -150,6 +164,26 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
+  Stream<List<Annonce>> watchActiveAnnonces({String? category}) {
+    Query<Map<String, dynamic>> query = _annoncesRef
+        .where('isPublished', isEqualTo: true)
+        .orderBy('dateCreation', descending: true);
+
+    if (category != null && category.trim().isNotEmpty) {
+      query = query.where('categorie', isEqualTo: category.trim());
+    }
+
+    return query.snapshots().map(
+      (snapshot) => snapshot.docs
+          .map(_fromFirestore)
+          .where(
+            (annonce) => annonce.isActive && _isPublishedStatus(annonce.status),
+          )
+          .toList(),
+    );
+  }
+
+  @override
   Future<List<Annonce>> getSellerAnnonces(String sellerId) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null || currentUser.uid != sellerId) {
@@ -249,8 +283,18 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
-  Future<void> incrementViews(String id) {
-    return _annoncesRef.doc(id).update({'vues': FieldValue.increment(1)});
+  Future<void> incrementViews(String id) async {
+    // Comptage côté serveur (dédupliqué par visiteur), voir
+    // functions/index.js:recordAnnonceView. Le client n'a plus le droit
+    // d'écrire directement le champ `vues` (firestore.rules).
+    try {
+      await _functions.httpsCallable('recordAnnonceView').call({
+        'annonceId': id,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (error.code == 'unauthenticated') return;
+      rethrow;
+    }
   }
 
   @override

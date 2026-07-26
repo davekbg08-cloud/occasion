@@ -190,13 +190,19 @@ service cloud.firestore {
         && data.ordre is number && data.ordre >= 0;
     }
 
-    function validNotification(data) {
-      return hasOnly(data, ['id', 'utilisateurId', 'titre', 'message', 'lu', 'date'])
-        && stringField(data, 'utilisateurId', 128)
-        && stringField(data, 'titre', 160)
-        && stringField(data, 'message', 1000)
-        && data.lu is bool
-        && data.date is timestamp;
+    function validGiftCatalogItem(data) {
+      return hasOnly(data, [
+        'sellerId', 'title', 'description', 'imageUrl', 'pointsCost',
+        'isActive', 'createdAt', 'updatedAt'
+      ])
+        && stringField(data, 'sellerId', 128)
+        && stringField(data, 'title', 160)
+        && optionalString(data, 'description', 2000)
+        && optionalString(data, 'imageUrl', 2000)
+        && data.pointsCost is number && data.pointsCost >= 0
+        && data.isActive is bool
+        && (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp)
+        && (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp);
     }
 
     match /annonces/{annonceId} {
@@ -228,7 +234,7 @@ service cloud.firestore {
               || resource.data.userId == request.auth.uid
             )
           )
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'vues', 'messagesCount', 'dateModification'])
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'messagesCount', 'dateModification'])
         );
       allow delete: if signedIn()
         && isSeller()
@@ -237,6 +243,14 @@ service cloud.firestore {
           || resource.data.vendeurId == request.auth.uid
           || resource.data.userId == request.auth.uid
         );
+
+      // Comptage des vues uniquement côté serveur (Cloud Function
+      // recordAnnonceView, dédupliquée par visiteur), jamais par le client
+      // directement — évite qu'un utilisateur écrive n'importe quelle valeur
+      // dans `vues`.
+      match /viewers/{viewerId} {
+        allow read, write: if false;
+      }
     }
 
     match /admins/{adminId} {
@@ -277,6 +291,12 @@ service cloud.firestore {
       allow delete: if false;
 
       match /blockedUsers/{blockedUserId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      // Un jeton FCM par appareil connecté (multi-device), jamais lisible
+      // par un autre utilisateur, géré uniquement par le propriétaire.
+      match /devices/{deviceId} {
         allow read, create, update, delete: if isOwner(userId);
       }
     }
@@ -574,14 +594,79 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if signedIn() && resource.data.utilisateurId == request.auth.uid;
-      allow create: if signedIn()
-        && request.resource.data.utilisateurId == request.auth.uid
-        && validNotification(request.resource.data);
+      // Créées uniquement côté serveur (Cloud Functions via l'Admin SDK,
+      // qui contourne ces règles) : jamais par le client directement, pour
+      // empêcher un utilisateur de s'auto-notifier ou de notifier autrui.
+      allow create: if false;
+      allow read: if signedIn() && resource.data.recipientId == request.auth.uid;
+      // Le destinataire ne peut que marquer comme lue / non lue sa propre
+      // notification, jamais modifier son contenu.
       allow update: if signedIn()
-        && resource.data.utilisateurId == request.auth.uid
-        && validNotification(request.resource.data);
-      allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+        && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt']);
+      allow delete: if signedIn() && resource.data.recipientId == request.auth.uid;
+    }
+
+    match /sellerStatistics/{sellerId} {
+      allow read: if isOwner(sellerId);
+      // Écrit uniquement par les Cloud Functions (Admin SDK) : le vendeur ne
+      // peut jamais gonfler ses propres statistiques. Le champ loyaltyPoints
+      // (points de fidélité vendeur) suit la même règle.
+      allow write: if false;
+    }
+
+    // Solde de points de fidélité d'un acheteur chez un vendeur donné
+    // (id déterministe `{buyerId}_{sellerId}`). Calculé uniquement par des
+    // Cloud Functions (crédit à la réception confirmée, débit à l'échange).
+    match /loyaltyPoints/{pointsId} {
+      allow read: if signedIn() && resource.data.buyerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Catalogue de cadeaux d'un vendeur, échangeables contre les points
+    // gagnés chez ce même vendeur. Géré directement par le vendeur
+    // propriétaire (pas de débit financier ici, juste du contenu).
+    match /giftCatalogItems/{itemId} {
+      allow read: if resource.data.isActive == true
+        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      allow create: if signedIn()
+        && isSeller()
+        && request.resource.data.sellerId == request.auth.uid
+        && validGiftCatalogItem(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.sellerId == request.auth.uid
+        && request.resource.data.sellerId == resource.data.sellerId
+        && validGiftCatalogItem(request.resource.data);
+      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+    }
+
+    // Demande d'échange de points contre un article du catalogue : créée et
+    // modifiée uniquement par des Cloud Functions (le débit/remboursement de
+    // points doit être atomique avec le changement de statut, jamais une
+    // écriture client directe même pour la création).
+    match /giftRedemptions/{redemptionId} {
+      allow read: if signedIn()
+        && (
+          resource.data.buyerId == request.auth.uid
+          || resource.data.sellerId == request.auth.uid
+          || isAdmin()
+        );
+      allow create, update, delete: if false;
+    }
+
+    // Trace d'audit d'une remise à zéro exceptionnelle de points par un
+    // admin. Lecture admin uniquement, écriture serveur uniquement.
+    match /loyaltyPointsAuditLog/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Marqueur d'idempotence pour le crédit de points à la complétion d'une
+    // commande (voir `onOrderCompleted`/`creditOrderLoyaltyPoints` dans
+    // functions/index.js). Purement interne au serveur, jamais consulté ni
+    // écrit par le client.
+    match /loyaltyPointsLedger/{ledgerId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {
