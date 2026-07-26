@@ -83,11 +83,9 @@ anglais) en lecture et écrit les deux à chaque sauvegarde
 (`lib/models/annonce.dart`) — fonctionnel mais fragile (double écriture
 permanente au lieu d'une source de vérité unique).
 
-**Décision** : unification complète (fusionner les deux piles, une seule
-conversion `Annonce → ProductModel`, un seul schéma canonique de champs)
-différée à une phase ultérieure — changement transverse à fort risque de
-régression, à traiter isolément avec sa propre suite de tests. Non traité
-dans la Phase 1.
+**Traité en Phase 4** : voir section "Phase 4" ci-dessous. Le champ `Annonce`
+dual français/anglais n'a pas été touché (hors périmètre, aucun rapport avec
+la duplication des deux piles de lecture).
 
 ## 4. Widgets image / carrousel
 
@@ -325,12 +323,50 @@ date de départ d'un abonnement déjà activé. Les deux callables sont
 désormais des no-op silencieux sur un `transactionId` déjà dans un état
 terminal (`paid`/`failed`).
 
+## Phase 4 — Unification des deux piles de providers d'annonces
+
+Avant de trancher entre les deux prochains gros chantiers (fidélité/points ou
+unification des annonces), une relecture de `functions/index.js` a mis en
+évidence un bug financier à corriger en priorité : `confirmManualPayment`/
+`rejectManualPayment` ne vérifiaient pas l'état déjà réglé d'une intention de
+paiement avant de rappeler `applySettlement` (double-tap admin/retry réseau
+→ double comptage `sellerStatistics`, réinitialisation de la date de départ
+d'un abonnement). Corrigé (voir ci-dessus).
+
+L'unification des annonces s'est avérée moins risquée que redouté une fois
+scopée en détail (exploration dédiée) : les deux piles utilisaient déjà le
+même modèle `Annonce` — la duplication n'était qu'au niveau de la requête
+Firestore elle-même, pas de la forme des données.
+
+1. `AnnonceRepositoryImpl.watchActiveAnnonces({category})` (Pile A) remplace
+   `AnnoncesCrudRepository.activeByDate()` (Pile B) — requête identique
+   (`isPublished` + `dateCreation`, + `categorie` optionnel), mêmes index
+   déjà en place, aucun redéploiement Firestore nécessaire.
+2. Conversion `Annonce → ProductModel` (nécessaire pour le panier/paiement,
+   volontairement inchangés) factorisée en une fonction pure unique
+   `annonceToProductModel()` (`lib/providers/product_provider.dart`),
+   réutilisée par la liste marketplace et l'écran de détail d'annonce.
+   **Bug corrigé au passage** : le détail d'annonce recopiait cette
+   conversion à la main sans l'enrichissement vendeur, ce qui masquait les
+   badges "vendeur vérifié"/"téléphone vérifié" sur cet écran précis alors
+   qu'ils s'affichaient correctement sur la liste.
+3. Suppression du code mort : `AnnoncesCrudRepository`,
+   `annoncesCrudRepositoryProvider`, `activeAnnoncesStreamProvider` (Pile B
+   entière), et `annoncesProvider`/`searchResultsProvider` de
+   `lib/annonce/providers/annonce_provider.dart` (zéro appelant, doublons du
+   vrai `searchResultsProvider` de `lib/search/providers/search_provider.dart`).
+4. Le dual-écriture français/anglais du modèle `Annonce` lui-même n'a pas été
+   touchée (hors périmètre — aucun rapport avec la duplication des deux
+   piles de lecture).
+5. Tests : `test/annonce_to_product_model_test.dart` (conversion pure, y
+   compris le cas "avec profil vendeur" qui couvre la régression corrigée).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
-  d'activation sécurisée.
+  d'activation sécurisée (évalué en Phase 4 : faible valeur ajoutée,
+  l'écran générique différencie déjà commande/abonnement).
 - Système de fidélité/récompenses acheteur et vendeur (entièrement nouveau).
-- Unification complète des deux piles de providers d'annonces.
 - App Check.
 - Documentation d'optimisation des coûts Firestore.
 - Migrations généralisées (anciens signalements, anciens champs). Le champ
