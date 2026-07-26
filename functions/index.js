@@ -530,6 +530,13 @@ exports.confirmManualPayment = onCall(async (request) => {
     throw new HttpsError("not-found", "Intention de paiement introuvable");
   }
   const intent = intentSnap.data();
+  if (intent.status === "paid" || intent.status === "failed") {
+    // Déjà réglé (double-tap admin, retry réseau, deux admins sur la même
+    // ligne) : ré-appliquer applySettlement doublerait les compteurs
+    // sellerStatistics et réinitialiserait la date de départ d'un
+    // abonnement. No-op silencieux plutôt qu'une erreur bloquante.
+    return { status: intent.status, alreadySettled: true };
+  }
 
   await applySettlement({
     transactionId,
@@ -562,6 +569,9 @@ exports.rejectManualPayment = onCall(async (request) => {
     throw new HttpsError("not-found", "Intention de paiement introuvable");
   }
   const intent = intentSnap.data();
+  if (intent.status === "paid" || intent.status === "failed") {
+    return { status: intent.status, alreadySettled: true };
+  }
 
   await applySettlement({
     transactionId,
