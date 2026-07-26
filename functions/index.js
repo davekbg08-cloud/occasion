@@ -177,6 +177,49 @@ function pointsForAmount(currency, amount) {
   return Math.floor(amount * rate);
 }
 
+const LOYALTY_POINTS_LEDGER_COLLECTION = "loyaltyPointsLedger";
+
+/**
+ * Crédite les points d'une commande de façon idempotente : un marqueur
+ * `{orderId}_{sellerId}` empêche qu'une redélivrance du trigger
+ * `onOrderCompleted` (les Cloud Functions livrent "au moins une fois") ne
+ * crédite les mêmes points deux fois. Retourne `false` (no-op) si déjà
+ * crédité, `true` si ce crédit vient d'avoir lieu.
+ */
+async function creditOrderLoyaltyPoints({ orderId, sellerId, buyerId, points }) {
+  const ledgerRef = db
+    .collection(LOYALTY_POINTS_LEDGER_COLLECTION)
+    .doc(`${orderId}_${sellerId}`);
+  const pointsRef = db
+    .collection(LOYALTY_POINTS_COLLECTION)
+    .doc(loyaltyPointsDocId(buyerId, sellerId));
+
+  return db.runTransaction(async (tx) => {
+    const ledgerSnap = await tx.get(ledgerRef);
+    if (ledgerSnap.exists) return false;
+
+    tx.set(ledgerRef, {
+      orderId,
+      sellerId,
+      buyerId,
+      points,
+      creditedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      pointsRef,
+      {
+        buyerId,
+        sellerId,
+        balance: FieldValue.increment(points),
+        lifetimeEarned: FieldValue.increment(points),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return true;
+  });
+}
+
 exports.onNewMessage = onDocumentCreated(
   "chats/{chatId}/messages/{messageId}",
   async (event) => {
@@ -690,33 +733,31 @@ exports.onOrderCompleted = onDocumentUpdated(
           .filter((item) => item.sellerId === sellerId)
           .reduce((sum, item) => sum + (item.totalPrice ?? 0), 0);
         const points = pointsForAmount(currency, sellerSubtotal);
-        if (points <= 0) return;
+        if (points <= 0 || !buyerId) return;
 
         try {
-          if (buyerId) {
-            const pointsRef = db
-              .collection(LOYALTY_POINTS_COLLECTION)
-              .doc(loyaltyPointsDocId(buyerId, sellerId));
-            await pointsRef.set(
-              {
-                buyerId,
-                sellerId,
-                balance: FieldValue.increment(points),
-                lifetimeEarned: FieldValue.increment(points),
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-            await sendToUser({
-              recipientId: buyerId,
-              notificationId: `loyalty_earned_${orderId}_${sellerId}`,
-              type: "order",
-              title: "🎁 Points de fidélité gagnés",
-              body: `Vous avez gagné ${points} point(s) chez ce vendeur.`,
-              route: "/loyalty-points",
-              data: { orderId, sellerId },
-            });
-          }
+          // Les triggers Cloud Functions livrent "au moins une fois" : sans
+          // ce marqueur, une redélivrance du même évènement créditerait les
+          // points une seconde fois (FieldValue.increment ne s'en protège
+          // pas tout seul, contrairement à sendToUser qui est déjà idempotent
+          // via son notificationId déterministe).
+          const credited = await creditOrderLoyaltyPoints({
+            orderId,
+            sellerId,
+            buyerId,
+            points,
+          });
+          if (!credited) return;
+
+          await sendToUser({
+            recipientId: buyerId,
+            notificationId: `loyalty_earned_${orderId}_${sellerId}`,
+            type: "order",
+            title: "🎁 Points de fidélité gagnés",
+            body: `Vous avez gagné ${points} point(s) chez ce vendeur.`,
+            route: "/loyalty-points",
+            data: { orderId, sellerId },
+          });
 
           await bumpSellerStats(sellerId, { loyaltyPoints: points });
         } catch (err) {

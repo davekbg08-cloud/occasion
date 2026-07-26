@@ -620,3 +620,23 @@ test("un client ne peut pas écrire dans le journal d'audit des points", async (
     })
   );
 });
+
+test("le marqueur d'idempotence du crédit de points est fermé à tout client (lecture et écriture)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPointsLedger").doc("order1_seller1").set({
+      orderId: "order1",
+      sellerId: "seller1",
+      buyerId: "buyer1",
+      points: 10,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("loyaltyPointsLedger").doc("order1_seller1").get()
+  );
+  await assertFails(
+    buyer.collection("loyaltyPointsLedger").doc("order2_seller1").set({
+      orderId: "order2",
+    })
+  );
+});

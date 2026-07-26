@@ -661,6 +661,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Marqueur d'idempotence pour le crédit de points à la complétion d'une
+    // commande (voir `onOrderCompleted`/`creditOrderLoyaltyPoints` dans
+    // functions/index.js). Purement interne au serveur, jamais consulté ni
+    // écrit par le client.
+    match /loyaltyPointsLedger/{ledgerId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
