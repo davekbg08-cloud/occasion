@@ -11,7 +11,9 @@ class Chat {
     this.listingTitle,
     this.lastMessage,
     this.lastMessageAt,
-    this.unreadCount = 0,
+    this.lastSenderId,
+    this.buyerUnreadCount = 0,
+    this.sellerUnreadCount = 0,
   });
 
   final String id;
@@ -25,7 +27,15 @@ class Chat {
   final String? listingTitle;
   final String? lastMessage;
   final DateTime? lastMessageAt;
-  final int unreadCount;
+  final String? lastSenderId;
+  final int buyerUnreadCount;
+  final int sellerUnreadCount;
+
+  /// Compteur de messages non lus propre à [userId] — jamais celui de
+  /// l'autre participant (contrairement à l'ancien `unreadCount` partagé).
+  int unreadCountFor(String userId) {
+    return userId == buyerId ? buyerUnreadCount : sellerUnreadCount;
+  }
 
   String otherUserName(String currentUserId) {
     return currentUserId == buyerId ? sellerName : buyerName;
@@ -42,6 +52,11 @@ class Chat {
   }
 
   factory Chat.fromMap(Map<String, dynamic> map) {
+    // Compat temporaire : tant qu'une conversation n'a pas été migrée (pas
+    // encore de buyerUnreadCount/sellerUnreadCount écrits), on retombe sur
+    // l'ancien compteur partagé pour les deux côtés plutôt que 0 — comme
+    // avant la migration, pas pire. Voir tool/migrate_chat_unread_counts.dart.
+    final legacyUnread = map['unreadCount'] as int? ?? 0;
     return Chat(
       id: map['id'] as String? ?? '',
       buyerId: map['buyerId'] as String? ?? '',
@@ -56,7 +71,9 @@ class Chat {
       lastMessageAt: map['lastMessageAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['lastMessageAt'] as int)
           : null,
-      unreadCount: map['unreadCount'] as int? ?? 0,
+      lastSenderId: map['lastSenderId'] as String?,
+      buyerUnreadCount: map['buyerUnreadCount'] as int? ?? legacyUnread,
+      sellerUnreadCount: map['sellerUnreadCount'] as int? ?? legacyUnread,
     );
   }
 
@@ -73,13 +90,17 @@ class Chat {
     'participants': [buyerId, sellerId],
     'lastMessage': lastMessage,
     'lastMessageAt': lastMessageAt?.millisecondsSinceEpoch,
-    'unreadCount': unreadCount,
+    'lastSenderId': lastSenderId,
+    'buyerUnreadCount': buyerUnreadCount,
+    'sellerUnreadCount': sellerUnreadCount,
   };
 
   Chat copyWith({
     String? lastMessage,
     DateTime? lastMessageAt,
-    int? unreadCount,
+    String? lastSenderId,
+    int? buyerUnreadCount,
+    int? sellerUnreadCount,
   }) {
     return Chat(
       id: id,
@@ -93,7 +114,17 @@ class Chat {
       listingTitle: listingTitle,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
-      unreadCount: unreadCount ?? this.unreadCount,
+      lastSenderId: lastSenderId ?? this.lastSenderId,
+      buyerUnreadCount: buyerUnreadCount ?? this.buyerUnreadCount,
+      sellerUnreadCount: sellerUnreadCount ?? this.sellerUnreadCount,
     );
+  }
+
+  /// Remet à zéro uniquement le compteur de [userId], jamais celui de
+  /// l'autre participant.
+  Chat clearUnreadFor(String userId) {
+    if (userId == buyerId) return copyWith(buyerUnreadCount: 0);
+    if (userId == sellerId) return copyWith(sellerUnreadCount: 0);
+    return this;
   }
 }

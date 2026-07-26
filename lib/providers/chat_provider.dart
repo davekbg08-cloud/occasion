@@ -13,6 +13,8 @@ class ChatState {
     this.activeChatId,
     this.isLoading = false,
     this.error,
+    this.isLoadingOlderMessages = false,
+    this.hasMoreOlderMessages = true,
   });
 
   final List<Chat> chats;
@@ -20,6 +22,8 @@ class ChatState {
   final String? activeChatId;
   final bool isLoading;
   final String? error;
+  final bool isLoadingOlderMessages;
+  final bool hasMoreOlderMessages;
 
   List<Message> get messages {
     final chatId = activeChatId;
@@ -35,6 +39,8 @@ class ChatState {
     String? error,
     bool clearActiveChat = false,
     bool clearError = false,
+    bool? isLoadingOlderMessages,
+    bool? hasMoreOlderMessages,
   }) {
     return ChatState(
       chats: chats ?? this.chats,
@@ -42,6 +48,9 @@ class ChatState {
       activeChatId: clearActiveChat ? null : activeChatId ?? this.activeChatId,
       isLoading: isLoading ?? this.isLoading,
       error: clearError ? null : error ?? this.error,
+      isLoadingOlderMessages:
+          isLoadingOlderMessages ?? this.isLoadingOlderMessages,
+      hasMoreOlderMessages: hasMoreOlderMessages ?? this.hasMoreOlderMessages,
     );
   }
 }
@@ -90,7 +99,11 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (_listeningChatId != chatId) {
       _listeningChatId = chatId;
       _messagesSubscription?.cancel();
-      state = state.copyWith(activeChatId: chatId, clearError: true);
+      state = state.copyWith(
+        activeChatId: chatId,
+        clearError: true,
+        hasMoreOlderMessages: true,
+      );
 
       try {
         _messagesSubscription = _service
@@ -116,10 +129,39 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     _service
         .markAsRead(chatId, currentUserId)
-        .then((_) => _clearUnread(chatId))
+        .then((_) => _clearUnread(chatId, currentUserId))
         .catchError((Object error) {
           state = state.copyWith(error: error.toString());
         });
+  }
+
+  /// Charge une page supplémentaire de messages plus anciens que le plus
+  /// vieux message actuellement chargé (lecture ponctuelle, pas un stream).
+  Future<void> loadOlderMessages(String chatId) async {
+    if (state.isLoadingOlderMessages || !state.hasMoreOlderMessages) return;
+    final current = state.messagesByChatId[chatId] ?? const [];
+    if (current.isEmpty) return;
+
+    state = state.copyWith(isLoadingOlderMessages: true);
+    try {
+      final older = await _service.fetchOlderMessages(
+        chatId: chatId,
+        before: current.first.sentAt,
+      );
+      state = state.copyWith(
+        messagesByChatId: {
+          ...state.messagesByChatId,
+          chatId: [...older, ...current],
+        },
+        isLoadingOlderMessages: false,
+        hasMoreOlderMessages: older.length >= ChatService.messagePageSize,
+      );
+    } catch (error) {
+      state = state.copyWith(
+        isLoadingOlderMessages: false,
+        error: error.toString(),
+      );
+    }
   }
 
   Future<Chat> openChat({
@@ -202,11 +244,11 @@ class ChatNotifier extends StateNotifier<ChatState> {
     state = state.copyWith(chats: chats);
   }
 
-  void _clearUnread(String chatId) {
+  void _clearUnread(String chatId, String userId) {
     state = state.copyWith(
       chats: [
         for (final chat in state.chats)
-          if (chat.id == chatId) chat.copyWith(unreadCount: 0) else chat,
+          if (chat.id == chatId) chat.clearUnreadFor(userId) else chat,
       ],
     );
   }

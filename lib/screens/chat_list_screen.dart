@@ -148,7 +148,7 @@ class _ChatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = chat.otherUserName(currentUserId);
     final image = chat.otherUserProfileImage(currentUserId);
-    final unread = chat.unreadCount > 0;
+    final unread = chat.unreadCountFor(currentUserId) > 0;
     final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
     final listingTitle = chat.listingTitle?.trim();
 

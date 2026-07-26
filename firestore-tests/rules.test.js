@@ -151,3 +151,33 @@ test("un utilisateur qui n'est pas participant ne peut pas lire un chat existant
   const outsider = testEnv.authenticatedContext("buyer2").firestore();
   await assertFails(outsider.collection("chats").doc("chat1").get());
 });
+
+test("un acheteur peut remettre à zéro son propre compteur non-lu", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 3,
+      sellerUnreadCount: 2,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 0 })
+  );
+});
+
+test("un acheteur ne peut pas modifier le compteur non-lu du vendeur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 3,
+      sellerUnreadCount: 2,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ sellerUnreadCount: 0 })
+  );
+});

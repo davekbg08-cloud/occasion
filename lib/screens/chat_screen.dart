@@ -22,6 +22,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  String? _lastMessageId;
+  bool _didInitialScroll = false;
 
   @override
   void initState() {
@@ -32,10 +34,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           .read(chatNotifierProvider.notifier)
           .listenMessages(widget.chat.id, uid);
     });
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels <= 120) {
+      ref.read(chatNotifierProvider.notifier).loadOlderMessages(widget.chat.id);
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
     ref.read(chatNotifierProvider.notifier).clearMessages();
@@ -146,7 +157,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Expanded(
             child: Builder(
               builder: (context) {
-                _scrollToBottom();
+                // Ne scroller automatiquement vers le bas que lors de
+                // l'arrivée d'un nouveau message à la fin (jamais quand on
+                // vient de charger des messages plus anciens en tête de
+                // liste, sinon la pagination vers le haut serait annulée).
+                final newestId = messages.isEmpty ? null : messages.last.id;
+                if (!_didInitialScroll && messages.isNotEmpty) {
+                  _didInitialScroll = true;
+                  _lastMessageId = newestId;
+                  _scrollToBottom();
+                } else if (newestId != null && newestId != _lastMessageId) {
+                  _lastMessageId = newestId;
+                  _scrollToBottom();
+                }
 
                 if (messages.isEmpty) {
                   return const Center(
@@ -157,19 +180,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 }
 
+                final isLoadingOlder = ref.watch(
+                  chatNotifierProvider.select(
+                    (state) => state.isLoadingOlderMessages,
+                  ),
+                );
+
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 16,
                   ),
-                  itemCount: messages.length,
+                  itemCount: messages.length + (isLoadingOlder ? 1 : 0),
                   itemBuilder: (context, index) {
-                    final message = messages[index];
+                    if (isLoadingOlder && index == 0) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
+                    final messageIndex = isLoadingOlder ? index - 1 : index;
+                    final message = messages[messageIndex];
                     final isMe = message.senderId == myId;
                     final showDate =
-                        index == 0 ||
-                        !_sameDay(messages[index - 1].sentAt, message.sentAt);
+                        messageIndex == 0 ||
+                        !_sameDay(
+                          messages[messageIndex - 1].sentAt,
+                          message.sentAt,
+                        );
 
                     return Column(
                       children: [
