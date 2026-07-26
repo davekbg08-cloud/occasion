@@ -96,9 +96,9 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
     try {
       await _settlement.rejectManualPayment(transactionId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Paiement rejeté.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Paiement rejeté.')));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,16 +182,18 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed:
-                                isBusy ? null : () => _reject(transactionId),
+                            onPressed: isBusy
+                                ? null
+                                : () => _reject(transactionId),
                             child: const Text('Rejeter'),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton(
-                            onPressed:
-                                isBusy ? null : () => _confirm(transactionId),
+                            onPressed: isBusy
+                                ? null
+                                : () => _confirm(transactionId),
                             style: FilledButton.styleFrom(
                               backgroundColor: Colors.green,
                             ),
@@ -292,9 +294,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
         }
         final docs = snapshot.data?.docs ?? const [];
         if (docs.isEmpty) {
-          return const Center(
-            child: Text('Aucun reversement en attente.'),
-          );
+          return const Center(child: Text('Aucun reversement en attente.'));
         }
 
         return ListView.separated(
@@ -307,8 +307,8 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
             final isBusy = _processing.contains(orderId);
             final total = (data['total'] as num?)?.toDouble() ?? 0;
             final buyerName = data['buyerName'] as String? ?? 'Acheteur';
-            final sellerIds =
-                (data['sellerIds'] as List<dynamic>? ?? const []).join(', ');
+            final sellerIds = (data['sellerIds'] as List<dynamic>? ?? const [])
+                .join(', ');
 
             return Card(
               child: Padding(
@@ -342,9 +342,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text(
-                                "J'ai envoyé l'argent au vendeur",
-                              ),
+                            : const Text("J'ai envoyé l'argent au vendeur"),
                       ),
                     ),
                   ],

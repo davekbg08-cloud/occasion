@@ -28,8 +28,9 @@ class SellerOrdersScreen extends ConsumerWidget {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/seller-dashboard'),
+          onPressed: () => context.canPop()
+              ? context.pop()
+              : context.go('/seller-dashboard'),
         ),
         title: const Text('Commandes reçues'),
       ),
@@ -77,8 +78,7 @@ class SellerOrdersScreen extends ConsumerWidget {
                           'Configuration en cours côté serveur. Réessaie dans '
                           'quelques minutes.';
                     } else if (error.code == 'permission-denied') {
-                      message =
-                          "Accès refusé. Reconnecte-toi puis réessaie.";
+                      message = "Accès refusé. Reconnecte-toi puis réessaie.";
                     }
                   }
                   return Center(
@@ -103,7 +103,8 @@ class SellerOrdersScreen extends ConsumerWidget {
                     final data = docs[index].data();
                     final status = data['status'] as String? ?? '';
                     final total = (data['total'] as num?)?.toDouble() ?? 0;
-                    final buyerName = data['buyerName'] as String? ?? 'Acheteur';
+                    final buyerName =
+                        data['buyerName'] as String? ?? 'Acheteur';
                     final date = _toDate(data['createdAt']);
 
                     return Card(

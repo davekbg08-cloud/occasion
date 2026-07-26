@@ -27,11 +27,12 @@ final sellerAnnoncesProvider = FutureProvider.autoDispose
       return repo.getSellerAnnonces(sellerId);
     });
 
-final annonceByIdProvider = FutureProvider.autoDispose
-    .family<Annonce?, String>((ref, id) async {
-      final repo = ref.watch(annonceRepositoryProvider);
-      return repo.getAnnonceById(id);
-    });
+final annonceByIdProvider = FutureProvider.autoDispose.family<Annonce?, String>(
+  (ref, id) async {
+    final repo = ref.watch(annonceRepositoryProvider);
+    return repo.getAnnonceById(id);
+  },
+);
 
 final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((ref) {
   final query = ref.watch(searchQueryProvider);
@@ -65,7 +66,10 @@ class CreateAnnonceNotifier extends StateNotifier<AsyncValue<Annonce?>> {
     }
   }
 
-  Future<void> update(Annonce annonce, {List<XFile> newImages = const []}) async {
+  Future<void> update(
+    Annonce annonce, {
+    List<XFile> newImages = const [],
+  }) async {
     state = const AsyncValue.loading();
     try {
       final result = await _repository.updateAnnonce(
