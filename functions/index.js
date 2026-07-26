@@ -11,6 +11,103 @@ const db = getFirestore();
 const fcm = getMessaging();
 
 const ESCROW_AUTO_RELEASE_DAYS = 3;
+const NOTIFICATIONS_COLLECTION = "notifications";
+
+/**
+ * Jetons FCM actifs d'un utilisateur, un par appareil connecté
+ * (`users/{uid}/devices/{deviceId}`, remplace l'ancien champ unique
+ * `fcmToken` pour supporter plusieurs appareils par compte).
+ */
+async function deviceTokensFor(uid) {
+  const devicesSnap = await db
+    .collection("users")
+    .doc(uid)
+    .collection("devices")
+    .get();
+  return devicesSnap.docs
+    .map((doc) => ({ id: doc.id, token: doc.data()?.token }))
+    .filter((device) => !!device.token);
+}
+
+/**
+ * Persiste une notification (historique in-app, lue par le client via
+ * `notifications/{id}`) et l'envoie en push à tous les appareils du
+ * destinataire. `notificationId` déterministe = idempotent (les retries
+ * Cloud Functions ne créent jamais de doublon). Nettoie les jetons devenus
+ * invalides.
+ */
+async function sendToUser({
+  recipientId,
+  notificationId,
+  senderId = null,
+  type,
+  title,
+  body,
+  route = null,
+  data = {},
+}) {
+  if (!recipientId) return;
+
+  const docId = notificationId || db.collection(NOTIFICATIONS_COLLECTION).doc().id;
+  await db
+    .collection(NOTIFICATIONS_COLLECTION)
+    .doc(docId)
+    .set(
+      {
+        recipientId,
+        senderId,
+        type,
+        title,
+        body,
+        route,
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp(),
+        data,
+      },
+      { merge: true }
+    );
+
+  const devices = await deviceTokensFor(recipientId);
+  if (devices.length === 0) return;
+
+  const pushData = {
+    type,
+    route: route ?? "",
+    ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])),
+  };
+
+  try {
+    const result = await fcm.sendEachForMulticast({
+      tokens: devices.map((device) => device.token),
+      notification: { title, body },
+      data: pushData,
+      android: { priority: "high", notification: { channelId: "occasion_channel" } },
+      apns: { payload: { aps: { sound: "default", badge: 1 } } },
+    });
+
+    await Promise.all(
+      result.responses.map((res, i) => {
+        const code = res.error?.code;
+        if (
+          !res.success &&
+          (code === "messaging/registration-token-not-registered" ||
+            code === "messaging/invalid-argument")
+        ) {
+          return db
+            .collection("users")
+            .doc(recipientId)
+            .collection("devices")
+            .doc(devices[i].id)
+            .delete()
+            .catch(() => {});
+        }
+        return null;
+      })
+    );
+  } catch (err) {
+    console.error(`Erreur envoi notif -> ${recipientId} :`, err);
+  }
+}
 
 exports.onNewMessage = onDocumentCreated(
   "chats/{chatId}/messages/{messageId}",
@@ -18,38 +115,24 @@ exports.onNewMessage = onDocumentCreated(
     const msg = event.data.data();
     const receiverId = msg.receiverId;
     const senderId = msg.senderId;
-
-    const receiverDoc = await db.collection("users").doc(receiverId).get();
-    const fcmToken = receiverDoc.data()?.fcmToken;
-    if (!fcmToken) return null;
+    const chatId = event.params.chatId;
+    const messageId = event.params.messageId;
 
     const senderDoc = await db.collection("users").doc(senderId).get();
     const senderName = senderDoc.data()?.name ?? "Quelqu'un";
     const content = msg.content ?? "";
+    const body = content.length > 80 ? `${content.substring(0, 80)}...` : content;
 
-    try {
-      await fcm.send({
-        token: fcmToken,
-        notification: {
-          title: `💬 ${senderName}`,
-          body: content.length > 80 ? `${content.substring(0, 80)}...` : content,
-        },
-        data: {
-          type: "message",
-          chatId: event.params.chatId,
-        },
-        android: {
-          priority: "high",
-          notification: { channelId: "occasion_channel" },
-        },
-        apns: {
-          payload: { aps: { sound: "default", badge: 1 } },
-        },
-      });
-      console.log(`Notif message -> ${receiverId}`);
-    } catch (err) {
-      console.error("Erreur envoi notif message :", err);
-    }
+    await sendToUser({
+      recipientId: receiverId,
+      notificationId: `message_${chatId}_${messageId}`,
+      senderId,
+      type: "message",
+      title: `💬 ${senderName}`,
+      body,
+      route: "/chat-list",
+      data: { chatId },
+    });
 
     return null;
   }
@@ -65,12 +148,13 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
     .where("role", "==", "buyer")
     .get();
 
-  const tokens = buyersSnap.docs
-    .map((doc) => doc.data().fcmToken)
-    .filter(Boolean);
+  const tokenLists = await Promise.all(
+    buyersSnap.docs.map((doc) => deviceTokensFor(doc.id))
+  );
+  const tokens = tokenLists.flat().map((device) => device.token);
 
   if (tokens.length === 0) {
-    console.log("Aucun acheteur avec token FCM.");
+    console.log("Aucun acheteur avec appareil enregistré.");
     return null;
   }
 
@@ -222,6 +306,63 @@ async function applySettlement({
     );
     throw err;
   }
+
+  await notifySettlement({ transactionId, intent, isPaid });
+}
+
+/**
+ * Notifie les parties concernées du résultat d'un paiement (commande
+ * payée/rejetée -> acheteur puis vendeurs ; abonnement activé/rejeté ->
+ * vendeur). Ne doit jamais faire échouer le règlement lui-même : erreurs
+ * seulement loguées.
+ */
+async function notifySettlement({ transactionId, intent, isPaid }) {
+  try {
+    if (intent.type === "order" && intent.orderId) {
+      await sendToUser({
+        recipientId: intent.userId,
+        notificationId: `order_${transactionId}_buyer`,
+        type: "order",
+        title: isPaid ? "✅ Paiement confirmé" : "❌ Paiement rejeté",
+        body: isPaid
+          ? "Votre commande a été validée, le vendeur va la préparer."
+          : "Votre paiement n'a pas pu être vérifié. Contactez le support si besoin.",
+        route: "/orders",
+        data: { orderId: intent.orderId },
+      });
+
+      if (isPaid) {
+        const orderSnap = await db.collection("orders").doc(intent.orderId).get();
+        const sellerIds = orderSnap.data()?.sellerIds ?? [];
+        await Promise.all(
+          sellerIds.map((sellerId) =>
+            sendToUser({
+              recipientId: sellerId,
+              notificationId: `order_${transactionId}_seller_${sellerId}`,
+              type: "order",
+              title: "🛍️ Nouvelle commande payée",
+              body: "Un acheteur a payé une commande. Préparez l'envoi.",
+              route: "/seller-orders",
+              data: { orderId: intent.orderId },
+            })
+          )
+        );
+      }
+    } else if (intent.type === "subscription") {
+      await sendToUser({
+        recipientId: intent.userId,
+        notificationId: `subscription_${transactionId}`,
+        type: "subscription",
+        title: isPaid ? "✅ Abonnement activé" : "❌ Abonnement rejeté",
+        body: isPaid
+          ? "Votre abonnement vendeur est actif."
+          : "Votre paiement d'abonnement n'a pas pu être vérifié.",
+        route: "/subscription",
+      });
+    }
+  } catch (err) {
+    console.error(`Erreur notification settlement ${transactionId} :`, err);
+  }
 }
 
 /**
@@ -343,4 +484,23 @@ exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
   });
   await batch.commit();
   console.log(`autoReleaseEscrow: ${snapshot.size} commande(s) libérée(s).`);
+
+  await Promise.all(
+    snapshot.docs.flatMap((doc) => {
+      const sellerIds = doc.data().sellerIds ?? [];
+      return sellerIds.map((sellerId) =>
+        sendToUser({
+          recipientId: sellerId,
+          notificationId: `escrow_${doc.id}_${sellerId}`,
+          type: "order",
+          title: "💰 Fonds libérés",
+          body: "Le séquestre de votre commande a été libéré automatiquement.",
+          route: "/seller-orders",
+          data: { orderId: doc.id },
+        }).catch((err) =>
+          console.error(`Erreur notif escrow ${doc.id} -> ${sellerId} :`, err)
+        )
+      );
+    })
+  );
 });

@@ -50,13 +50,6 @@ final categoriesOccasionRepositoryProvider =
       return CategoriesOccasionRepository(ref.watch(occasionFirestoreProvider));
     });
 
-final notificationsOccasionRepositoryProvider =
-    Provider<NotificationsOccasionRepository>((ref) {
-      return NotificationsOccasionRepository(
-        ref.watch(occasionFirestoreProvider),
-      );
-    });
-
 final activeAnnoncesStreamProvider = StreamProvider.autoDispose<List<Annonce>>((
   ref,
 ) {
@@ -85,9 +78,4 @@ final messagesByConversationProvider = StreamProvider.autoDispose
       return ref
           .watch(messagesOccasionRepositoryProvider)
           .byConversation(conversationId);
-    });
-
-final notificationsByUserProvider = StreamProvider.autoDispose
-    .family<List<NotificationOccasion>, String>((ref, userId) {
-      return ref.watch(notificationsOccasionRepositoryProvider).byUser(userId);
     });

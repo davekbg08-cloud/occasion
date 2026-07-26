@@ -181,3 +181,126 @@ test("un acheteur ne peut pas modifier le compteur non-lu du vendeur", async () 
     buyer.collection("chats").doc("chat1").update({ sellerUnreadCount: 0 })
   );
 });
+
+test("un client ne peut pas créer directement une notification (réservé au serveur)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "system",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    })
+  );
+});
+
+test("un destinataire peut lire sa propre notification", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "message",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("notifications").doc("n1").get());
+});
+
+test("un autre utilisateur ne peut pas lire la notification d'autrui", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "message",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(outsider.collection("notifications").doc("n1").get());
+});
+
+test("un destinataire peut marquer sa notification comme lue", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "message",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("notifications")
+      .doc("n1")
+      .update({ isRead: true, readAt: new Date() })
+  );
+});
+
+test("un destinataire ne peut pas modifier le contenu de sa notification", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "message",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("notifications").doc("n1").update({ title: "Modifié" })
+  );
+});
+
+test("un destinataire peut supprimer sa propre notification", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("notifications").doc("n1").set({
+      recipientId: "buyer1",
+      type: "message",
+      title: "Test",
+      body: "Test",
+      isRead: false,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("notifications").doc("n1").delete());
+});
+
+test("un utilisateur peut gérer ses propres jetons d'appareil (devices)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("users")
+      .doc("buyer1")
+      .collection("devices")
+      .doc("device1")
+      .set({ token: "fcm-token", platform: "android" })
+  );
+});
+
+test("un utilisateur ne peut pas lire les jetons d'appareil d'autrui", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("users")
+      .doc("buyer1")
+      .collection("devices")
+      .doc("device1")
+      .set({ token: "fcm-token", platform: "android" });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(
+    outsider
+      .collection("users")
+      .doc("buyer1")
+      .collection("devices")
+      .doc("device1")
+      .get()
+  );
+});

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
@@ -42,10 +43,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ? "Actif jusqu'au ${subscription.expiryDate.toString().split(' ').first}"
         : 'Aucun abonnement vendeur actif';
 
+    final unreadNotifications = user == null
+        ? 0
+        : ref.watch(unreadNotificationsCountProvider(user.id));
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isSeller ? 'Mon compte vendeur' : 'Mon compte acheteur'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Notifications',
+            onPressed: () => context.push('/notifications'),
+            icon: Badge(
+              isLabelVisible: unreadNotifications > 0,
+              label: Text('$unreadNotifications'),
+              child: const Icon(Icons.notifications_outlined),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

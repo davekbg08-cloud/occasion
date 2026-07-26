@@ -304,37 +304,3 @@ class CategoriesOccasionRepository
         );
   }
 }
-
-class NotificationsOccasionRepository
-    extends OccasionCollectionRepository<NotificationOccasion> {
-  NotificationsOccasionRepository(FirebaseFirestore firestore)
-    : super(
-        firestore: firestore,
-        collectionName: 'notifications',
-        fromSnapshot: NotificationOccasion.fromSnapshot,
-        toFirestore: (model) => model.toFirestore(serverTimestamp: true),
-        validate: (model) => model.validate(),
-      );
-
-  Stream<List<NotificationOccasion>> byUser(
-    String utilisateurId, {
-    bool? unreadOnly,
-    int limit = 100,
-  }) {
-    Query<Map<String, dynamic>> query = collection
-        .where('utilisateurId', isEqualTo: utilisateurId)
-        .orderBy('date', descending: true)
-        .limit(limit);
-    if (unreadOnly == true) {
-      query = collection
-          .where('utilisateurId', isEqualTo: utilisateurId)
-          .where('lu', isEqualTo: false)
-          .orderBy('date', descending: true)
-          .limit(limit);
-    }
-    return query.snapshots().map(
-      (snapshot) =>
-          snapshot.docs.map(NotificationOccasion.fromSnapshot).toList(),
-    );
-  }
-}

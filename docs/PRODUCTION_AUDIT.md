@@ -55,10 +55,10 @@ Deux implémentations de notifications coexistent, indépendantes :
 sur ce token unique via l'API single-token, donc un utilisateur connecté sur 2
 appareils ne reçoit la notification que sur le dernier connecté.
 
-**Décision** : refonte complète différée à une phase ultérieure (chantier
-important : nouvelle collection `notifications` réellement branchée,
-multi-appareils `users/{uid}/devices/{deviceId}`, Cloud Function idempotente,
-`NotificationRouter`). Non traité dans la Phase 1.
+**Traité en Phase 2** : voir section "Phase 2" ci-dessous (nouvelle collection
+`notifications` réellement branchée, multi-appareils
+`users/{uid}/devices/{deviceId}`, Cloud Functions idempotentes, code mort
+supprimé).
 
 ## 3. Annonces — deux piles de providers parallèles
 
@@ -228,10 +228,55 @@ existante (11 tests contre l'émulateur), écrite mais jamais lancée en CI.
    `Image.network` bruts et l'affichage mono-photo des cartes produit/annonce.
 6. Grille responsive pour la liste produits (1/2/3 colonnes selon largeur).
 
+## Phase 2 — Notifications : persistance réelle + multi-appareils
+
+Remplace intégralement le système décrit en section 2 (`NotificationNotifier`
+en mémoire + `NotificationsOccasionRepository` mort, code français, jamais
+branché). Un seul système désormais :
+
+1. Modèle `AppNotification` (`lib/models/app_notification.dart`, champs
+   anglais : `recipientId`, `senderId`, `type`, `title`, `body`, `route`,
+   `entityId`/`chatId`/`listingId`/`statusId`/`orderId`/`paymentIntentId`,
+   `isRead`, `createdAt`, `readAt`, `data`), persistée dans
+   `notifications/{id}`.
+2. Suppression du code mort : `NotificationOccasion`,
+   `NotificationsOccasionRepository`, `notificationsOccasionRepositoryProvider`,
+   `notificationsByUserProvider` — évite deux systèmes concurrents sur la
+   même collection.
+3. `firestore.rules` : `notifications/{id}` n'est **créable que côté serveur**
+   (`allow create: if false`, Cloud Functions via l'Admin SDK contournent les
+   règles) ; le destinataire peut lire, marquer lu/non lu (`isRead`/`readAt`
+   uniquement) et supprimer sa propre notification. Index composite
+   `recipientId`+`createdAt` (et `+isRead`) ajouté.
+4. Multi-appareils : `users/{uid}/devices/{deviceId}` remplace le champ
+   unique `fcmToken`. `deviceId` généré une fois et persisté localement
+   (`shared_preferences`), donc stable par appareil/installation — un même
+   compte connecté sur 2 téléphones reçoit désormais les push sur les deux.
+   Règles : lecture/écriture réservées au propriétaire.
+5. `functions/index.js` : helper `sendToUser()` unique — persiste la
+   notification Firestore (ID déterministe = idempotent aux retries Cloud
+   Functions) et envoie un multicast à tous les appareils du destinataire,
+   avec nettoyage des jetons invalides. Branché sur :
+   - `onNewMessage` (notification + push par message reçu) ;
+   - `applySettlement` (paiement de commande confirmé/rejeté → acheteur, et
+     vendeurs notifiés d'une commande payée ; abonnement activé/rejeté →
+     vendeur) ;
+   - `autoReleaseEscrow` (fonds libérés → vendeur).
+   `onNewStatus` reste push-only (diffusion à tous les acheteurs) : pas de
+   notification persistée par destinataire, décision volontaire de maîtrise
+   des coûts Firestore vu le volume potentiel (un document par acheteur et
+   par statut publié serait disproportionné).
+6. Écran `/notifications` réellement branché sur Firestore (liste, swipe pour
+   supprimer, "tout marquer comme lu", tap = marque lu + navigue via
+   `route`). Point d'entrée ajouté dans `ProfileScreen` (icône cloche avec
+   badge du nombre de non-lues) — l'écran était auparavant inatteignable
+   depuis l'UI.
+7. Tests : parsing `AppNotification.fromFirestore` (`test/app_notification_test.dart`),
+   règles `notifications`/`devices` côté émulateur (8 nouveaux cas dans
+   `firestore-tests/rules.test.js`).
+
 ## Phases suivantes (hors de portée de cette session)
 
-- Refonte complète des notifications (persistance réelle + multi-appareils +
-  Cloud Function idempotente + routeur de notifications).
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
   d'activation sécurisée.
 - Système de fidélité/récompenses acheteur et vendeur (entièrement nouveau).
@@ -239,8 +284,13 @@ existante (11 tests contre l'émulateur), écrite mais jamais lancée en CI.
 - Unification complète des deux piles de providers d'annonces.
 - App Check.
 - Documentation d'optimisation des coûts Firestore.
-- Migrations généralisées (anciens signalements, anciens champs, anciens
-  tokens FCM).
+- Migrations généralisées (anciens signalements, anciens champs). Le champ
+  legacy `users/{uid}.fcmToken` n'est plus écrit à partir de cette phase ;
+  les appareils déjà connectés migrent automatiquement vers
+  `users/{uid}/devices/{deviceId}` à la prochaine ouverture de l'app (pas de
+  script de migration dédié — bascule naturelle, pas de perte de
+  fonctionnalité entre-temps puisque `sendToUser` ne lit que la nouvelle
+  sous-collection).
 - Suite de tests Firebase Emulator exhaustive (rôles, sécurité, tous les
   scénarios listés dans le cahier des charges original).
 - Plan de validation sur appareils physiques.

@@ -190,15 +190,6 @@ service cloud.firestore {
         && data.ordre is number && data.ordre >= 0;
     }
 
-    function validNotification(data) {
-      return hasOnly(data, ['id', 'utilisateurId', 'titre', 'message', 'lu', 'date'])
-        && stringField(data, 'utilisateurId', 128)
-        && stringField(data, 'titre', 160)
-        && stringField(data, 'message', 1000)
-        && data.lu is bool
-        && data.date is timestamp;
-    }
-
     match /annonces/{annonceId} {
       allow read: if isPublishedAnnonce(resource.data)
         || (
@@ -277,6 +268,12 @@ service cloud.firestore {
       allow delete: if false;
 
       match /blockedUsers/{blockedUserId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      // Un jeton FCM par appareil connecté (multi-device), jamais lisible
+      // par un autre utilisateur, géré uniquement par le propriétaire.
+      match /devices/{deviceId} {
         allow read, create, update, delete: if isOwner(userId);
       }
     }
@@ -574,14 +571,17 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if signedIn() && resource.data.utilisateurId == request.auth.uid;
-      allow create: if signedIn()
-        && request.resource.data.utilisateurId == request.auth.uid
-        && validNotification(request.resource.data);
+      // Créées uniquement côté serveur (Cloud Functions via l'Admin SDK,
+      // qui contourne ces règles) : jamais par le client directement, pour
+      // empêcher un utilisateur de s'auto-notifier ou de notifier autrui.
+      allow create: if false;
+      allow read: if signedIn() && resource.data.recipientId == request.auth.uid;
+      // Le destinataire ne peut que marquer comme lue / non lue sa propre
+      // notification, jamais modifier son contenu.
       allow update: if signedIn()
-        && resource.data.utilisateurId == request.auth.uid
-        && validNotification(request.resource.data);
-      allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+        && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt']);
+      allow delete: if signedIn() && resource.data.recipientId == request.auth.uid;
     }
 
     match /{document=**} {
