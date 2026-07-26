@@ -47,6 +47,12 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Set up Java (required by the Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
       - name: Install Firestore rules test dependencies
         run: npm install
         working-directory: firestore-tests
