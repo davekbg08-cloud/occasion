@@ -58,11 +58,12 @@ class ModerationService {
     required String status,
     String? reviewedBy,
   }) {
-    return _reportsRef.doc(reportId).update({
+    final data = <String, dynamic>{
       'status': status,
       'updatedAt': FieldValue.serverTimestamp(),
-      if (reviewedBy != null) 'reviewedBy': reviewedBy,
-    });
+    };
+    if (reviewedBy != null) data['reviewedBy'] = reviewedBy;
+    return _reportsRef.doc(reportId).update(data);
   }
 
   Future<void> blockUser({

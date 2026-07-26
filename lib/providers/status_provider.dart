@@ -115,9 +115,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
       state = state.copyWith(
         statuses: [
           ...state.statuses,
-          ...docs.map(
-            (doc) => Status.fromMap({...doc.data(), 'id': doc.id}),
-          ),
+          ...docs.map((doc) => Status.fromMap({...doc.data(), 'id': doc.id})),
         ],
         isLoadingMore: false,
         hasMore: docs.length >= StatusService.feedPageSize,

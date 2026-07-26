@@ -8,6 +8,7 @@ import '../../providers/subscription_provider.dart';
 import '../../services/phone_number_validator.dart';
 import '../../shared/models/annonce.dart';
 import '../providers/annonce_provider.dart';
+import '../../widgets/occasion_image.dart';
 
 class CreateAnnonceScreen extends ConsumerStatefulWidget {
   const CreateAnnonceScreen({super.key, this.initialAnnonce});
@@ -599,33 +600,13 @@ class _ExistingImages extends StatelessWidget {
         itemCount: imageUrls.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          return ClipRRect(
+          return OccasionImage.thumbnail(
+            imageUrls[index],
+            width: 100,
+            height: 100,
+            cacheWidth: 200,
+            cacheHeight: 200,
             borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              imageUrls[index],
-              width: 100,
-              height: 100,
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return const SizedBox(
-                  width: 100,
-                  height: 100,
-                  child: Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) => Container(
-                width: 100,
-                height: 100,
-                color: Colors.grey[850],
-                child: const Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
           );
         },
       ),

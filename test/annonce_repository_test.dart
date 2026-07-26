@@ -27,7 +27,10 @@ void main() {
 
     setUp(() {
       firestore = FakeFirebaseFirestore();
-      auth = MockFirebaseAuth(signedIn: true, mockUser: MockUser(uid: sellerId));
+      auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: sellerId),
+      );
       repository = AnnonceRepositoryImpl(
         firestore: firestore,
         auth: auth,
@@ -99,7 +102,10 @@ void main() {
         final images = [XFile('')];
         var reachedBeyondLimitCheck = false;
         try {
-          await repository.createAnnonce(_baseAnnonce(userId: sellerId), images);
+          await repository.createAnnonce(
+            _baseAnnonce(userId: sellerId),
+            images,
+          );
         } catch (e) {
           expect(e.toString(), isNot(contains('1 annonce active maximum')));
           reachedBeyondLimitCheck = true;

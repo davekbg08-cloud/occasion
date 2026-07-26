@@ -349,5 +349,4 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
       'publie',
     }.contains(status.trim().toLowerCase());
   }
-
 }

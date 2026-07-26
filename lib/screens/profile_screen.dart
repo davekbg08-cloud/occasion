@@ -8,12 +8,15 @@ import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
+import '../widgets/occasion_image.dart';
 
 const _privacyPolicyUrl =
     'https://davekbg08-cloud.github.io/occasion/privacy.html';
 
-Future<void> _openPrivacyPolicy() =>
-    launchUrl(Uri.parse(_privacyPolicyUrl), mode: LaunchMode.externalApplication);
+Future<void> _openPrivacyPolicy() => launchUrl(
+  Uri.parse(_privacyPolicyUrl),
+  mode: LaunchMode.externalApplication,
+);
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -189,24 +192,12 @@ class _ProfileAvatar extends StatelessWidget {
     }
 
     return ClipOval(
-      child: Image.network(
+      child: OccasionImage.thumbnail(
         url,
         width: 110,
         height: 110,
-        fit: BoxFit.cover,
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return CircleAvatar(
-            radius: 55,
-            backgroundColor: color,
-            child: const CircularProgressIndicator(color: Colors.white),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => CircleAvatar(
-          radius: 55,
-          backgroundColor: color,
-          child: Icon(fallbackIcon, size: 62, color: Colors.white),
-        ),
+        cacheWidth: 220,
+        cacheHeight: 220,
       ),
     );
   }

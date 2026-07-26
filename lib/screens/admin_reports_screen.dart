@@ -69,7 +69,9 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            newStatus == 'resolved' ? 'Signalement résolu.' : 'Signalement rejeté.',
+            newStatus == 'resolved'
+                ? 'Signalement résolu.'
+                : 'Signalement rejeté.',
           ),
           backgroundColor: Colors.green,
         ),
@@ -115,11 +117,10 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
             final isBusy = _processing.contains(reportId);
             final targetType = data['targetType'] as String? ?? 'user';
             final reasonKey = data['reason'] as String?;
-            final reason = ReportReason.values
-                .firstWhere(
-                  (item) => item.name == reasonKey,
-                  orElse: () => ReportReason.other,
-                );
+            final reason = ReportReason.values.firstWhere(
+              (item) => item.name == reasonKey,
+              orElse: () => ReportReason.other,
+            );
             final details = data['details'] as String?;
             final date = _toDate(data['createdAt']);
 

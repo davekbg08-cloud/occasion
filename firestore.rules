@@ -394,7 +394,23 @@ service cloud.firestore {
           || resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         );
-      allow update, delete: if signedIn()
+      // Un participant ne peut jamais modifier le compteur non-lu de
+      // l'AUTRE participant (buyerUnreadCount/sellerUnreadCount sont
+      // strictement personnels à chacun).
+      allow update: if signedIn()
+        && (
+          resource.data.buyerId == request.auth.uid
+          || resource.data.sellerId == request.auth.uid
+        )
+        && !(
+          request.auth.uid == resource.data.buyerId
+          && request.resource.data.get('sellerUnreadCount', 0) != resource.data.get('sellerUnreadCount', 0)
+        )
+        && !(
+          request.auth.uid == resource.data.sellerId
+          && request.resource.data.get('buyerUnreadCount', 0) != resource.data.get('buyerUnreadCount', 0)
+        );
+      allow delete: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid

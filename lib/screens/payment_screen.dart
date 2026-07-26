@@ -240,7 +240,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   children: [
                     const Text(
                       'Comment payer',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(

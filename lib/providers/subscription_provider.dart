@@ -40,17 +40,11 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
         .collection('subscriptions')
         .doc(userId)
         .snapshots()
-        .listen(
-          (snapshot) {
-            state = snapshot.exists
-                ? Subscription.fromMap({
-                    ...?snapshot.data(),
-                    'id': snapshot.id,
-                  })
-                : null;
-          },
-          onError: (_) => state = null,
-        );
+        .listen((snapshot) {
+          state = snapshot.exists
+              ? Subscription.fromMap({...?snapshot.data(), 'id': snapshot.id})
+              : null;
+        }, onError: (_) => state = null);
   }
 
   @override
@@ -73,6 +67,20 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     final user = _auth.currentUser;
     if (user == null) {
       throw StateError('Connecte-toi avant de payer un abonnement.');
+    }
+
+    final existing = await _firestore
+        .collection('paymentIntents')
+        .where('userId', isEqualTo: user.uid)
+        .where('type', isEqualTo: 'subscription')
+        .where('status', whereIn: ['pending', 'awaiting_manual_verification'])
+        .limit(1)
+        .get();
+    if (existing.docs.isNotEmpty) {
+      throw StateError(
+        'Une demande est déjà en attente de vérification par un '
+        'administrateur.',
+      );
     }
 
     final intentRef = _firestore.collection('paymentIntents').doc();
@@ -98,6 +106,23 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     return intentRef.id;
   }
 }
+
+/// Vrai si l'utilisateur a déjà une demande d'abonnement en cours
+/// (pending ou awaiting_manual_verification) — sert à désactiver le bouton
+/// de paiement et à restaurer cet état après redémarrage/reconnexion.
+final pendingSubscriptionRequestProvider = StreamProvider.family<bool, String>((
+  ref,
+  userId,
+) {
+  if (userId.trim().isEmpty) return Stream.value(false);
+  return FirebaseFirestore.instance
+      .collection('paymentIntents')
+      .where('userId', isEqualTo: userId)
+      .where('type', isEqualTo: 'subscription')
+      .where('status', whereIn: ['pending', 'awaiting_manual_verification'])
+      .snapshots()
+      .map((snapshot) => snapshot.docs.isNotEmpty);
+});
 
 final subscriptionNotifierProvider =
     StateNotifierProvider<SubscriptionNotifier, Subscription?>((ref) {

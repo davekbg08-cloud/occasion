@@ -96,15 +96,42 @@ class ChatService {
         );
   }
 
+  static const int messagePageSize = 50;
+
+  /// Charge uniquement les [messagePageSize] messages les plus récents — pas
+  /// tout l'historique en permanence. Utiliser [fetchOlderMessages] pour
+  /// paginer vers les messages plus anciens.
   Stream<List<Message>> chatMessages(String chatId) {
     return _msgs(chatId)
-        .orderBy('sentAt')
+        .orderBy('sentAt', descending: true)
+        .limit(messagePageSize)
         .snapshots()
         .map(
           (snap) => snap.docs
               .map((doc) => Message.fromMap({...doc.data(), 'id': doc.id}))
+              .toList()
+              .reversed
               .toList(),
         );
+  }
+
+  /// Lecture ponctuelle (pas un stream) des messages plus anciens que
+  /// [before], pour la pagination vers l'historique.
+  Future<List<Message>> fetchOlderMessages({
+    required String chatId,
+    required DateTime before,
+    int pageSize = messagePageSize,
+  }) async {
+    final snapshot = await _msgs(chatId)
+        .orderBy('sentAt', descending: true)
+        .where('sentAt', isLessThan: before.millisecondsSinceEpoch)
+        .limit(pageSize)
+        .get();
+    return snapshot.docs
+        .map((doc) => Message.fromMap({...doc.data(), 'id': doc.id}))
+        .toList()
+        .reversed
+        .toList();
   }
 
   Future<void> sendMessage({
@@ -115,6 +142,13 @@ class ChatService {
   }) async {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return;
+
+    final chatDoc = await _chats.doc(chatId).get();
+    final chatData = chatDoc.data();
+    final buyerId = chatData?['buyerId'] as String?;
+    final unreadField = receiverId == buyerId
+        ? 'buyerUnreadCount'
+        : 'sellerUnreadCount';
 
     final msgRef = _msgs(chatId).doc();
     final now = DateTime.now();
@@ -132,24 +166,35 @@ class ChatService {
     batch.update(_chats.doc(chatId), {
       'lastMessage': trimmed,
       'lastMessageAt': now.millisecondsSinceEpoch,
-      'unreadCount': FieldValue.increment(1),
+      'lastSenderId': senderId,
+      // Jamais l'expéditeur : on n'incrémente que le compteur du
+      // destinataire réel, l'autre champ n'est pas touché.
+      unreadField: FieldValue.increment(1),
     });
     await batch.commit();
   }
 
+  /// Ne marque comme lus que les messages reçus par [userId], et ne remet à
+  /// zéro que le compteur de [userId] — jamais celui de l'autre participant.
   Future<void> markAsRead(String chatId, String userId) async {
+    final chatDoc = await _chats.doc(chatId).get();
+    final chatData = chatDoc.data();
+    if (chatData == null) return;
+    final buyerId = chatData['buyerId'] as String?;
+    final unreadField = userId == buyerId
+        ? 'buyerUnreadCount'
+        : 'sellerUnreadCount';
+
     final unread = await _msgs(chatId)
         .where('receiverId', isEqualTo: userId)
         .where('status', isNotEqualTo: MessageStatus.read.name)
         .get();
 
-    if (unread.docs.isEmpty) return;
-
     final batch = _db.batch();
     for (final doc in unread.docs) {
       batch.update(doc.reference, {'status': MessageStatus.read.name});
     }
-    batch.update(_chats.doc(chatId), {'unreadCount': 0});
+    batch.update(_chats.doc(chatId), {unreadField: 0});
     await batch.commit();
   }
 

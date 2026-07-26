@@ -61,7 +61,10 @@ class OrdersScreen extends ConsumerWidget {
             itemCount: docs.length,
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              return _OrderCard(orderId: docs[index].id, data: docs[index].data());
+              return _OrderCard(
+                orderId: docs[index].id,
+                data: docs[index].data(),
+              );
             },
           );
         },
@@ -135,7 +138,8 @@ class _OrderCardState extends State<_OrderCard> {
             child: const Text('Annuler'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(reasonController.text.trim()),
+            onPressed: () =>
+                Navigator.of(context).pop(reasonController.text.trim()),
             child: const Text('Envoyer'),
           ),
         ],
@@ -234,7 +238,9 @@ class _OrderCardState extends State<_OrderCard> {
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                  border: Border.all(
+                    color: Colors.green.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: const Row(
                   children: [
@@ -264,7 +270,9 @@ class _OrderCardState extends State<_OrderCard> {
                   Expanded(
                     child: FilledButton(
                       onPressed: isProcessing ? null : _confirmReceived,
-                      style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green,
+                      ),
                       child: isProcessing
                           ? const SizedBox(
                               width: 18,

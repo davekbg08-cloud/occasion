@@ -41,6 +41,7 @@ import 'screens/subscription_screen.dart';
 import 'search/screens/search_screen.dart';
 import 'services/notification_service.dart';
 import 'services/firestore_bootstrap.dart';
+import 'services/payment_settlement_service.dart';
 import 'services/service_locator.dart';
 import 'widgets/occasion_logo.dart';
 
@@ -296,21 +297,18 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/admin/orders',
-        builder: (_, _) => const AdminOrdersScreen(),
+        builder: (_, _) => const _AdminGuard(child: AdminOrdersScreen()),
       ),
       GoRoute(
         path: '/admin/reports',
-        builder: (_, _) => const AdminReportsScreen(),
+        builder: (_, _) => const _AdminGuard(child: AdminReportsScreen()),
       ),
       GoRoute(
         path: '/annonce/:id',
         builder: (context, state) =>
             AnnonceDetailScreen(annonceId: state.pathParameters['id']!),
       ),
-      GoRoute(
-        path: '/auth',
-        builder: (context, state) => const _AuthPage(),
-      ),
+      GoRoute(path: '/auth', builder: (context, state) => const _AuthPage()),
       GoRoute(
         path: '/login',
         builder: (context, state) => const PhoneAuthScreen(),
@@ -417,6 +415,59 @@ class _AuthGuard extends ConsumerWidget {
   }
 }
 
+/// Protège les routes /admin/* au niveau du routeur : contrairement à
+/// _AuthGuard/_RoleGuard, un utilisateur non-admin ne doit jamais atteindre
+/// l'écran lui-même (avant, seul le bouton était caché côté UI ; l'URL
+/// restait accessible à qui la devinait).
+class _AdminGuard extends ConsumerStatefulWidget {
+  const _AdminGuard({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_AdminGuard> createState() => _AdminGuardState();
+}
+
+class _AdminGuardState extends ConsumerState<_AdminGuard> {
+  late final Future<bool> _isAdmin = PaymentSettlementService()
+      .isCurrentUserAdmin();
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = ref.watch(authNotifierProvider);
+    if (authState.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (authState.currentUser == null) return const _AuthPage();
+
+    return FutureBuilder<bool>(
+      future: _isAdmin,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.data != true) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Accès réservé aux administrateurs.'),
+              ),
+            );
+            context.go('/profile');
+          });
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return widget.child;
+      },
+    );
+  }
+}
+
 class MainNav extends ConsumerWidget {
   const MainNav({super.key});
 
@@ -460,7 +511,7 @@ class _BuyerNavState extends ConsumerState<BuyerNav> {
     }
 
     _listenChats(user.id);
-    final unreadCount = _unreadCount(ref);
+    final unreadCount = _unreadCount(ref, user.id);
 
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
@@ -532,7 +583,7 @@ class _SellerNavState extends ConsumerState<SellerNav> {
     }
 
     _listenChats(user.id);
-    final unreadCount = _unreadCount(ref);
+    final unreadCount = _unreadCount(ref, user.id);
 
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
@@ -587,11 +638,13 @@ class _MessageBadge extends StatelessWidget {
   }
 }
 
-int _unreadCount(WidgetRef ref) {
+int _unreadCount(WidgetRef ref, String userId) {
   return ref.watch(
     chatNotifierProvider.select(
-      (state) =>
-          state.chats.fold<int>(0, (total, chat) => total + chat.unreadCount),
+      (state) => state.chats.fold<int>(
+        0,
+        (total, chat) => total + chat.unreadCountFor(userId),
+      ),
     ),
   );
 }

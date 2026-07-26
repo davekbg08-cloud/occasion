@@ -7,7 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
-import '../widgets/fullscreen_image_viewer.dart';
+import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
 
 class AnnonceDetailScreen extends ConsumerStatefulWidget {
@@ -34,7 +34,9 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
   void _addToCart(ProductModel product) {
     final added = ref.read(cartNotifierProvider.notifier).addToCart(product);
     final cart = ref.read(cartNotifierProvider);
-    final cartCurrency = cart.isEmpty ? product.currency : cart.first.product.currency;
+    final cartCurrency = cart.isEmpty
+        ? product.currency
+        : cart.first.product.currency;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -102,7 +104,9 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
             description: annonce.description,
             price: annonce.price,
             currency: annonce.currency,
-            imageUrl: annonce.imageUrls.isEmpty ? null : annonce.imageUrls.first,
+            imageUrl: annonce.imageUrls.isEmpty
+                ? null
+                : annonce.imageUrls.first,
             imageUrls: annonce.imageUrls,
             sellerId: annonce.userId,
             sellerName: 'Vendeur',
@@ -110,38 +114,15 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
             category: annonce.category,
           );
 
-          final showBuyerActions =
-              currentUser == null || currentUser.isBuyer;
-          final canModerate = currentUser != null &&
-              currentUser.id != annonce.userId;
+          final showBuyerActions = currentUser == null || currentUser.isBuyer;
+          final canModerate =
+              currentUser != null && currentUser.id != annonce.userId;
 
           return SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                GestureDetector(
-                  onTap: annonce.imageUrls.isEmpty
-                      ? null
-                      : () => FullscreenImageViewer.open(
-                            context,
-                            imageUrls: annonce.imageUrls,
-                          ),
-                  child: AspectRatio(
-                    aspectRatio: 4 / 3,
-                    child: annonce.imageUrls.isEmpty
-                        ? Container(
-                            color: Colors.grey[850],
-                            child: const Center(
-                              child: Icon(Icons.image_outlined, size: 64),
-                            ),
-                          )
-                        : Image.network(
-                            annonce.imageUrls.first,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                  ),
-                ),
+                PhotoCarousel(imageUrls: annonce.imageUrls),
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -221,9 +202,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                             Expanded(
                               child: FilledButton.icon(
                                 onPressed: () => _addToCart(product),
-                                icon: const Icon(
-                                  Icons.shopping_cart_outlined,
-                                ),
+                                icon: const Icon(Icons.shopping_cart_outlined),
                                 label: const Text('Ajouter'),
                               ),
                             ),

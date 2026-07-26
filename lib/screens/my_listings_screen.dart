@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
-import '../widgets/fullscreen_image_viewer.dart';
+import '../widgets/photo_carousel.dart';
 
 class MyListingsScreen extends ConsumerWidget {
   const MyListingsScreen({super.key});
@@ -103,52 +103,7 @@ class _ListingCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: annonce.imageUrls.isEmpty
-                ? null
-                : () => FullscreenImageViewer.open(
-                    context,
-                    imageUrls: annonce.imageUrls,
-                  ),
-            child: AspectRatio(
-              aspectRatio: 4 / 3,
-              child: annonce.imageUrls.isEmpty
-                  ? Container(
-                      color: Colors.grey[850],
-                      child: const Center(
-                        child: Icon(
-                          Icons.image_outlined,
-                          color: Colors.grey,
-                          size: 48,
-                        ),
-                      ),
-                    )
-                  : Image.network(
-                      annonce.imageUrls.first,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        return Container(
-                          color: Colors.grey[850],
-                          child: const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: Colors.grey[850],
-                        child: const Center(
-                          child: Icon(
-                            Icons.broken_image_outlined,
-                            color: Colors.grey,
-                            size: 48,
-                          ),
-                        ),
-                      ),
-                    ),
-            ),
-          ),
+          PhotoCarousel(imageUrls: annonce.imageUrls),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -215,8 +170,7 @@ class _ListingCard extends ConsumerWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _toggleStatus(context, ref, isOnline),
+                        onPressed: () => _toggleStatus(context, ref, isOnline),
                         icon: Icon(
                           isOnline
                               ? Icons.pause_circle_outline
@@ -230,10 +184,7 @@ class _ListingCard extends ConsumerWidget {
                     IconButton.filledTonal(
                       tooltip: 'Supprimer',
                       onPressed: () => _confirmDelete(context, ref),
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
-                      ),
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
                     ),
                   ],
                 ),

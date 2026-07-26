@@ -1,22 +1,11 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/payment_config.dart';
-
-/// Google Play impose sa propre facturation pour le contenu numérique payé
-/// DANS une app Android (l'abonnement vendeur en fait partie, contrairement
-/// au paiement d'une annonce entre particuliers pour un bien physique, qui
-/// reste hors de cette règle). Le paiement/renouvellement est donc redirigé
-/// vers le site web sur Android uniquement.
-bool get _mustPaySubscriptionOnWeb => !kIsWeb && Platform.isAndroid;
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -110,6 +99,10 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
 
     final subscription = ref.watch(subscriptionNotifierProvider);
+    final hasPendingRequest = ref
+        .watch(pendingSubscriptionRequestProvider(currentUser?.id ?? ''))
+        .maybeWhen(data: (value) => value, orElse: () => false);
+    final formDisabled = isProcessing || hasPendingRequest;
 
     return Scaffold(
       appBar: AppBar(
@@ -159,144 +152,121 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            if (_mustPaySubscriptionOnWeb)
-              _buildPayOnWebCard()
-            else ...[
-              ...plans.map(_buildPlanCard),
-              const SizedBox(height: 20),
-              Card(
-                color: Colors.grey[900],
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Comment payer',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '1. Envoie le montant via Orange Money au numéro '
-                        'ci-dessous.\n'
-                        '2. Colle la référence de transaction reçue par SMS.\n'
-                        "3. Ton abonnement s'active après vérification "
-                        '(généralement rapide, pas instantané).',
-                        style: TextStyle(color: Colors.white70, height: 1.4),
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              PaymentConfig.manualOrangeMoneyNumber,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            Text(
-                              PaymentConfig.manualOrangeMoneyHolderName,
-                              style: TextStyle(color: Colors.grey[400]),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: referenceController,
-                enabled: !isProcessing,
-                decoration: const InputDecoration(
-                  labelText: 'Référence de transaction (SMS Orange Money)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.receipt_long_outlined),
-                ),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
+            if (hasPendingRequest) ...[
+              Container(
                 width: double.infinity,
-                height: 56,
-                child: FilledButton(
-                  onPressed: isProcessing ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: isProcessing
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.5,
-                          ),
-                        )
-                      : const Text(
-                          "J'AI ENVOYÉ L'ARGENT",
-                          style: TextStyle(fontSize: 18),
-                        ),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.hourglass_top, color: Colors.orange),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Votre demande a été envoyée à l'administrateur. "
+                        "Votre abonnement sera activé après vérification "
+                        'du paiement.',
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 20),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPayOnWebCard() {
-    return Card(
-      color: Colors.grey[900],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Paiement sur notre site web',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Le paiement et le renouvellement de l'abonnement vendeur se "
-              "font sur notre site web. Une fois confirmé, ton abonnement "
-              "s'active automatiquement ici, dans l'app.",
-              style: TextStyle(color: Colors.white70, height: 1.4),
+            ...plans.map((plan) => _buildPlanCard(plan, formDisabled)),
+            const SizedBox(height: 20),
+            Card(
+              color: Colors.grey[900],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Comment payer',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '1. Envoie le montant via Orange Money au numéro '
+                      'ci-dessous.\n'
+                      '2. Colle la référence de transaction reçue par SMS.\n'
+                      "3. Ton abonnement s'active après vérification "
+                      '(généralement rapide, pas instantané).',
+                      style: TextStyle(color: Colors.white70, height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            PaymentConfig.manualOrangeMoneyNumber,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          Text(
+                            PaymentConfig.manualOrangeMoneyHolderName,
+                            style: TextStyle(color: Colors.grey[400]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
+            TextField(
+              controller: referenceController,
+              enabled: !formDisabled,
+              decoration: const InputDecoration(
+                labelText: 'Référence de transaction (SMS Orange Money)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.receipt_long_outlined),
+              ),
+            ),
+            const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
               height: 56,
-              child: FilledButton.icon(
-                onPressed: () => launchUrl(
-                  Uri.parse(PaymentConfig.subscriptionWebUrl),
-                  mode: LaunchMode.externalApplication,
-                ),
+              child: FilledButton(
+                onPressed: formDisabled ? null : _submit,
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
                 ),
-                icon: const Icon(Icons.open_in_new),
-                label: const Text(
-                  'Payer sur le site',
-                  style: TextStyle(fontSize: 16),
-                ),
+                child: isProcessing
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Text(
+                        "J'AI ENVOYÉ L'ARGENT",
+                        style: TextStyle(fontSize: 18),
+                      ),
               ),
             ),
           ],
@@ -404,14 +374,14 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     );
   }
 
-  Widget _buildPlanCard(Map<String, Object> plan) {
+  Widget _buildPlanCard(Map<String, Object> plan, bool disabled) {
     final planId = plan['id'] as String;
     final isSelected = selectedPlan == planId;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        enabled: !isProcessing,
+        enabled: !disabled,
         leading: Icon(
           isSelected
               ? Icons.radio_button_checked
@@ -431,9 +401,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             color: Colors.green,
           ),
         ),
-        onTap: isProcessing
-            ? null
-            : () => setState(() => selectedPlan = planId),
+        onTap: disabled ? null : () => setState(() => selectedPlan = planId),
       ),
     );
   }
