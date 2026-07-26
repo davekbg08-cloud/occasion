@@ -61,6 +61,11 @@ class _StatisticsContent extends StatelessWidget {
               label: 'Ventes',
               value: '${statistics.totalSales}',
             ),
+            _StatCard(
+              icon: Icons.stars_outlined,
+              label: 'Points fidélité',
+              value: '${statistics.loyaltyPoints}',
+            ),
           ],
         ),
         const SizedBox(height: 24),

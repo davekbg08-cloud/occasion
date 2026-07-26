@@ -18,6 +18,7 @@ import 'providers/chat_provider.dart';
 import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
+import 'screens/admin_loyalty_screen.dart';
 import 'screens/admin_orders_screen.dart';
 import 'screens/admin_reports_screen.dart';
 import 'screens/annonce_detail_screen.dart';
@@ -25,6 +26,7 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
 import 'screens/id_scan_screen.dart';
+import 'screens/loyalty_points_screen.dart';
 import 'screens/my_listings_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/orders_screen.dart';
@@ -34,6 +36,8 @@ import 'screens/product_list_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/role_selection_screen.dart';
 import 'screens/seller_dashboard_screen.dart';
+import 'screens/seller_gift_catalog_screen.dart';
+import 'screens/seller_gift_redemptions_screen.dart';
 import 'screens/seller_orders_screen.dart';
 import 'screens/seller_statistics_screen.dart';
 import 'screens/simple_placeholder_screen.dart';
@@ -230,6 +234,27 @@ class OccasionApp extends StatelessWidget {
         ),
       ),
       GoRoute(
+        path: '/loyalty-points',
+        builder: (_, _) => const _RoleGuard(
+          role: UserRole.buyer,
+          child: LoyaltyPointsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/gift-catalog',
+        builder: (_, _) => const _RoleGuard(
+          role: UserRole.seller,
+          child: SellerGiftCatalogScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/gift-redemptions',
+        builder: (_, _) => const _RoleGuard(
+          role: UserRole.seller,
+          child: SellerGiftRedemptionsScreen(),
+        ),
+      ),
+      GoRoute(
         path: '/search',
         builder: (context, state) => const _AuthGuard(child: SearchScreen()),
       ),
@@ -299,6 +324,10 @@ class OccasionApp extends StatelessWidget {
       GoRoute(
         path: '/admin/reports',
         builder: (_, _) => const _AdminGuard(child: AdminReportsScreen()),
+      ),
+      GoRoute(
+        path: '/admin/loyalty',
+        builder: (_, _) => const _AdminGuard(child: AdminLoyaltyScreen()),
       ),
       GoRoute(
         path: '/annonce/:id',

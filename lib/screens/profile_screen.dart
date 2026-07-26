@@ -245,6 +245,12 @@ class _AdminEntry extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/admin/reports'),
             ),
+            ListTile(
+              leading: const Icon(Icons.stars_outlined, color: Colors.orange),
+              title: const Text('Remise à zéro des points (exceptionnelle)'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/admin/loyalty'),
+            ),
           ],
         );
       },
@@ -286,6 +292,11 @@ class _BuyerOptions extends StatelessWidget {
           icon: Icons.favorite_outline,
           title: 'Favoris',
           onTap: () => context.push('/favorites'),
+        ),
+        _ProfileTile(
+          icon: Icons.stars_outlined,
+          title: 'Mes points de fidélité',
+          onTap: () => context.push('/loyalty-points'),
         ),
         _ProfileTile(
           icon: Icons.chat_bubble_outline,
@@ -353,6 +364,16 @@ class _SellerOptions extends StatelessWidget {
           icon: Icons.bar_chart_outlined,
           title: 'Statistiques',
           onTap: () => context.push('/seller-statistics'),
+        ),
+        _ProfileTile(
+          icon: Icons.card_giftcard_outlined,
+          title: 'Mon catalogue de cadeaux',
+          onTap: () => context.push('/gift-catalog'),
+        ),
+        _ProfileTile(
+          icon: Icons.redeem_outlined,
+          title: 'Demandes d\'échange',
+          onTap: () => context.push('/gift-redemptions'),
         ),
         _ProfileTile(
           icon: Icons.card_membership,

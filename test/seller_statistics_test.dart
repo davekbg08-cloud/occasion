@@ -21,6 +21,7 @@ void main() {
       expect(statistics.totalMessages, 0);
       expect(statistics.totalSales, 0);
       expect(statistics.revenue, isEmpty);
+      expect(statistics.loyaltyPoints, 0);
       expect(statistics.updatedAt, isNull);
     });
 
@@ -31,6 +32,7 @@ void main() {
         'totalMessages': 7,
         'totalSales': 3,
         'revenue': {'FC': 15000, 'USD': 20},
+        'loyaltyPoints': 18,
         'updatedAt': DateTime(2026, 1, 1),
       });
 
@@ -42,6 +44,7 @@ void main() {
       expect(statistics.totalSales, 3);
       expect(statistics.revenue['FC'], 15000);
       expect(statistics.revenue['USD'], 20);
+      expect(statistics.loyaltyPoints, 18);
       expect(statistics.updatedAt, isNotNull);
     });
   });

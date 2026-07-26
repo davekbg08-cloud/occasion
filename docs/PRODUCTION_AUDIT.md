@@ -142,10 +142,7 @@ Recherche exhaustive (lib/, functions/, règles, index) : **aucune trace** de
 points, récompenses, cadeaux, conversion de points. `UserModel` n'a aucun
 champ de ce type. Confirmé entièrement absent.
 
-**Décision** : chantier complet différé à une phase ultérieure dédiée
-(sections 18-25 du cahier des charges original) — nouveau sous-système
-produit à part entière (modèles, Cloud Functions, écrans acheteur/vendeur/
-admin, anti-fraude, tests). Non traité en Phase 1.
+**Traité en Phase 5** : voir section "Phase 5" ci-dessous.
 
 ## 10. Abonnement vendeur
 
@@ -361,12 +358,60 @@ Firestore elle-même, pas de la forme des données.
 5. Tests : `test/annonce_to_product_model_test.dart` (conversion pure, y
    compris le cas "avec profil vendeur" qui couvre la régression corrigée).
 
+## Phase 5 — Système de fidélité/points (acheteur + vendeur)
+
+Dernier gros chantier du cahier des charges original (section 9), entièrement
+nouveau (rien n'existait). Quatre décisions produit validées par
+l'utilisateur avant conception : barème acheteur proportionnel au montant
+dépensé, crédit à la réception confirmée de la commande (pas au simple
+paiement), échange scopé par vendeur (pas un pool global), barème vendeur
+par vente confirmée.
+
+**Point de conception trouvé en creusant `orders.status`** : la transition
+vers `'completed'` peut venir de trois chemins différents (confirmation
+acheteur, libération auto du séquestre, résolution d'un litige admin) — deux
+sont des écritures client directes, pas des Cloud Functions. Un crédit de
+points branché uniquement sur `autoReleaseEscrow` (comme `sellerStatistics`
+en Phase 3) aurait silencieusement raté les deux autres chemins. Résolu par
+un unique trigger générique `onDocumentUpdated('orders/{orderId}')` qui
+détecte la transition quel que soit le chemin emprunté.
+
+1. Modèle de données : `loyaltyPoints/{buyerId}_{sellerId}` (solde acheteur
+   par vendeur, id déterministe), `sellerStatistics.loyaltyPoints` (points
+   vendeur — pas de nouvelle collection, même agrégat que Phase 3),
+   `giftCatalogItems/{id}` (catalogue par vendeur), `giftRedemptions/{id}`
+   (demandes d'échange, créées/modifiées uniquement par Cloud Functions),
+   `loyaltyPointsAuditLog/{id}` (trace des resets admin).
+2. `functions/index.js` : `onOrderCompleted` (crédit acheteur + vendeur,
+   sous-total par vendeur comme `notifySettlement`), `requestGiftRedemption`
+   (transaction : vérifie solde, débite, crée la demande — anti-double-
+   dépense), `respondToGiftRedemption` (vendeur ou admin valide/rejette,
+   rejet = remboursement atomique), `adminResetLoyaltyPoints` (reset
+   exceptionnel, motif obligatoire, trace d'audit).
+3. Barème (`LOYALTY_POINTS_RATE`, placeholder business ajustable) : 1 point
+   par 1000 FC ou 1 USD dépensé/vendu, compté indépendamment par devise
+   (même principe que `revenue` en Phase 3 — pas de taux de change inventé).
+4. Écrans : `LoyaltyPointsScreen` (acheteur — soldes par vendeur, catalogue,
+   échange, historique), `SellerGiftCatalogScreen` (CRUD du catalogue),
+   `SellerGiftRedemptionsScreen` (file d'attente à onglets, motif réutilisé
+   de `admin_reports_screen.dart`), `AdminLoyaltyScreen` (reset exceptionnel,
+   `_AdminGuard`). Carte "Points fidélité" ajoutée à `SellerStatisticsScreen`.
+5. Bug trouvé et corrigé pendant l'implémentation : `GiftCatalogItem.toFirestore()`
+   écrivait `imageUrl: null` explicitement quand l'image est absente, ce que
+   la règle `validGiftCatalogItem` (`optionalString`) rejette (un champ
+   présent doit être une string, `null` échoue) — un vendeur créant un cadeau
+   sans photo aurait vu sa création systématiquement refusée. Corrigé en
+   omettant la clé plutôt que d'écrire `null`.
+6. Tests : parsing des 3 nouveaux modèles, 15 nouveaux cas de règles côté
+   émulateur (solde de points fermé en écriture, catalogue public si actif/
+   géré par le propriétaire, demandes d'échange fermées en écriture client
+   y compris création, journal d'audit réservé aux admins).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
   d'activation sécurisée (évalué en Phase 4 : faible valeur ajoutée,
   l'écran générique différencie déjà commande/abonnement).
-- Système de fidélité/récompenses acheteur et vendeur (entièrement nouveau).
 - App Check.
 - Documentation d'optimisation des coûts Firestore.
 - Migrations généralisées (anciens signalements, anciens champs). Le champ

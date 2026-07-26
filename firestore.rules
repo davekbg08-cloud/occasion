@@ -190,6 +190,21 @@ service cloud.firestore {
         && data.ordre is number && data.ordre >= 0;
     }
 
+    function validGiftCatalogItem(data) {
+      return hasOnly(data, [
+        'sellerId', 'title', 'description', 'imageUrl', 'pointsCost',
+        'isActive', 'createdAt', 'updatedAt'
+      ])
+        && stringField(data, 'sellerId', 128)
+        && stringField(data, 'title', 160)
+        && optionalString(data, 'description', 2000)
+        && optionalString(data, 'imageUrl', 2000)
+        && data.pointsCost is number && data.pointsCost >= 0
+        && data.isActive is bool
+        && (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp)
+        && (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp);
+    }
+
     match /annonces/{annonceId} {
       allow read: if isPublishedAnnonce(resource.data)
         || (
@@ -595,7 +610,54 @@ service cloud.firestore {
     match /sellerStatistics/{sellerId} {
       allow read: if isOwner(sellerId);
       // Écrit uniquement par les Cloud Functions (Admin SDK) : le vendeur ne
-      // peut jamais gonfler ses propres statistiques.
+      // peut jamais gonfler ses propres statistiques. Le champ loyaltyPoints
+      // (points de fidélité vendeur) suit la même règle.
+      allow write: if false;
+    }
+
+    // Solde de points de fidélité d'un acheteur chez un vendeur donné
+    // (id déterministe `{buyerId}_{sellerId}`). Calculé uniquement par des
+    // Cloud Functions (crédit à la réception confirmée, débit à l'échange).
+    match /loyaltyPoints/{pointsId} {
+      allow read: if signedIn() && resource.data.buyerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Catalogue de cadeaux d'un vendeur, échangeables contre les points
+    // gagnés chez ce même vendeur. Géré directement par le vendeur
+    // propriétaire (pas de débit financier ici, juste du contenu).
+    match /giftCatalogItems/{itemId} {
+      allow read: if resource.data.isActive == true
+        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      allow create: if signedIn()
+        && isSeller()
+        && request.resource.data.sellerId == request.auth.uid
+        && validGiftCatalogItem(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.sellerId == request.auth.uid
+        && request.resource.data.sellerId == resource.data.sellerId
+        && validGiftCatalogItem(request.resource.data);
+      allow delete: if signedIn() && resource.data.sellerId == request.auth.uid;
+    }
+
+    // Demande d'échange de points contre un article du catalogue : créée et
+    // modifiée uniquement par des Cloud Functions (le débit/remboursement de
+    // points doit être atomique avec le changement de statut, jamais une
+    // écriture client directe même pour la création).
+    match /giftRedemptions/{redemptionId} {
+      allow read: if signedIn()
+        && (
+          resource.data.buyerId == request.auth.uid
+          || resource.data.sellerId == request.auth.uid
+          || isAdmin()
+        );
+      allow create, update, delete: if false;
+    }
+
+    // Trace d'audit d'une remise à zéro exceptionnelle de points par un
+    // admin. Lecture admin uniquement, écriture serveur uniquement.
+    match /loyaltyPointsAuditLog/{logId} {
+      allow read: if isAdmin();
       allow write: if false;
     }
 

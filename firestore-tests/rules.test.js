@@ -395,3 +395,228 @@ test("un vendeur ne peut pas écrire directement ses propres statistiques", asyn
       .set({ totalViews: 999 })
   );
 });
+
+test("un acheteur peut lire son propre solde de points de fidélité", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPoints").doc("buyer1_seller1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      balance: 40,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("loyaltyPoints").doc("buyer1_seller1").get()
+  );
+});
+
+test("un acheteur ne peut pas lire le solde de points d'un autre acheteur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPoints").doc("buyer1_seller1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      balance: 40,
+    });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(
+    outsider.collection("loyaltyPoints").doc("buyer1_seller1").get()
+  );
+});
+
+test("un acheteur ne peut pas modifier directement son solde de points", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPoints").doc("buyer1_seller1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      balance: 40,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("loyaltyPoints")
+      .doc("buyer1_seller1")
+      .update({ balance: 999999 })
+  );
+});
+
+function validGiftItemSeed(overrides) {
+  return {
+    sellerId: "seller1",
+    title: "Casquette",
+    description: "Casquette brodée",
+    pointsCost: 100,
+    isActive: true,
+    ...overrides,
+  };
+}
+
+test("n'importe qui peut lire un article de catalogue actif", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .set(validGiftItemSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("giftCatalogItems").doc("item1").get()
+  );
+});
+
+test("un acheteur ne peut pas lire un article de catalogue inactif d'un vendeur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .set(validGiftItemSeed({ isActive: false }));
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(buyer.collection("giftCatalogItems").doc("item1").get());
+});
+
+test("un vendeur peut créer un article dans son propre catalogue", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .set(validGiftItemSeed())
+  );
+});
+
+test("un vendeur ne peut pas créer un article pour un autre vendeur", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .set(validGiftItemSeed({ sellerId: "seller2" }))
+  );
+});
+
+test("un vendeur ne peut pas modifier le catalogue d'un autre vendeur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .set(validGiftItemSeed());
+  });
+  const outsider = testEnv.authenticatedContext("seller2").firestore();
+  await assertFails(
+    outsider
+      .collection("giftCatalogItems")
+      .doc("item1")
+      .update({ pointsCost: 1 })
+  );
+});
+
+test("un client ne peut jamais créer une demande d'échange directement", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("giftRedemptions").doc("r1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      itemId: "item1",
+      itemTitle: "Casquette",
+      pointsCost: 100,
+      status: "pending",
+    })
+  );
+});
+
+test("un client ne peut jamais modifier une demande d'échange directement", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("giftRedemptions").doc("r1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      itemId: "item1",
+      itemTitle: "Casquette",
+      pointsCost: 100,
+      status: "pending",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("giftRedemptions")
+      .doc("r1")
+      .update({ status: "fulfilled" })
+  );
+});
+
+test("l'acheteur et le vendeur concernés peuvent lire une demande d'échange", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("giftRedemptions").doc("r1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      itemId: "item1",
+      itemTitle: "Casquette",
+      pointsCost: 100,
+      status: "pending",
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(buyer.collection("giftRedemptions").doc("r1").get());
+  await assertSucceeds(seller.collection("giftRedemptions").doc("r1").get());
+});
+
+test("un tiers ne peut pas lire une demande d'échange qui ne le concerne pas", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("giftRedemptions").doc("r1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      itemId: "item1",
+      itemTitle: "Casquette",
+      pointsCost: 100,
+      status: "pending",
+    });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(outsider.collection("giftRedemptions").doc("r1").get());
+});
+
+test("le journal d'audit des points est réservé aux admins", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPointsAuditLog").doc("log1").set({
+      targetBuyerId: "buyer1",
+      sellerId: "seller1",
+      previousBalance: 40,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("loyaltyPointsAuditLog").doc("log1").get()
+  );
+});
+
+test("un admin peut lire le journal d'audit des points", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("loyaltyPointsAuditLog").doc("log1").set({
+      targetBuyerId: "buyer1",
+      sellerId: "seller1",
+      previousBalance: 40,
+    });
+    await ctx.firestore().collection("admins").doc("admin1").set({});
+  });
+  const admin = testEnv.authenticatedContext("admin1").firestore();
+  await assertSucceeds(
+    admin.collection("loyaltyPointsAuditLog").doc("log1").get()
+  );
+});
+
+test("un client ne peut pas écrire dans le journal d'audit des points", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("loyaltyPointsAuditLog").doc("log1").set({
+      targetBuyerId: "buyer1",
+    })
+  );
+});

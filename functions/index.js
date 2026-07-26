@@ -1,4 +1,7 @@
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const {
+  onDocumentCreated,
+  onDocumentUpdated,
+} = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
@@ -11,6 +14,10 @@ const db = getFirestore();
 const fcm = getMessaging();
 
 const ESCROW_AUTO_RELEASE_DAYS = 3;
+// Barème de points de fidélité (placeholder business, à ajuster ici sans
+// toucher à la logique) : compté indépendamment par devise, pas de taux de
+// change inventé (même principe que `sellerStatistics.revenue`).
+const LOYALTY_POINTS_RATE = { FC: 1 / 1000, USD: 1 };
 const NOTIFICATIONS_COLLECTION = "notifications";
 const NOTIFICATION_ENTITY_FIELDS = [
   "chatId",
@@ -154,6 +161,20 @@ async function bumpSellerStats(sellerId, increments) {
     .collection(SELLER_STATISTICS_COLLECTION)
     .doc(sellerId)
     .set(data, { merge: true });
+}
+
+const LOYALTY_POINTS_COLLECTION = "loyaltyPoints";
+
+function loyaltyPointsDocId(buyerId, sellerId) {
+  return `${buyerId}_${sellerId}`;
+}
+
+/** Points de fidélité pour un montant donné, comptés par devise (voir
+ * `LOYALTY_POINTS_RATE`) — jamais de conversion FC/USD inventée. */
+function pointsForAmount(currency, amount) {
+  const rate = LOYALTY_POINTS_RATE[currency];
+  if (!rate || !amount) return 0;
+  return Math.floor(amount * rate);
 }
 
 exports.onNewMessage = onDocumentCreated(
@@ -637,4 +658,316 @@ exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
       );
     })
   );
+});
+
+/**
+ * Crédite les points de fidélité (acheteur ET vendeur) à la réception
+ * confirmée d'une commande — jamais au simple paiement (une commande encore
+ * contestable ne doit pas générer de points). La transition vers
+ * `'completed'` peut venir de trois chemins différents (confirmation
+ * acheteur, libération auto du séquestre, résolution d'un litige admin) :
+ * ce trigger générique sur toute mise à jour de `orders/{orderId}` est le
+ * seul point d'accroche qui couvre les trois sans dupliquer la logique.
+ */
+exports.onOrderCompleted = onDocumentUpdated(
+  "orders/{orderId}",
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    if (before.status === "completed" || after.status !== "completed") {
+      return null;
+    }
+
+    const orderId = event.params.orderId;
+    const buyerId = after.buyerId;
+    const items = after.items ?? [];
+    const currency = after.currency ?? "FC";
+    const sellerIds = after.sellerIds ?? [];
+
+    await Promise.all(
+      sellerIds.map(async (sellerId) => {
+        const sellerSubtotal = items
+          .filter((item) => item.sellerId === sellerId)
+          .reduce((sum, item) => sum + (item.totalPrice ?? 0), 0);
+        const points = pointsForAmount(currency, sellerSubtotal);
+        if (points <= 0) return;
+
+        try {
+          if (buyerId) {
+            const pointsRef = db
+              .collection(LOYALTY_POINTS_COLLECTION)
+              .doc(loyaltyPointsDocId(buyerId, sellerId));
+            await pointsRef.set(
+              {
+                buyerId,
+                sellerId,
+                balance: FieldValue.increment(points),
+                lifetimeEarned: FieldValue.increment(points),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            await sendToUser({
+              recipientId: buyerId,
+              notificationId: `loyalty_earned_${orderId}_${sellerId}`,
+              type: "order",
+              title: "🎁 Points de fidélité gagnés",
+              body: `Vous avez gagné ${points} point(s) chez ce vendeur.`,
+              route: "/loyalty-points",
+              data: { orderId, sellerId },
+            });
+          }
+
+          await bumpSellerStats(sellerId, { loyaltyPoints: points });
+        } catch (err) {
+          console.error(
+            `Erreur crédit points fidélité ${orderId} -> ${sellerId} :`,
+            err
+          );
+        }
+      })
+    );
+
+    return null;
+  }
+);
+
+/**
+ * Demande d'échange de points contre un article du catalogue d'un vendeur.
+ * Transaction : vérifie l'article et le solde, débite les points et crée la
+ * demande de façon atomique (évite tout double-usage/course entre deux
+ * requêtes concurrentes sur le même solde).
+ */
+exports.requestGiftRedemption = onCall(async (request) => {
+  const buyerId = request.auth?.uid;
+  if (!buyerId) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const itemId = request.data?.itemId;
+  if (!itemId || typeof itemId !== "string") {
+    throw new HttpsError("invalid-argument", "itemId manquant");
+  }
+
+  const itemRef = db.collection("giftCatalogItems").doc(itemId);
+  const redemptionRef = db.collection("giftRedemptions").doc();
+
+  const { sellerId, itemTitle, pointsCost } = await db.runTransaction(
+    async (tx) => {
+      const itemSnap = await tx.get(itemRef);
+      if (!itemSnap.exists || itemSnap.data().isActive !== true) {
+        throw new HttpsError(
+          "not-found",
+          "Cet article n'est plus disponible."
+        );
+      }
+      const item = itemSnap.data();
+      const sellerId = item.sellerId;
+      const pointsCost = item.pointsCost ?? 0;
+
+      const pointsRef = db
+        .collection(LOYALTY_POINTS_COLLECTION)
+        .doc(loyaltyPointsDocId(buyerId, sellerId));
+      const pointsSnap = await tx.get(pointsRef);
+      const balance = pointsSnap.exists ? (pointsSnap.data().balance ?? 0) : 0;
+      if (balance < pointsCost) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Solde de points insuffisant."
+        );
+      }
+
+      tx.set(
+        pointsRef,
+        {
+          buyerId,
+          sellerId,
+          balance: FieldValue.increment(-pointsCost),
+          lifetimeRedeemed: FieldValue.increment(pointsCost),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      tx.set(redemptionRef, {
+        buyerId,
+        sellerId,
+        itemId,
+        itemTitle: item.title ?? "",
+        pointsCost,
+        status: "pending",
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return { sellerId, itemTitle: item.title ?? "", pointsCost };
+    }
+  );
+
+  await sendToUser({
+    recipientId: sellerId,
+    notificationId: `gift_redemption_${redemptionRef.id}_request`,
+    type: "order",
+    title: "🎁 Demande d'échange de cadeau",
+    body: `Un acheteur demande "${itemTitle}" contre ${pointsCost} points.`,
+    route: "/gift-redemptions",
+    data: { redemptionId: redemptionRef.id },
+  }).catch((err) =>
+    console.error("Erreur notif requestGiftRedemption :", err)
+  );
+
+  return { status: "pending", redemptionId: redemptionRef.id };
+});
+
+/**
+ * Le vendeur propriétaire du catalogue (ou un admin) valide ou rejette une
+ * demande d'échange. Un rejet rembourse atomiquement les points débités à
+ * la demande.
+ */
+exports.respondToGiftRedemption = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const redemptionId = request.data?.redemptionId;
+  const decision = request.data?.decision;
+  if (!redemptionId || typeof redemptionId !== "string") {
+    throw new HttpsError("invalid-argument", "redemptionId manquant");
+  }
+  if (decision !== "fulfilled" && decision !== "rejected") {
+    throw new HttpsError("invalid-argument", "decision invalide");
+  }
+
+  const redemptionRef = db.collection("giftRedemptions").doc(redemptionId);
+
+  const { buyerId, sellerId, itemTitle } = await db.runTransaction(
+    async (tx) => {
+      const snap = await tx.get(redemptionRef);
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Demande introuvable.");
+      }
+      const redemption = snap.data();
+      if (redemption.status !== "pending") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Cette demande a déjà été traitée."
+        );
+      }
+
+      const isOwnerSeller = redemption.sellerId === uid;
+      let isCallerAdmin = false;
+      if (!isOwnerSeller) {
+        const adminSnap = await tx.get(db.collection("admins").doc(uid));
+        isCallerAdmin = adminSnap.exists;
+      }
+      if (!isOwnerSeller && !isCallerAdmin) {
+        throw new HttpsError(
+          "permission-denied",
+          "Réservé au vendeur concerné ou à un administrateur."
+        );
+      }
+
+      tx.update(redemptionRef, {
+        status: decision,
+        reviewedBy: uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      if (decision === "rejected") {
+        const pointsRef = db
+          .collection(LOYALTY_POINTS_COLLECTION)
+          .doc(loyaltyPointsDocId(redemption.buyerId, redemption.sellerId));
+        tx.set(
+          pointsRef,
+          {
+            buyerId: redemption.buyerId,
+            sellerId: redemption.sellerId,
+            balance: FieldValue.increment(redemption.pointsCost),
+            lifetimeRedeemed: FieldValue.increment(-redemption.pointsCost),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      return {
+        buyerId: redemption.buyerId,
+        sellerId: redemption.sellerId,
+        itemTitle: redemption.itemTitle,
+      };
+    }
+  );
+
+  await sendToUser({
+    recipientId: buyerId,
+    notificationId: `gift_redemption_${redemptionId}_${decision}`,
+    type: "order",
+    title: decision === "fulfilled" ? "✅ Cadeau envoyé" : "❌ Échange refusé",
+    body:
+      decision === "fulfilled"
+        ? `Votre échange pour "${itemTitle}" a été validé.`
+        : `Votre échange pour "${itemTitle}" a été refusé, vos points ont été remboursés.`,
+    route: "/loyalty-points",
+    data: { redemptionId, sellerId },
+  }).catch((err) =>
+    console.error("Erreur notif respondToGiftRedemption :", err)
+  );
+
+  return { status: decision };
+});
+
+/**
+ * Remise à zéro exceptionnelle du solde de points d'un acheteur chez un
+ * vendeur donné, réservée aux admins, avec trace d'audit obligatoire
+ * (motif requis).
+ */
+exports.adminResetLoyaltyPoints = onCall(async (request) => {
+  await assertIsAdmin(request.auth?.uid);
+
+  const buyerId = request.data?.buyerId;
+  const sellerId = request.data?.sellerId;
+  const reason = request.data?.reason;
+  if (
+    !buyerId ||
+    typeof buyerId !== "string" ||
+    !sellerId ||
+    typeof sellerId !== "string"
+  ) {
+    throw new HttpsError("invalid-argument", "buyerId et sellerId requis.");
+  }
+  if (!reason || typeof reason !== "string" || !reason.trim()) {
+    throw new HttpsError("invalid-argument", "Un motif est requis.");
+  }
+
+  const pointsRef = db
+    .collection(LOYALTY_POINTS_COLLECTION)
+    .doc(loyaltyPointsDocId(buyerId, sellerId));
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(pointsRef);
+    const previousBalance = snap.exists ? (snap.data().balance ?? 0) : 0;
+
+    tx.set(
+      pointsRef,
+      {
+        buyerId,
+        sellerId,
+        balance: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    tx.set(db.collection("loyaltyPointsAuditLog").doc(), {
+      targetBuyerId: buyerId,
+      sellerId,
+      previousBalance,
+      resetBy: request.auth.uid,
+      resetAt: FieldValue.serverTimestamp(),
+      reason: reason.trim(),
+    });
+  });
+
+  return { status: "ok" };
 });

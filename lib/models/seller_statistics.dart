@@ -9,6 +9,7 @@ class SellerStatistics {
     this.totalMessages = 0,
     this.totalSales = 0,
     this.revenue = const {},
+    this.loyaltyPoints = 0,
     this.updatedAt,
   });
 
@@ -16,6 +17,7 @@ class SellerStatistics {
   final int totalMessages;
   final int totalSales;
   final Map<String, num> revenue;
+  final int loyaltyPoints;
   final DateTime? updatedAt;
 
   factory SellerStatistics.fromFirestore(
@@ -31,6 +33,7 @@ class SellerStatistics {
       revenue: revenueMap.map(
         (key, value) => MapEntry(key.toString(), value as num? ?? 0),
       ),
+      loyaltyPoints: (map['loyaltyPoints'] as num?)?.toInt() ?? 0,
       updatedAt: _readOptionalDate(updatedAt),
     );
   }
