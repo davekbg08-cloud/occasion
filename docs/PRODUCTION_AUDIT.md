@@ -317,6 +317,14 @@ valeur par n'importe quel utilisateur connecté (seule la liste des champs
    `viewers`/`sellerStatistics` fermés en écriture, lecture `sellerStatistics`
    réservée au propriétaire).
 
+**Correctif post-Phase 3** : `confirmManualPayment`/`rejectManualPayment`
+(`functions/index.js`) ne vérifiaient pas si l'intention de paiement était
+déjà réglée avant de rappeler `applySettlement` — un double-tap admin ou un
+retry réseau doublait les compteurs `sellerStatistics` et réinitialisait la
+date de départ d'un abonnement déjà activé. Les deux callables sont
+désormais des no-op silencieux sur un `transactionId` déjà dans un état
+terminal (`paid`/`failed`).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
