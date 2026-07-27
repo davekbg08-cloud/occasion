@@ -552,6 +552,44 @@ augmentation toujours refusée — 55/55 au total côté émulateur rules) ; 6
 nouveaux tests d'intégration Cloud Functions (`functions/test/`,
 `npm run test:integration`, contre l'émulateur réel).
 
+## Phase 6ter — Durcissement de l'idempotence du push (bug résiduel de la Phase 6bis)
+
+Le fix Phase 6bis (`claimPushSlot` transactionnel) restait incomplet sur
+deux cas non couverts :
+
+1. **Échec total silencieux** : si `fcm.sendEachForMulticast` répondait
+   sans lever d'exception mais avec 100% des jetons en échec (aucun des
+   deux codes d'erreur surveillés par le nettoyage des jetons), le
+   marqueur `pushSentAt` restait posé indéfiniment — la notification était
+   marquée "envoyée" alors qu'aucun push n'avait atteint l'utilisateur, et
+   plus aucune redélivrance ne pouvait jamais retenter l'envoi.
+2. **Absence de bail** : si la Cloud Function s'arrêtait (crash, timeout)
+   entre la réservation du slot et l'application du résultat FCM, le
+   marqueur posé par la réservation restait lui aussi bloqué pour
+   toujours, sans jamais expirer.
+
+**Fix** : remplacement du simple champ `pushSentAt` par une machine à
+états `pushState` (`functions/index.js`) : `pending` (jamais tenté),
+`sending` (réservation posée par `claimPushSlot`, avec un bail
+`pushLeaseUntil` de `PUSH_LEASE_MS = 2 min` — une réservation dont le bail
+a expiré peut être reprise par un appel suivant), `sent` (au moins un
+succès FCM réel, appliqué par `applyPushResult` uniquement si
+`result.successCount > 0`), `failed` (tenté, zéro succès ou exception —
+retentable), `pending_no_device` (aucun appareil enregistré au moment de
+l'appel, posé par `markNoDevicePush`, sans jamais régresser un état déjà
+`sent`). Le contenu de la notification (titre/corps/route/data) est
+maintenant mis à jour séparément par `upsertNotificationContent`, qui ne
+touche jamais `isRead`/`createdAt` sur une redélivrance — une notification
+déjà lue par l'utilisateur ne peut plus jamais redevenir non lue à cause
+d'un retry du trigger appelant.
+
+**Tests** : 4 nouveaux tests d'intégration Cloud Functions
+(`functions/test/functions.test.js`) : reprise après bail expiré, échec
+total non marqué comme envoyé (et retentable), au moins un succès marqué
+`sent` avec nettoyage du jeton invalide, contenu mis à jour sans jamais
+réinitialiser `isRead` (65 tests au total côté émulateur : 55 rules + 10
+fonctions).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function

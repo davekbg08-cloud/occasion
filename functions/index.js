@@ -5,7 +5,7 @@ const {
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
 
@@ -100,12 +100,185 @@ async function deviceTokensFor(uid) {
     .filter((device) => !!device.token);
 }
 
+/** Durée de bail d'une réservation d'envoi push (voir `claimPushSlot`) : une
+ * Function arrêtée en plein envoi (crash, timeout) ne doit pas bloquer
+ * indéfiniment la notification — passé ce délai, une nouvelle tentative est
+ * autorisée à réclamer le slot. */
+const PUSH_LEASE_MS = 2 * 60 * 1000;
+
+/**
+ * Crée le document de notification s'il n'existe pas encore, avec son état
+ * initial complet (`isRead: false`, `createdAt`, `pushState: pending`). S'il
+ * existe déjà (redélivrance du trigger appelant), ne met à jour QUE le
+ * contenu (titre/corps/route/data/champs d'entité) — ne touche jamais
+ * `isRead`, `readAt` ni `createdAt` : une notification déjà lue par
+ * l'utilisateur ne doit jamais redevenir non lue à cause d'une redélivrance.
+ */
+async function upsertNotificationContent({
+  notifRef,
+  recipientId,
+  senderId,
+  type,
+  title,
+  body,
+  route,
+  data,
+  entityFields,
+}) {
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(notifRef);
+    if (!snap.exists) {
+      tx.set(notifRef, {
+        recipientId,
+        senderId,
+        type,
+        title,
+        body,
+        route,
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp(),
+        pushState: "pending",
+        ...entityFields,
+        data,
+      });
+      return;
+    }
+
+    tx.update(notifRef, {
+      title,
+      body,
+      route,
+      data,
+      ...entityFields,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+/**
+ * Marque la notification comme n'ayant pu être poussée sur aucun appareil,
+ * sans jamais régresser un état déjà "sent" (ex. tous les appareils ont été
+ * désinscrits après un envoi réussi antérieur). Le document Firestore
+ * (historique in-app) reste conservé dans tous les cas.
+ */
+async function markNoDevicePush(notifRef) {
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(notifRef);
+    if (snap.data()?.pushState === "sent") return;
+    tx.update(notifRef, { pushState: "pending_no_device" });
+  });
+}
+
+/**
+ * Réserve atomiquement (transaction) le droit d'envoyer le push d'une
+ * notification donnée. États possibles (`pushState`) : `pending` (jamais
+ * tenté), `sending` (réservation posée, envoi en cours), `sent` (au moins un
+ * succès FCM réel), `failed` (tenté, zéro succès — retentable),
+ * `pending_no_device` (aucun appareil au moment de l'appel).
+ *
+ * Une redélivrance du trigger appelant, ou deux invocations concurrentes, ne
+ * peuvent jamais toutes les deux gagner la réservation : la première pose
+ * `pushState: sending` avec un bail (`pushLeaseUntil`) ; toute autre tentative
+ * tant que ce bail est valide échoue. Si la Function s'arrête après avoir
+ * réservé (crash/timeout, jamais de résultat FCM appliqué), le bail expire et
+ * une nouvelle tentative peut réclamer le slot — la notification ne reste
+ * jamais bloquée indéfiniment en "sending".
+ *
+ * Exportée pour être testée isolément (voir `functions/test/`), sans
+ * dépendre d'un envoi FCM réel.
+ */
+async function claimPushSlot(notifRef) {
+  const now = Date.now();
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(notifRef);
+    const notif = snap.data() ?? {};
+
+    if (notif.pushSentAt || notif.pushState === "sent") {
+      return { claimed: false };
+    }
+
+    if (notif.pushState === "sending") {
+      const leaseUntilMs = notif.pushLeaseUntil?.toMillis?.() ?? 0;
+      if (leaseUntilMs > now) {
+        return { claimed: false };
+      }
+      // Bail expiré : une nouvelle réservation est permise (voir doc ci-dessus).
+    }
+
+    const pushClaimId = db.collection(NOTIFICATIONS_COLLECTION).doc().id;
+    tx.update(notifRef, {
+      pushState: "sending",
+      pushClaimId,
+      pushClaimedAt: FieldValue.serverTimestamp(),
+      pushLeaseUntil: Timestamp.fromMillis(now + PUSH_LEASE_MS),
+      lastPushAttemptAt: FieldValue.serverTimestamp(),
+    });
+    return { claimed: true, pushClaimId };
+  });
+}
+
+/**
+ * Applique le résultat (réel ou simulé) d'un envoi `sendEachForMulticast` au
+ * document de notification et nettoie les jetons définitivement invalides.
+ * Extraite de `sendToUser` pour être testable sans appeler FCM réellement
+ * (voir `functions/test/`, qui lui passe un `result` fabriqué).
+ *
+ * Ne marque `pushState: sent` que si au moins un appareil a réellement reçu
+ * le push (`successCount > 0`) — un envoi dont tous les jetons ont échoué
+ * reste `failed` et retentable, jamais faussement marqué comme envoyé.
+ */
+async function applyPushResult({ notifRef, recipientId, devices, result }) {
+  const successCount = result.successCount ?? 0;
+  const failureCount = result.failureCount ?? 0;
+
+  await Promise.all(
+    (result.responses ?? []).map((res, i) => {
+      const code = res.error?.code;
+      const isDefinitivelyInvalid =
+        !res.success &&
+        (code === "messaging/registration-token-not-registered" ||
+          code === "messaging/invalid-registration-token" ||
+          code === "messaging/invalid-argument");
+      if (!isDefinitivelyInvalid) return null;
+      return db
+        .collection("users")
+        .doc(recipientId)
+        .collection("devices")
+        .doc(devices[i].id)
+        .delete()
+        .catch(() => {});
+    })
+  );
+
+  if (successCount > 0) {
+    await notifRef.update({
+      pushState: "sent",
+      pushSentAt: FieldValue.serverTimestamp(),
+      pushSuccessCount: successCount,
+      pushFailureCount: failureCount,
+      pushLeaseUntil: FieldValue.delete(),
+    });
+  } else {
+    await notifRef.update({
+      pushState: "failed",
+      pushFailureCount: failureCount,
+      lastPushError: result.responses?.find((res) => res.error)?.error?.code ?? "unknown",
+      pushClaimId: FieldValue.delete(),
+      pushLeaseUntil: FieldValue.delete(),
+    });
+  }
+}
+
 /**
  * Persiste une notification (historique in-app, lue par le client via
  * `notifications/{id}`) et l'envoie en push à tous les appareils du
  * destinataire. `notificationId` déterministe = idempotent (les retries
- * Cloud Functions ne créent jamais de doublon). Nettoie les jetons devenus
- * invalides.
+ * Cloud Functions ne créent jamais de doublon, et ne font jamais redevenir
+ * "non lue" une notification déjà lue par l'utilisateur — voir
+ * `upsertNotificationContent`). L'envoi push lui-même est réservé
+ * atomiquement (voir `claimPushSlot`) et son résultat réel appliqué au
+ * document (voir `applyPushResult`) : jamais marqué "envoyé" sans au moins
+ * un succès FCM réel.
  */
 async function sendToUser({
   recipientId,
@@ -130,33 +303,26 @@ async function sendToUser({
   const docId = notificationId || db.collection(NOTIFICATIONS_COLLECTION).doc().id;
   const notifRef = db.collection(NOTIFICATIONS_COLLECTION).doc(docId);
 
-  await notifRef.set(
-    {
-      recipientId,
-      senderId,
-      type,
-      title,
-      body,
-      route,
-      isRead: false,
-      createdAt: FieldValue.serverTimestamp(),
-      ...entityFields,
-      data,
-    },
-    { merge: true }
-  );
+  await upsertNotificationContent({
+    notifRef,
+    recipientId,
+    senderId,
+    type,
+    title,
+    body,
+    route,
+    data,
+    entityFields,
+  });
 
   const devices = await deviceTokensFor(recipientId);
-  if (devices.length === 0) return;
+  if (devices.length === 0) {
+    await markNoDevicePush(notifRef);
+    return;
+  }
 
-  // Idempotence du PUSH : réserve atomiquement (transaction) le droit
-  // d'envoyer, avant même l'appel FCM — une redélivrance "au moins une
-  // fois" du trigger appelant, ou deux invocations concurrentes, ne
-  // peuvent jamais toutes les deux gagner la réservation (contrairement à
-  // un `get()` puis `update()` séparés, qui laissait une fenêtre de course
-  // où les deux liraient "pas encore envoyé" avant que l'une écrive).
-  const claimed = await claimPushSlot(notifRef);
-  if (!claimed) return;
+  const claim = await claimPushSlot(notifRef);
+  if (!claim.claimed) return;
 
   // Badge natif de l'icône de l'app (iOS) : le vrai nombre de
   // notifications non lues de ce destinataire, pas une valeur codée en dur
@@ -190,49 +356,21 @@ async function sendToUser({
       },
       apns: { payload: { aps: { sound: "default", badge } } },
     });
-
-    await Promise.all(
-      result.responses.map((res, i) => {
-        const code = res.error?.code;
-        if (
-          !res.success &&
-          (code === "messaging/registration-token-not-registered" ||
-            code === "messaging/invalid-argument")
-        ) {
-          return db
-            .collection("users")
-            .doc(recipientId)
-            .collection("devices")
-            .doc(devices[i].id)
-            .delete()
-            .catch(() => {});
-        }
-        return null;
-      })
-    );
+    await applyPushResult({ notifRef, recipientId, devices, result });
   } catch (err) {
     console.error(`Erreur envoi notif -> ${recipientId} :`, err);
-    // Échec réel d'envoi (pas un jeton invalide, déjà géré ci-dessus) :
-    // libère la réservation pour qu'une redélivrance ultérieure du trigger
-    // appelant puisse retenter l'envoi.
-    await notifRef.update({ pushSentAt: FieldValue.delete() }).catch(() => {});
+    // Échec global (pas un simple jeton invalide, déjà géré par
+    // `applyPushResult`) : libère la réservation pour qu'une redélivrance
+    // ultérieure du trigger appelant puisse retenter l'envoi.
+    await notifRef
+      .update({
+        pushState: "failed",
+        lastPushError: String(err?.code ?? err?.message ?? "erreur inconnue").slice(0, 300),
+        pushClaimId: FieldValue.delete(),
+        pushLeaseUntil: FieldValue.delete(),
+      })
+      .catch(() => {});
   }
-}
-
-/**
- * Réserve atomiquement (transaction) le droit d'envoyer le push d'une
- * notification donnée : renvoie `true` une seule fois, `false` pour toute
- * redélivrance ou appel concurrent une fois la réservation posée. Exportée
- * pour être testée isolément (voir `functions/test/`), sans dépendre d'un
- * envoi FCM réel.
- */
-async function claimPushSlot(notifRef) {
-  return db.runTransaction(async (tx) => {
-    const snap = await tx.get(notifRef);
-    if (snap.data()?.pushSentAt) return false;
-    tx.update(notifRef, { pushSentAt: FieldValue.serverTimestamp() });
-    return true;
-  });
 }
 
 const SELLER_STATISTICS_COLLECTION = "sellerStatistics";
@@ -1331,4 +1469,9 @@ exports.adminResetLoyaltyPoints = onCall(async (request) => {
 // Exports internes réservés aux tests (functions/test/), jamais utilisés en
 // production ni déployés comme fonctions (objet brut, pas un CloudFunction
 // reconnu par le CLI Firebase).
-exports._testables = { claimPushSlot };
+exports._testables = {
+  claimPushSlot,
+  applyPushResult,
+  upsertNotificationContent,
+  PUSH_LEASE_MS,
+};

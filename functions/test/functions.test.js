@@ -11,7 +11,7 @@
 // l'émulateur Firestore.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 
 const functions = require("../index.js");
 const db = getFirestore();
@@ -92,11 +92,110 @@ test("claimPushSlot : réserve l'envoi une seule fois, y compris pour des appels
     functions._testables.claimPushSlot(notifRef),
     functions._testables.claimPushSlot(notifRef),
   ]);
-  assert.equal([first, second].filter(Boolean).length, 1);
+  assert.equal([first, second].filter((r) => r.claimed).length, 1);
 
-  // Un appel ultérieur (redélivrance) ne doit plus jamais réussir.
+  // Tant que le bail n'a pas expiré, aucun nouvel appel ne doit réussir
+  // (redélivrance immédiate du trigger appelant).
   const third = await functions._testables.claimPushSlot(notifRef);
-  assert.equal(third, false);
+  assert.equal(third.claimed, false);
+});
+
+test("claimPushSlot : une réservation dont le bail a expiré peut être reprise (Function crashée en plein envoi)", async () => {
+  const notifRef = db.collection("notifications").doc("notif-test-lease");
+  await notifRef.set({ recipientId: "buyer1", isRead: false });
+
+  const first = await functions._testables.claimPushSlot(notifRef);
+  assert.equal(first.claimed, true);
+
+  // Simule une Function arrêtée après la réservation mais avant d'avoir
+  // appliqué un résultat FCM (jamais de `pushState: sent`/`failed`) : le
+  // bail est expiré manuellement plutôt que d'attendre `PUSH_LEASE_MS` en
+  // temps réel.
+  await notifRef.update({ pushLeaseUntil: Timestamp.fromMillis(Date.now() - 1000) });
+
+  const second = await functions._testables.claimPushSlot(notifRef);
+  assert.equal(second.claimed, true, "le bail expiré doit permettre une nouvelle réservation");
+});
+
+test("applyPushResult : un envoi FCM sans exception mais 100% en échec ne marque jamais la notification comme envoyée", async () => {
+  const notifRef = db.collection("notifications").doc("notif-test-allfail");
+  await notifRef.set({ recipientId: "buyer1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "buyer1",
+    devices: [{ id: "device1", token: "tok1" }],
+    result: {
+      successCount: 0,
+      failureCount: 1,
+      responses: [{ success: false, error: { code: "messaging/unavailable" } }],
+    },
+  });
+
+  const snap = await notifRef.get();
+  assert.equal(snap.data().pushState, "failed");
+  // Une redélivrance ultérieure du trigger appelant doit pouvoir retenter :
+  // aucun bail ni verrou ne doit rester posé après un échec total.
+  const retry = await functions._testables.claimPushSlot(notifRef);
+  assert.equal(retry.claimed, true);
+});
+
+test("applyPushResult : au moins un succès marque la notification comme réellement envoyée", async () => {
+  const notifRef = db.collection("notifications").doc("notif-test-partial");
+  await notifRef.set({ recipientId: "buyer1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "buyer1",
+    devices: [
+      { id: "device1", token: "tok1" },
+      { id: "device2", token: "tok2" },
+    ],
+    result: {
+      successCount: 1,
+      failureCount: 1,
+      responses: [
+        { success: true },
+        { success: false, error: { code: "messaging/registration-token-not-registered" } },
+      ],
+    },
+  });
+
+  const snap = await notifRef.get();
+  assert.equal(snap.data().pushState, "sent");
+  // Le jeton définitivement invalide doit être nettoyé.
+  const deviceSnap = await db.collection("users").doc("buyer1").collection("devices").doc("device2").get();
+  assert.equal(deviceSnap.exists, false);
+});
+
+test("upsertNotificationContent : une redélivrance du trigger appelant ne réinitialise jamais isRead", async () => {
+  const notifRef = db.collection("notifications").doc("notif-test-content");
+  const baseArgs = {
+    notifRef,
+    recipientId: "buyer1",
+    senderId: "seller1",
+    type: "chat_message",
+    title: "Titre initial",
+    body: "Corps initial",
+    route: "/chat-list",
+    data: {},
+    entityFields: {},
+  };
+
+  await functions._testables.upsertNotificationContent(baseArgs);
+  await notifRef.update({ isRead: true });
+
+  // Redélivrance avec un contenu légèrement différent (ex. le message a
+  // été édité entre les deux tentatives) : le contenu doit être mis à
+  // jour, mais `isRead` ne doit jamais redevenir `false`.
+  await functions._testables.upsertNotificationContent({
+    ...baseArgs,
+    title: "Titre mis à jour",
+  });
+
+  const snap = await notifRef.get();
+  assert.equal(snap.data().isRead, true, "isRead ne doit jamais être réinitialisé par une redélivrance");
+  assert.equal(snap.data().title, "Titre mis à jour");
 });
 
 test("toggleStatusLike : bascule aimer/ne plus aimer sans double comptage", async () => {
