@@ -12,7 +12,8 @@ class ChatService {
   // StatusService : évite de toucher FirebaseFunctions.instance tant que
   // markAsRead n'est pas réellement appelé.
   final FirebaseFunctions? _functionsOverride;
-  FirebaseFunctions get _functions => _functionsOverride ?? FirebaseFunctions.instance;
+  FirebaseFunctions get _functions =>
+      _functionsOverride ?? FirebaseFunctions.instance;
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 

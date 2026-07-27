@@ -69,7 +69,11 @@ Future<void> main(List<String> args) async {
   var chatsUpdated = 0;
   var errors = 0;
 
-  print(apply ? '=== MODE APPLICATION ===' : '=== MODE DRY-RUN (aucune écriture) ===');
+  print(
+    apply
+        ? '=== MODE APPLICATION ==='
+        : '=== MODE DRY-RUN (aucune écriture) ===',
+  );
 
   String? chatPageToken;
   do {
@@ -78,7 +82,9 @@ Future<void> main(List<String> args) async {
     );
     final chatRes = await client.get(chatUri, headers: _headers(token));
     if (chatRes.statusCode != 200) {
-      stderr.writeln('Échec liste chats (${chatRes.statusCode}): ${chatRes.body}');
+      stderr.writeln(
+        'Échec liste chats (${chatRes.statusCode}): ${chatRes.body}',
+      );
       errors++;
       break;
     }
@@ -91,11 +97,13 @@ Future<void> main(List<String> args) async {
       chatsProcessed++;
       final chatName = chatDoc['name'] as String;
       final chatId = chatName.split('/').last;
-      final chatFields = (chatDoc['fields'] as Map<String, dynamic>? ?? const {});
+      final chatFields =
+          (chatDoc['fields'] as Map<String, dynamic>? ?? const {});
       final buyerId = _stringField(chatFields, 'buyerId');
       final sellerId = _stringField(chatFields, 'sellerId');
       final existingBuyerCount = _intField(chatFields, 'buyerUnreadCount') ?? 0;
-      final existingSellerCount = _intField(chatFields, 'sellerUnreadCount') ?? 0;
+      final existingSellerCount =
+          _intField(chatFields, 'sellerUnreadCount') ?? 0;
       final hasPreMigrationSnapshot =
           chatFields.containsKey('buyerUnreadCountPreMigration') ||
           chatFields.containsKey('sellerUnreadCountPreMigration');
@@ -114,7 +122,9 @@ Future<void> main(List<String> args) async {
         );
         final msgRes = await client.get(msgUri, headers: _headers(token));
         if (msgRes.statusCode != 200) {
-          stderr.writeln('Échec liste messages chat $chatId (${msgRes.statusCode}): ${msgRes.body}');
+          stderr.writeln(
+            'Échec liste messages chat $chatId (${msgRes.statusCode}): ${msgRes.body}',
+          );
           errors++;
           break;
         }
@@ -125,7 +135,8 @@ Future<void> main(List<String> args) async {
 
         for (final msgDoc in msgDocs) {
           messagesProcessed++;
-          final msgFields = (msgDoc['fields'] as Map<String, dynamic>? ?? const {});
+          final msgFields =
+              (msgDoc['fields'] as Map<String, dynamic>? ?? const {});
           final receiverId = _stringField(msgFields, 'receiverId');
           final status = _stringField(msgFields, 'status');
           final isUnread = status != 'read';
@@ -160,8 +171,12 @@ Future<void> main(List<String> args) async {
               body: jsonEncode({
                 'fields': {
                   'unreadProcessed': {'booleanValue': true},
-                  'unreadIncrementApplied': {'booleanValue': unreadIncrementApplied},
-                  'unreadProcessedAt': {'timestampValue': DateTime.now().toUtc().toIso8601String()},
+                  'unreadIncrementApplied': {
+                    'booleanValue': unreadIncrementApplied,
+                  },
+                  'unreadProcessedAt': {
+                    'timestampValue': DateTime.now().toUtc().toIso8601String(),
+                  },
                 },
               }),
             );
@@ -178,7 +193,8 @@ Future<void> main(List<String> args) async {
       // Jamais négatif : `buyerUnread`/`sellerUnread` sont des compteurs
       // d'occurrences, structurellement >= 0.
       final counterChanged =
-          buyerUnread != existingBuyerCount || sellerUnread != existingSellerCount;
+          buyerUnread != existingBuyerCount ||
+          sellerUnread != existingSellerCount;
       if (counterChanged) chatsWithCounterChange++;
 
       print(
@@ -203,8 +219,12 @@ Future<void> main(List<String> args) async {
             '&updateMask.fieldPaths=buyerUnreadCountPreMigration'
             '&updateMask.fieldPaths=sellerUnreadCountPreMigration',
           );
-          fields['buyerUnreadCountPreMigration'] = {'integerValue': existingBuyerCount.toString()};
-          fields['sellerUnreadCountPreMigration'] = {'integerValue': existingSellerCount.toString()};
+          fields['buyerUnreadCountPreMigration'] = {
+            'integerValue': existingBuyerCount.toString(),
+          };
+          fields['sellerUnreadCountPreMigration'] = {
+            'integerValue': existingSellerCount.toString(),
+          };
         }
 
         final patchUri = Uri.parse('$base/chats/$chatId$fieldPaths');
@@ -217,7 +237,9 @@ Future<void> main(List<String> args) async {
           chatsUpdated++;
         } else {
           errors++;
-          stderr.writeln('Échec écriture chat $chatId (${patchRes.statusCode}): ${patchRes.body}');
+          stderr.writeln(
+            'Échec écriture chat $chatId (${patchRes.statusCode}): ${patchRes.body}',
+          );
         }
       }
     }
@@ -237,7 +259,9 @@ Future<void> main(List<String> args) async {
   }
 }
 
-Map<String, String> _headers(String token) => {'Authorization': 'Bearer $token'};
+Map<String, String> _headers(String token) => {
+  'Authorization': 'Bearer $token',
+};
 
 String? _stringField(Map<String, dynamic> fields, String key) {
   final value = fields[key] as Map<String, dynamic>?;
