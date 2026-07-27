@@ -583,12 +583,59 @@ touche jamais `isRead`/`createdAt` sur une redélivrance — une notification
 déjà lue par l'utilisateur ne peut plus jamais redevenir non lue à cause
 d'un retry du trigger appelant.
 
-**Tests** : 4 nouveaux tests d'intégration Cloud Functions
-(`functions/test/functions.test.js`) : reprise après bail expiré, échec
-total non marqué comme envoyé (et retentable), au moins un succès marqué
-`sent` avec nettoyage du jeton invalide, contenu mis à jour sans jamais
-réinitialiser `isRead` (65 tests au total côté émulateur : 55 rules + 10
-fonctions).
+**Tests** : 6 nouveaux tests d'intégration Cloud Functions au total pour
+cette partie (création initiale de la notification, aucun appareil,
+reprise après bail expiré, échec total non marqué comme envoyé et
+retentable, au moins un succès marqué `sent` avec nettoyage du jeton
+invalide, contenu mis à jour sans jamais réinitialiser `isRead`).
+
+## Phase 6quater — Compteurs non lus : élimination du risque de valeur négative/incohérente
+
+La Phase 6bis (décrément exact `increment(-n)`) restait vulnérable à deux
+scénarios non couverts : un message marqué lu par le client avant même
+qu'`onNewMessage` ne l'ait traité pouvait quand même incrémenter le
+compteur ensuite (le marqueur `unreadCounted` ne portait aucune
+information sur le statut au moment du traitement) ; et rien
+n'empêchait structurellement un compteur de devenir négatif si
+l'historique était déjà incohérent (le client gardait la main sur
+l'écriture finale du compteur).
+
+**Fix** :
+- `incrementChatUnread` (`functions/index.js`) remplace le marqueur
+  unique `unreadCounted` par deux marqueurs distincts posés dans la même
+  transaction : `unreadProcessed` (ce message a déjà été traité, jamais
+  retraité sur redélivrance) et `unreadIncrementApplied` (le compteur a
+  RÉELLEMENT été incrémenté pour ce message — `false` si le message était
+  déjà `status: read` au moment du traitement, course avec
+  `markChatAsRead`).
+- Le client ne modifie plus JAMAIS `buyerUnreadCount`/`sellerUnreadCount`
+  ni le `status` d'un message, y compris pour les diminuer
+  (`firestore.rules`) : tout passe désormais par la nouvelle Cloud
+  Function callable `markChatAsRead`, qui identifie l'utilisateur via
+  `request.auth.uid` (jamais un paramètre client), pagine les messages non
+  lus par lots de 200, et calcule le nouveau compteur comme
+  `max(0, actuel - nombreDeMessagesAvecIncrémentAppliqué)` dans une
+  transaction par page (jamais un `increment` négatif non borné : la
+  transaction se relance automatiquement si `onNewMessage` incrémente le
+  compteur au même moment, garantissant qu'aucune écriture n'est perdue et
+  que le résultat ne peut jamais devenir négatif).
+- `ChatService.markAsRead` (Flutter) appelle désormais cette fonction au
+  lieu d'écrire directement Firestore, avec un verrou local par `chatId`
+  pour éviter deux appels concurrents identiques.
+- Script de migration `tool/migrate_chat_unread_processing.dart`
+  (dry-run par défaut) pour initialiser ces marqueurs sur les messages
+  antérieurs à ce changement et recaler les compteurs existants, sans
+  jamais supprimer de champ ni exécuter automatiquement l'écriture.
+
+**Tests** : 9 nouveaux tests d'intégration Cloud Functions (course avec
+`markChatAsRead`, remise à 0, idempotence, jamais de valeur négative même
+sur un historique incohérent, cohérence sous concurrence avec un nouveau
+message, isolation stricte entre participants, rejets
+non-authentifié/non-participant, pagination sur 250 messages non lus) et
+9 tests de règles Firestore (compteurs et statut totalement non
+modifiables par le client, autres métadonnées du chat toujours
+modifiables). **80 tests au total côté émulateur : 59 rules + 21
+fonctions.**
 
 ## Phases suivantes (hors de portée de cette session)
 

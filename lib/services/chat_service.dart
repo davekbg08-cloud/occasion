@@ -212,7 +212,7 @@ class ChatService {
 
     final future = _functions
         .httpsCallable('markChatAsRead')
-        .call<Map<String, dynamic>>(<String, dynamic>{'chatId': chatId})
+        .call(<String, dynamic>{'chatId': chatId})
         .then((_) {})
         .whenComplete(() => _markAsReadInFlight.remove(chatId));
     _markAsReadInFlight[chatId] = future;
