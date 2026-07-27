@@ -424,10 +424,13 @@ service cloud.firestore {
         );
       // Un participant ne peut jamais modifier le compteur non-lu de
       // l'AUTRE participant (buyerUnreadCount/sellerUnreadCount sont
-      // strictement personnels à chacun). L'incrément de son PROPRE
-      // compteur est désormais exclusivement serveur (Cloud Function
-      // onNewMessage, Admin SDK) : le client ne peut plus que le remettre
-      // à 0 (ouverture du chat), jamais l'incrémenter lui-même.
+      // strictement personnels à chacun). Pour SON PROPRE compteur, le
+      // client ne peut que le faire DIMINUER (marquage comme lu) — jamais
+      // l'augmenter, l'incrément venant exclusivement du serveur (Cloud
+      // Function onNewMessage, Admin SDK). Diminuer par le nombre exact de
+      // messages marqués lus (pas une remise à zéro aveugle) évite qu'un
+      // message qui vient d'arriver soit effacé du compteur par erreur —
+      // voir `ChatService.markAsRead`.
       allow update: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
@@ -443,13 +446,11 @@ service cloud.firestore {
         )
         && (
           request.auth.uid != resource.data.buyerId
-          || request.resource.data.get('buyerUnreadCount', 0) == resource.data.get('buyerUnreadCount', 0)
-          || request.resource.data.get('buyerUnreadCount', 0) == 0
+          || request.resource.data.get('buyerUnreadCount', 0) <= resource.data.get('buyerUnreadCount', 0)
         )
         && (
           request.auth.uid != resource.data.sellerId
-          || request.resource.data.get('sellerUnreadCount', 0) == resource.data.get('sellerUnreadCount', 0)
-          || request.resource.data.get('sellerUnreadCount', 0) == 0
+          || request.resource.data.get('sellerUnreadCount', 0) <= resource.data.get('sellerUnreadCount', 0)
         );
       allow delete: if signedIn()
         && (

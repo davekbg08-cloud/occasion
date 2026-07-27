@@ -60,6 +60,30 @@ const NOTIFICATION_ENTITY_FIELDS = [
   "entityId",
 ];
 
+/** Topic FCM auquel tout acheteur est abonné dès l'enregistrement de son
+ * appareil — sert uniquement à annoncer les nouveaux statuts (voir
+ * `onNewStatus` plus bas), jamais lu/écrit ailleurs. */
+const NEW_STATUS_TOPIC = "new_status";
+
+/**
+ * Canal de notification Android correspondant à un `type` de notification —
+ * doit rester synchronisé avec les canaux déclarés côté client
+ * (`lib/services/notification_service.dart`), chacun avec sa propre
+ * vibration explicite.
+ */
+function androidChannelIdForType(type) {
+  switch (type) {
+    case "message":
+      return "occasion_messages";
+    case "order":
+    case "subscription":
+    case "subscription_request":
+      return "occasion_orders";
+    default:
+      return "occasion_general";
+  }
+}
+
 /**
  * Jetons FCM actifs d'un utilisateur, un par appareil connecté
  * (`users/{uid}/devices/{deviceId}`, remplace l'ancien champ unique
@@ -105,7 +129,6 @@ async function sendToUser({
 
   const docId = notificationId || db.collection(NOTIFICATIONS_COLLECTION).doc().id;
   const notifRef = db.collection(NOTIFICATIONS_COLLECTION).doc(docId);
-  const existingSnap = await notifRef.get();
 
   await notifRef.set(
     {
@@ -123,14 +146,17 @@ async function sendToUser({
     { merge: true }
   );
 
-  // Idempotence du PUSH : une redélivrance "au moins une fois" du trigger
-  // appelant (le document Firestore ci-dessus est réécrit à chaque appel,
-  // sans problème, `merge: true`) ne doit jamais renvoyer une seconde
-  // alerte push pour une notification déjà envoyée avec succès.
-  if (existingSnap.data()?.pushSentAt) return;
-
   const devices = await deviceTokensFor(recipientId);
   if (devices.length === 0) return;
+
+  // Idempotence du PUSH : réserve atomiquement (transaction) le droit
+  // d'envoyer, avant même l'appel FCM — une redélivrance "au moins une
+  // fois" du trigger appelant, ou deux invocations concurrentes, ne
+  // peuvent jamais toutes les deux gagner la réservation (contrairement à
+  // un `get()` puis `update()` séparés, qui laissait une fenêtre de course
+  // où les deux liraient "pas encore envoyé" avant que l'une écrive).
+  const claimed = await claimPushSlot(notifRef);
+  if (!claimed) return;
 
   // Badge natif de l'icône de l'app (iOS) : le vrai nombre de
   // notifications non lues de ce destinataire, pas une valeur codée en dur
@@ -158,13 +184,12 @@ async function sendToUser({
       tokens: devices.map((device) => device.token),
       notification: { title, body },
       data: pushData,
-      android: { priority: "high", notification: { channelId: "occasion_channel" } },
+      android: {
+        priority: "high",
+        notification: { channelId: androidChannelIdForType(type) },
+      },
       apns: { payload: { aps: { sound: "default", badge } } },
     });
-
-    await notifRef
-      .update({ pushSentAt: FieldValue.serverTimestamp() })
-      .catch(() => {});
 
     await Promise.all(
       result.responses.map((res, i) => {
@@ -187,7 +212,27 @@ async function sendToUser({
     );
   } catch (err) {
     console.error(`Erreur envoi notif -> ${recipientId} :`, err);
+    // Échec réel d'envoi (pas un jeton invalide, déjà géré ci-dessus) :
+    // libère la réservation pour qu'une redélivrance ultérieure du trigger
+    // appelant puisse retenter l'envoi.
+    await notifRef.update({ pushSentAt: FieldValue.delete() }).catch(() => {});
   }
+}
+
+/**
+ * Réserve atomiquement (transaction) le droit d'envoyer le push d'une
+ * notification donnée : renvoie `true` une seule fois, `false` pour toute
+ * redélivrance ou appel concurrent une fois la réservation posée. Exportée
+ * pour être testée isolément (voir `functions/test/`), sans dépendre d'un
+ * envoi FCM réel.
+ */
+async function claimPushSlot(notifRef) {
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(notifRef);
+    if (snap.data()?.pushSentAt) return false;
+    tx.update(notifRef, { pushSentAt: FieldValue.serverTimestamp() });
+    return true;
+  });
 }
 
 const SELLER_STATISTICS_COLLECTION = "sellerStatistics";
@@ -351,6 +396,51 @@ exports.onNewMessage = onDocumentCreated(
 );
 
 /**
+ * Annonce un nouveau statut à tous les acheteurs abonnés au topic FCM
+ * `new_status` (topic global, décision produit : pas de préférence par
+ * catégorie/vendeur dans cette passe). Un seul appel `fcm.send({topic})` —
+ * contrairement à l'ancienne implémentation, ne lit ni tous les
+ * utilisateurs ni leurs sous-collections `devices` (coût Firestore
+ * proportionnel au nombre d'acheteurs à chaque publication, désormais
+ * géré par FCM lui-même côté abonnement au topic).
+ */
+exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => {
+  const status = event.data.data();
+  const sellerName = status.sellerName ?? "Un vendeur";
+  const caption = status.caption;
+  const body = caption
+    ? caption.length > 80
+      ? `${caption.substring(0, 80)}...`
+      : caption
+    : "Découvrez ce nouvel article !";
+
+  try {
+    await fcm.send({
+      topic: NEW_STATUS_TOPIC,
+      notification: {
+        title: `🛍️ ${sellerName} a publié un article`,
+        body,
+      },
+      data: {
+        type: "status",
+        statusId: event.params.statusId,
+      },
+      android: {
+        priority: "normal",
+        notification: { channelId: androidChannelIdForType("status") },
+      },
+      apns: {
+        payload: { aps: { sound: "default" } },
+      },
+    });
+  } catch (err) {
+    console.error("Erreur envoi notif statut (topic) :", err);
+  }
+
+  return null;
+});
+
+/**
  * Bascule le like d'un statut pour l'utilisateur connecté : transaction sur
  * un document par (statut, utilisateur) `statusLikes/{statusId}_{uid}`,
  * jamais un simple `increment` client. Empêche structurellement le double
@@ -432,12 +522,26 @@ exports.deleteStatus = onCall(async (request) => {
     .where("statusId", "==", statusId)
     .get();
 
-  const batch = db.batch();
-  batch.delete(statusRef);
-  for (const doc of likesSnap.docs) {
-    batch.delete(doc.reference);
+  // Découpé en lots de 400 (marge sous la limite Firestore de 500
+  // écritures/batch) : un statut avec beaucoup de likes ne doit jamais
+  // faire échouer sa propre suppression.
+  const likeRefs = likesSnap.docs.map((doc) => doc.ref);
+  const chunkSize = 400;
+  let statusDeleted = false;
+  for (let i = 0; i < likeRefs.length; i += chunkSize) {
+    const batch = db.batch();
+    if (!statusDeleted) {
+      batch.delete(statusRef);
+      statusDeleted = true;
+    }
+    for (const ref of likeRefs.slice(i, i + chunkSize)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
   }
-  await batch.commit();
+  if (!statusDeleted) {
+    await statusRef.delete();
+  }
 
   const mediaPath = storagePathFromDownloadUrl(status.mediaUrl);
   if (mediaPath) {
@@ -1223,3 +1327,8 @@ exports.adminResetLoyaltyPoints = onCall(async (request) => {
 
   return { status: "ok" };
 });
+
+// Exports internes réservés aux tests (functions/test/), jamais utilisés en
+// production ni déployés comme fonctions (objet brut, pas un CloudFunction
+// reconnu par le CLI Firebase).
+exports._testables = { claimPushSlot };

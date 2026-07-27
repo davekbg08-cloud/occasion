@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:math';
+import 'dart:typed_data' show Int64List;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -37,13 +38,61 @@ class NotificationService {
   static GlobalKey<NavigatorState>? _navigatorKey;
   static StreamSubscription<String>? _tokenRefreshSubscription;
 
-  static const _channel = AndroidNotificationChannel(
-    'occasion_channel',
-    'Notifications',
-    description: 'Messages et nouveaux articles',
+  // Trois canaux distincts (au lieu d'un seul générique) : chacun avec sa
+  // propre vibration explicite, l'utilisateur peut aussi les régler
+  // indépendamment dans les paramètres Android. Le mapping type -> canal
+  // doit rester synchronisé avec `androidChannelIdForType` côté serveur
+  // (`functions/index.js`).
+  static final _messagesChannel = AndroidNotificationChannel(
+    'occasion_messages',
+    'Messages',
+    description: 'Nouveaux messages de conversation',
     importance: Importance.high,
     playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList([0, 250, 150, 250]),
   );
+
+  static final _ordersChannel = AndroidNotificationChannel(
+    'occasion_orders',
+    'Commandes et abonnement',
+    description: 'Paiements, commandes, demandes d\'abonnement',
+    importance: Importance.high,
+    playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList([0, 400, 200, 400, 200, 400]),
+  );
+
+  static final _generalChannel = AndroidNotificationChannel(
+    'occasion_general',
+    'Autres notifications',
+    description: 'Nouveaux statuts et autres notifications',
+    importance: Importance.high,
+    playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList([0, 250]),
+  );
+
+  static List<AndroidNotificationChannel> get _channels => [
+    _messagesChannel,
+    _ordersChannel,
+    _generalChannel,
+  ];
+
+  /// Canal Android correspondant au `type` d'une notification — doit rester
+  /// synchronisé avec `androidChannelIdForType` côté serveur.
+  static AndroidNotificationChannel _channelForType(String? type) {
+    switch (type) {
+      case 'message':
+        return _messagesChannel;
+      case 'order':
+      case 'subscription':
+      case 'subscription_request':
+        return _ordersChannel;
+      default:
+        return _generalChannel;
+    }
+  }
 
   static Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     _navigatorKey = navigatorKey;
@@ -104,11 +153,13 @@ class NotificationService {
       },
     );
 
-    await _local
+    final androidImpl = _local
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(_channel);
+        >();
+    for (final channel in _channels) {
+      await androidImpl?.createNotificationChannel(channel);
+    }
   }
 
   /// Affiche la notification locale à partir du bloc `notification` du
@@ -123,18 +174,22 @@ class NotificationService {
       return;
     }
 
+    final channel = _channelForType(message.data['type'] as String?);
+
     await _local.show(
       id: message.hashCode,
       title: title,
       body: body,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          _channel.id,
-          _channel.name,
-          channelDescription: _channel.description,
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
+          enableVibration: true,
+          vibrationPattern: channel.vibrationPattern,
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
@@ -214,7 +269,13 @@ class NotificationService {
     return Platform.operatingSystem;
   }
 
-  static Future<void> saveToken(String userId) async {
+  /// Topic FCM annonçant les nouveaux statuts (voir
+  /// `functions/index.js::onNewStatus`) — doit rester synchronisé avec la
+  /// constante serveur `NEW_STATUS_TOPIC`. Topic global (décision produit) :
+  /// tout acheteur y est abonné automatiquement, pas d'écran de préférence.
+  static const _newStatusTopic = 'new_status';
+
+  static Future<void> saveToken(String userId, {bool isBuyer = false}) async {
     if (userId.isEmpty) return;
 
     try {
@@ -226,6 +287,10 @@ class NotificationService {
       _tokenRefreshSubscription = _fcm.onTokenRefresh.listen((newToken) {
         _updateToken(userId, newToken);
       });
+
+      if (isBuyer) {
+        await _fcm.subscribeToTopic(_newStatusTopic);
+      }
     } catch (error) {
       debugPrint('Token FCM non sauvegardé : $error');
     }

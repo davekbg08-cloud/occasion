@@ -411,7 +411,10 @@ class _AuthGate extends ConsumerWidget {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService.saveToken(currentUser.id);
+      NotificationService.saveToken(
+        currentUser.id,
+        isBuyer: currentUser.isBuyer,
+      );
     });
 
     return const MainNav();

@@ -227,6 +227,36 @@ test("un vendeur peut toujours remettre à zéro son propre compteur non-lu", as
   );
 });
 
+test("un acheteur peut décrémenter son propre compteur non-lu par un montant partiel (pas seulement à 0)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 5,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
+  );
+});
+
+test("un acheteur ne peut toujours pas augmenter son propre compteur même partiellement", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 2,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
+  );
+});
+
 test("un acheteur peut créer un message vers le vendeur du chat", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({

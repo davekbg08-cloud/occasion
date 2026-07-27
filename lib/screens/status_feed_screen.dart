@@ -275,12 +275,22 @@ class _StatusPageState extends State<_StatusPage> {
       }
 
       if (_video?.value.isInitialized == true) {
-        return FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: _video!.value.size.width,
-            height: _video!.value.size.height,
-            child: VideoPlayer(_video!),
+        // BoxFit.contain (comme les images) : la vidéo entière reste
+        // visible sur fond noir, jamais rognée pour remplir l'écran.
+        return Container(
+          color: Colors.black,
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: _video!.value.aspectRatio,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: _video!.value.size.width,
+                  height: _video!.value.size.height,
+                  child: VideoPlayer(_video!),
+                ),
+              ),
+            ),
           ),
         );
       }

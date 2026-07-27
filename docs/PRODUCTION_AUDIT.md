@@ -490,6 +490,68 @@ cas nominal). CI (`ci.yml`) : ajout de `flutter build web` et
 `node --check functions/index.js` (`npm test` dans `functions/`), qui ne
 tournaient auparavant que dans `deploy-pages.yml`, jamais sur les PR.
 
+## Phase 6bis — Corrections de suivi sur la Phase 6 (7 points)
+
+Vérification indépendante demandée par l'utilisateur sur 7 points précis de
+la Phase 6, effectuée par relecture directe du code (pas de nouvelle
+exploration à l'aveugle). 3 régressions/risques réels confirmés et non
+détectés en Phase 6, 2 omissions, et 1 décision produit reconsidérée à la
+demande de l'utilisateur.
+
+1. **Canaux Android** : le canal unique `occasion_channel` remplacé par
+   trois canaux dédiés (`occasion_messages`, `occasion_orders`,
+   `occasion_general`), chacun avec sa propre vibration explicite. Un canal
+   Android ne peut pas être reconfiguré une fois créé sur l'appareil — d'où
+   des identifiants distincts plutôt qu'une modification du canal existant.
+   Mapping type → canal synchronisé entre `functions/index.js`
+   (`androidChannelIdForType`) et `lib/services/notification_service.dart`
+   (`_channelForType`).
+2. **Idempotence de `sendToUser`** : le fix Phase 6 (lecture `pushSentAt`
+   puis écriture séparée après l'envoi FCM) restait racy — deux appels
+   quasi simultanés pouvaient tous les deux lire "non envoyé" avant que
+   l'un des deux n'écrive le marqueur. Remplacé par `claimPushSlot`, une
+   transaction Firestore qui lit et réserve le marqueur atomiquement juste
+   avant l'appel FCM ; en cas d'échec réel de l'envoi, le marqueur est
+   retiré (`FieldValue.delete()`) pour que l'échec reste retentable.
+3. **Course sur le compteur lu/non lu** : `markAsRead` remettait le
+   compteur à `0` par une écriture absolue, ce qui pouvait écraser
+   silencieusement un `increment(1)` serveur concurrent (message reçu au
+   moment même où l'utilisateur ouvre la conversation). Remplacé par
+   `FieldValue.increment(-n)` où `n` est le nombre exact de messages
+   marqués lus dans le lot — commutatif avec les incréments serveur quel
+   que soit l'ordre d'arrivée. `firestore.rules` assoupli en conséquence :
+   le client peut décrémenter son propre compteur de tout montant partiel
+   (plus seulement le remettre à 0), toujours interdit de l'augmenter.
+4. **Vidéos du feed** : dimensionnement aligné sur les images
+   (`AspectRatio` + `FittedBox(fit: BoxFit.contain)` sur fond noir) au lieu
+   d'un `FittedBox(fit: BoxFit.cover)` autour des dimensions natives.
+5. **Notification de publication** : réintroduite via un sujet FCM global
+   `new_status` (au lieu de la suppression pure décidée en Phase 6) — tout
+   acheteur s'y abonne automatiquement à l'enregistrement de son appareil
+   (pas d'écran de préférence, décision produit confirmée avec
+   l'utilisateur). `onNewStatus` n'effectue plus aucune lecture
+   Firestore (ni utilisateurs ni sous-collections `devices`), un seul
+   appel `fcm.send({topic: ...})`.
+6. **Tests réels des Cloud Functions** : nouveau
+   `functions/test/functions.test.js` (6 tests) exécuté contre le véritable
+   émulateur Firestore via `.run()` (méthode exposée par les fonctions
+   `onCall`/`onDocumentCreated` de `firebase-functions` v2, qui invoque le
+   handler directement sans mock) : idempotence de
+   `incrementChatUnread`/`onNewMessage`, concurrence de `claimPushSlot`,
+   bascule `toggleStatusLike`, chunking de `deleteStatus` (450 likes
+   seedés), atomicité de `applySettlement` sous double confirmation
+   concurrente, garde-fous de `recordAnnonceView`. Exécuté dans le même
+   `firebase emulators:exec` que `firestore-tests` (CI mise à jour).
+7. **Suppression des likes par lots** : `deleteStatus` construisait un seul
+   `batch()` pour le statut + tous ses likes, risquant de dépasser la
+   limite de 500 écritures/batch sur un statut viral (échec total de la
+   suppression). Découpé en lots de 400.
+
+**Tests** : 2 nouveaux cas de règles messagerie (décrément partiel autorisé,
+augmentation toujours refusée — 55/55 au total côté émulateur rules) ; 6
+nouveaux tests d'intégration Cloud Functions (`functions/test/`,
+`npm run test:integration`, contre l'émulateur réel).
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
