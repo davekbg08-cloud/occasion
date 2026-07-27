@@ -128,9 +128,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (currentUserId.isEmpty) return;
 
     _service
-        .markAsRead(chatId, currentUserId)
+        .markAsRead(chatId)
         .then((_) => _clearUnread(chatId, currentUserId))
         .catchError((Object error) {
+          // Erreur réseau/serveur : ne ferme jamais la conversation, se
+          // contente de signaler l'échec (l'utilisateur reste sur l'écran,
+          // un prochain appel à listenMessages — ex. réouverture du chat —
+          // retentera naturellement).
           state = state.copyWith(error: error.toString());
         });
   }

@@ -463,11 +463,21 @@ async function creditOrderLoyaltyPoints({ orderId, sellerId, buyerId, points }) 
  * Incrémente le compteur non-lu du DESTINATAIRE réel sur `chats/{chatId}`
  * (`buyerUnreadCount`/`sellerUnreadCount` selon `receiverId`), en remplacement
  * de l'ancien incrément client (interdit par les règles Firestore, qui
- * empêchent un participant de modifier le compteur de l'autre). Idempotent
- * via un marqueur `unreadCounted` posé sur le message lui-même, dans la même
- * transaction que l'incrément : une redélivrance "au moins une fois" du
- * trigger `onNewMessage` ne recompte jamais le même message deux fois (même
- * pattern que `creditOrderLoyaltyPoints`).
+ * empêchent désormais toute modification client de ces compteurs — voir
+ * `markChatAsRead`).
+ *
+ * Deux marqueurs distincts posés sur le message lui-même, dans la même
+ * transaction que la décision/l'incrément, remplacent l'ancien
+ * `unreadCounted` ambigu :
+ * - `unreadProcessed: true` — la Cloud Function a déjà décidé du sort de ce
+ *   message (une redélivrance "au moins une fois" du trigger `onNewMessage`
+ *   ne le retraite jamais) ;
+ * - `unreadIncrementApplied: true` — le compteur du destinataire a
+ *   RÉELLEMENT été incrémenté pour ce message précis. Nécessaire pour que
+ *   `markChatAsRead` sache exactement de combien décrémenter (voir plus
+ *   bas) : un message déjà marqué lu avant le passage d'`onNewMessage`
+ *   (course avec `markChatAsRead`) ne doit jamais incrémenter le compteur,
+ *   donc `markChatAsRead` ne doit pas non plus le décompter à la lecture.
  */
 async function incrementChatUnread({ chatId, messageId, receiverId }) {
   const chatRef = db.collection("chats").doc(chatId);
@@ -475,17 +485,35 @@ async function incrementChatUnread({ chatId, messageId, receiverId }) {
 
   await db.runTransaction(async (tx) => {
     const msgSnap = await tx.get(msgRef);
-    if (!msgSnap.exists || msgSnap.data()?.unreadCounted === true) return;
+    if (!msgSnap.exists) return;
+    const msg = msgSnap.data();
+    if (msg?.unreadProcessed === true) return;
 
     const chatSnap = await tx.get(chatRef);
     if (!chatSnap.exists) return;
 
     const buyerId = chatSnap.data()?.buyerId;
-    const unreadField = receiverId === buyerId
-      ? "buyerUnreadCount"
-      : "sellerUnreadCount";
+    const sellerId = chatSnap.data()?.sellerId;
+    if (receiverId !== buyerId && receiverId !== sellerId) return;
+    const unreadField = receiverId === buyerId ? "buyerUnreadCount" : "sellerUnreadCount";
 
-    tx.update(msgRef, { unreadCounted: true });
+    // Course avec `markChatAsRead` : le message a déjà été marqué lu avant
+    // qu'`onNewMessage` ne s'exécute (redélivrance tardive du trigger, par
+    // exemple) — ne jamais incrémenter un compteur pour un message déjà lu.
+    if (msg?.status === "read") {
+      tx.update(msgRef, {
+        unreadProcessed: true,
+        unreadIncrementApplied: false,
+        unreadProcessedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    tx.update(msgRef, {
+      unreadProcessed: true,
+      unreadIncrementApplied: true,
+      unreadProcessedAt: FieldValue.serverTimestamp(),
+    });
     tx.update(chatRef, { [unreadField]: FieldValue.increment(1) });
   });
 }
@@ -531,6 +559,97 @@ exports.onNewMessage = onDocumentCreated(
     return null;
   }
 );
+
+/** Taille de page pour `markChatAsRead` (marge sous la limite Firestore de
+ * 500 écritures/lectures par transaction : 200 messages + 1 chat). */
+const MARK_CHAT_AS_READ_PAGE_SIZE = 200;
+
+/**
+ * Cloud Function callable qui remplace l'ancienne écriture directe côté
+ * client (`ChatService.markAsRead`) : le client ne modifie plus jamais
+ * `buyerUnreadCount`/`sellerUnreadCount` ni le `status` des messages (voir
+ * `firestore.rules`), tout passe par ici avec l'Admin SDK.
+ *
+ * Traite les messages non lus adressés à `request.auth.uid` par pages de
+ * `MARK_CHAT_AS_READ_PAGE_SIZE`, chaque page dans sa propre transaction qui
+ * relit le chat ET chaque message sélectionné (protection contre une course
+ * avec `onNewMessage` : si le compteur a été incrémenté entre-temps,
+ * Firestore relance automatiquement la transaction, qui relira alors la
+ * valeur fraîche). Ne décompte que les messages pour lesquels
+ * `unreadIncrementApplied === true` (un message déjà marqué lu avant le
+ * passage d'`onNewMessage` n'a jamais incrémenté le compteur, il ne doit
+ * donc jamais le décrémenter non plus). Le nouveau compteur est toujours
+ * écrit comme `max(0, actuel - nombreDécompté)` — jamais un
+ * `FieldValue.increment` négatif non borné — pour ne jamais pouvoir devenir
+ * négatif, y compris sur un historique déjà incohérent.
+ *
+ * Idempotent : un second appel immédiat ne trouve plus de message non lu et
+ * ne modifie rien.
+ */
+exports.markChatAsRead = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const chatSnap = await chatRef.get();
+  if (!chatSnap.exists) {
+    throw new HttpsError("not-found", "Conversation introuvable.");
+  }
+  const chatData = chatSnap.data();
+  if (chatData.buyerId !== uid && chatData.sellerId !== uid) {
+    throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+  }
+  const unreadField = uid === chatData.buyerId ? "buyerUnreadCount" : "sellerUnreadCount";
+  const counterBefore = chatData[unreadField] ?? 0;
+
+  let messagesMarkedRead = 0;
+  const messagesRef = chatRef.collection("messages");
+
+  for (;;) {
+    const pageSnap = await messagesRef
+      .where("receiverId", "==", uid)
+      .where("status", "!=", "read")
+      .limit(MARK_CHAT_AS_READ_PAGE_SIZE)
+      .get();
+    if (pageSnap.empty) break;
+
+    const markedInPage = await db.runTransaction(async (tx) => {
+      const msgSnaps = await Promise.all(pageSnap.docs.map((doc) => tx.get(doc.ref)));
+      const freshChatSnap = await tx.get(chatRef);
+      const freshCurrent = freshChatSnap.data()?.[unreadField] ?? 0;
+
+      let marked = 0;
+      let incrementAppliedCount = 0;
+      for (const snap of msgSnaps) {
+        if (!snap.exists) continue;
+        const data = snap.data();
+        if (data.status === "read") continue;
+        tx.update(snap.ref, { status: "read", readAt: FieldValue.serverTimestamp() });
+        marked++;
+        if (data.unreadIncrementApplied === true) incrementAppliedCount++;
+      }
+
+      if (incrementAppliedCount > 0 || marked > 0) {
+        tx.update(chatRef, { [unreadField]: Math.max(0, freshCurrent - incrementAppliedCount) });
+      }
+      return marked;
+    });
+
+    messagesMarkedRead += markedInPage;
+    if (pageSnap.docs.length < MARK_CHAT_AS_READ_PAGE_SIZE) break;
+  }
+
+  const finalChatSnap = await chatRef.get();
+  const counterAfter = finalChatSnap.data()?.[unreadField] ?? 0;
+
+  return { messagesMarkedRead, counterBefore, counterAfter };
+});
 
 /**
  * Annonce un nouveau statut à tous les acheteurs abonnés au topic FCM

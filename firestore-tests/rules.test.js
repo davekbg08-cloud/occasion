@@ -152,7 +152,7 @@ test("un utilisateur qui n'est pas participant ne peut pas lire un chat existant
   await assertFails(outsider.collection("chats").doc("chat1").get());
 });
 
-test("un acheteur peut remettre à zéro son propre compteur non-lu", async () => {
+test("un acheteur ne peut plus remettre à zéro son propre compteur non-lu (passe par markChatAsRead)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -162,7 +162,7 @@ test("un acheteur peut remettre à zéro son propre compteur non-lu", async () =
     });
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
-  await assertSucceeds(
+  await assertFails(
     buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 0 })
   );
 });
@@ -212,7 +212,7 @@ test("un vendeur ne peut plus incrémenter son propre compteur non-lu (serveur u
   );
 });
 
-test("un vendeur peut toujours remettre à zéro son propre compteur non-lu", async () => {
+test("un vendeur ne peut plus remettre à zéro son propre compteur non-lu (passe par markChatAsRead)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -222,12 +222,12 @@ test("un vendeur peut toujours remettre à zéro son propre compteur non-lu", as
     });
   });
   const seller = testEnv.authenticatedContext("seller1").firestore();
-  await assertSucceeds(
+  await assertFails(
     seller.collection("chats").doc("chat1").update({ sellerUnreadCount: 0 })
   );
 });
 
-test("un acheteur peut décrémenter son propre compteur non-lu par un montant partiel (pas seulement à 0)", async () => {
+test("un acheteur ne peut plus décrémenter son propre compteur non-lu, même partiellement", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -237,7 +237,7 @@ test("un acheteur peut décrémenter son propre compteur non-lu par un montant p
     });
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
-  await assertSucceeds(
+  await assertFails(
     buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
   );
 });
@@ -254,6 +254,25 @@ test("un acheteur ne peut toujours pas augmenter son propre compteur même parti
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(
     buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
+  );
+});
+
+test("un participant peut toujours modifier les autres métadonnées du chat (lastMessage)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+      lastMessage: "",
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .update({ lastMessage: "Bonjour", lastMessageAt: Date.now(), lastSenderId: "buyer1" })
   );
 });
 
@@ -336,6 +355,76 @@ test("les deux participants peuvent lire les messages du chat, pas un tiers", as
   );
   await assertFails(
     outsider.collection("chats").doc("chat1").collection("messages").doc("m1").get()
+  );
+});
+
+test("le destinataire ne peut plus marquer directement un message comme lu (passe par markChatAsRead)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ status: "read" })
+  );
+});
+
+test("aucun participant ne peut modifier unreadProcessed/unreadIncrementApplied sur un message", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ unreadProcessed: true, unreadIncrementApplied: false })
+  );
+});
+
+test("un message ne peut pas être supprimé par un participant", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").collection("messages").doc("m1").delete()
   );
 });
 

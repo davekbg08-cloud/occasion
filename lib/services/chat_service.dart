@@ -1,12 +1,18 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
 
 class ChatService {
-  ChatService([this._firestore]);
+  ChatService([this._firestore, this._functionsOverride]);
 
   final FirebaseFirestore? _firestore;
+  // Résolu paresseusement (pas dans l'initializer list), même pattern que
+  // StatusService : évite de toucher FirebaseFunctions.instance tant que
+  // markAsRead n'est pas réellement appelé.
+  final FirebaseFunctions? _functionsOverride;
+  FirebaseFunctions get _functions => _functionsOverride ?? FirebaseFunctions.instance;
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
@@ -185,53 +191,32 @@ class ChatService {
     return Chat.fromMap({...?doc.data(), 'id': doc.id});
   }
 
-  /// Taille de lot pour marquer les messages non lus comme lus, sous la
-  /// limite Firestore de 500 écritures/batch (marge pour l'écriture du
-  /// compteur en plus des messages eux-mêmes).
-  static const int _markAsReadBatchSize = 400;
+  /// Un appel en cours par [chatId] (verrou local) : évite deux appels
+  /// concurrents identiques à `markChatAsRead` (par ex. ouverture/fermeture
+  /// rapide de la même conversation), en partageant le même `Future`.
+  final Map<String, Future<void>> _markAsReadInFlight = {};
 
-  /// Ne marque comme lus que les messages reçus par [userId], et ne
-  /// décrémente que le compteur de [userId] — jamais celui de l'autre
-  /// participant. Traite les non-lus par lots successifs (au lieu d'un
-  /// unique batch sans limite) pour ne jamais dépasser la limite Firestore
-  /// de 500 écritures par batch sur un chat avec beaucoup de messages
-  /// non lus.
-  ///
-  /// Décrémente par le nombre EXACT de messages marqués lus dans ce lot
-  /// (`FieldValue.increment(-n)`), plutôt qu'une remise à zéro aveugle :
-  /// un message tout juste arrivé (compteur serveur incrémenté par
-  /// `onNewMessage` pendant l'ouverture du chat) ne peut plus être effacé
-  /// par erreur — les deux écritures sont commutatives, l'ordre d'arrivée
-  /// ne change plus le résultat final.
-  Future<void> markAsRead(String chatId, String userId) async {
-    final chatDoc = await _chats.doc(chatId).get();
-    final chatData = chatDoc.data();
-    if (chatData == null) return;
-    final buyerId = chatData['buyerId'] as String?;
-    final unreadField = userId == buyerId
-        ? 'buyerUnreadCount'
-        : 'sellerUnreadCount';
+  /// Délègue entièrement à la Cloud Function callable `markChatAsRead`
+  /// (Admin SDK) : le client n'écrit plus jamais directement ni le statut
+  /// des messages ni `buyerUnreadCount`/`sellerUnreadCount` (les règles
+  /// Firestore l'interdisent désormais totalement, y compris pour les
+  /// diminuer). Le serveur détermine l'utilisateur via l'authentification
+  /// de la requête, pas un paramètre transmis par le client. L'appelant
+  /// (voir `ChatNotifier.listenMessages`) attend cette réponse puis se
+  /// resynchronise avec les streams Firestore existants (`userChats`,
+  /// `chatMessages`) — aucune erreur réseau ici ne doit fermer la
+  /// conversation, elle reste catchable par l'appelant.
+  Future<void> markAsRead(String chatId) {
+    final inFlight = _markAsReadInFlight[chatId];
+    if (inFlight != null) return inFlight;
 
-    var hasMore = true;
-    while (hasMore) {
-      final unread = await _msgs(chatId)
-          .where('receiverId', isEqualTo: userId)
-          .where('status', isNotEqualTo: MessageStatus.read.name)
-          .limit(_markAsReadBatchSize)
-          .get();
-      if (unread.docs.isEmpty) return;
-
-      final batch = _db.batch();
-      for (final doc in unread.docs) {
-        batch.update(doc.reference, {'status': MessageStatus.read.name});
-      }
-      batch.update(_chats.doc(chatId), {
-        unreadField: FieldValue.increment(-unread.docs.length),
-      });
-      await batch.commit();
-
-      hasMore = unread.docs.length == _markAsReadBatchSize;
-    }
+    final future = _functions
+        .httpsCallable('markChatAsRead')
+        .call<Map<String, dynamic>>(<String, dynamic>{'chatId': chatId})
+        .then((_) {})
+        .whenComplete(() => _markAsReadInFlight.remove(chatId));
+    _markAsReadInFlight[chatId] = future;
+    return future;
   }
 
   Future<void> deleteChat(String chatId) async {
