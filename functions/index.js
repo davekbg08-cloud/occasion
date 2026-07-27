@@ -237,8 +237,7 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
       const isDefinitivelyInvalid =
         !res.success &&
         (code === "messaging/registration-token-not-registered" ||
-          code === "messaging/invalid-registration-token" ||
-          code === "messaging/invalid-argument");
+          code === "messaging/invalid-registration-token");
       if (!isDefinitivelyInvalid) return null;
       return db
         .collection("users")

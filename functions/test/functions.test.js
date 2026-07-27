@@ -81,6 +81,57 @@ test("incrementChatUnread (via onNewMessage) : idempotent malgré une redélivra
   assert.equal(chatSnap.data().buyerUnreadCount, 0);
 });
 
+test("sendToUser (via onNewMessage) : crée la notification avec isRead=false, createdAt, et aucun appareil -> pending_no_device", async () => {
+  const chatId = "chat-test-notif";
+  const messageId = "msg-test-notif";
+  await db.collection("chats").doc(chatId).set({
+    buyerId: "buyer1",
+    sellerId: "seller1",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+  });
+  await db.collection("users").doc("buyer1").set({ name: "Acheteur", role: "buyer" });
+  await db.collection("users").doc("seller1").set({ name: "Vendeur", role: "seller" });
+
+  const event = {
+    data: { data: () => ({ senderId: "buyer1", receiverId: "seller1", content: "Bonjour" }) },
+    params: { chatId, messageId },
+  };
+
+  // Aucun `devices` seedé pour seller1 : aucun appel FCM réel n'est déclenché.
+  await functions.onNewMessage.run(event);
+
+  const notifRef = db.collection("notifications").doc(`message_${chatId}_${messageId}`);
+  let notifSnap = await notifRef.get();
+  assert.equal(notifSnap.data().isRead, false);
+  assert.ok(notifSnap.data().createdAt, "createdAt doit être renseigné dès la création");
+  assert.equal(
+    notifSnap.data().pushState,
+    "pending_no_device",
+    "aucun appareil enregistré : ne doit jamais être marqué comme envoyé"
+  );
+
+  // L'utilisateur ouvre la notification (comme notification_provider.dart) :
+  // isRead/readAt passent à true côté client.
+  await notifRef.update({ isRead: true, readAt: Timestamp.now() });
+
+  // Redélivrance du trigger (au moins une fois) : le contenu peut être
+  // réactualisé, mais isRead/readAt/createdAt ne doivent jamais régresser.
+  const createdAtBefore = notifSnap.data().createdAt;
+  await functions.onNewMessage.run(event);
+
+  notifSnap = await notifRef.get();
+  assert.equal(notifSnap.data().isRead, true, "une redélivrance ne doit jamais rendre une notification lue à nouveau non lue");
+  assert.ok(notifSnap.data().readAt, "readAt ne doit jamais être effacé par une redélivrance");
+  assert.deepEqual(notifSnap.data().createdAt, createdAtBefore, "createdAt ne doit jamais changer après la création");
+});
+
 test("claimPushSlot : réserve l'envoi une seule fois, y compris pour des appels concurrents", async () => {
   const notifRef = db.collection("notifications").doc("notif-test-1");
   await notifRef.set({ recipientId: "buyer1", isRead: false });
