@@ -38,6 +38,15 @@ class FullscreenImageViewer extends StatefulWidget {
 
 class _FullscreenImageViewerState extends State<FullscreenImageViewer> {
   late int _index = widget.initialIndex;
+  late final PageController _controller = PageController(
+    initialPage: widget.initialIndex,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +70,7 @@ class _FullscreenImageViewerState extends State<FullscreenImageViewer> {
       body: Stack(
         children: [
           PageView.builder(
-            controller: PageController(initialPage: widget.initialIndex),
+            controller: _controller,
             itemCount: urls.length,
             onPageChanged: (index) => setState(() => _index = index),
             itemBuilder: (context, index) {

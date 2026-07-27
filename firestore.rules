@@ -338,14 +338,22 @@ service cloud.firestore {
         && isSeller()
         && request.resource.data.sellerId == request.auth.uid
         && isPublishedStatus(request.resource.data);
+      // `likesCount` n'est plus modifiable côté client du tout : passe
+      // exclusivement par la Cloud Function `toggleStatusLike` (Admin SDK,
+      // contourne ces règles, transaction anti-double-like).
       allow update: if signedIn()
-        && (
-          (resource.data.sellerId == request.auth.uid && isSeller())
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount'])
-        );
-      allow delete: if signedIn()
         && isSeller()
-        && resource.data.sellerId == request.auth.uid;
+        && resource.data.sellerId == request.auth.uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['likesCount']);
+      // Suppression exclusivement via la Cloud Function `deleteStatus`
+      // (Admin SDK) : nettoie aussi le fichier Storage et les `statusLikes`
+      // associés, ce qu'une suppression Firestore directe ne ferait pas.
+      allow delete: if false;
+    }
+
+    match /statusLikes/{likeId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
     }
 
     match /products/{productId} {
@@ -414,22 +422,20 @@ service cloud.firestore {
           || resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         );
-      // Un participant ne peut jamais modifier le compteur non-lu de
-      // l'AUTRE participant (buyerUnreadCount/sellerUnreadCount sont
-      // strictement personnels à chacun).
+      // buyerUnreadCount/sellerUnreadCount sont désormais entièrement
+      // non modifiables par le client, y compris pour les diminuer :
+      // l'incrément (onNewMessage) comme la remise à jour lors de la
+      // lecture (markChatAsRead, Cloud Function callable) passent
+      // exclusivement par l'Admin SDK, qui contourne ces règles. Un
+      // participant peut toujours modifier les autres métadonnées du chat
+      // (lastMessage, lastMessageAt, lastSenderId, listingTitle, ...).
       allow update: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         )
-        && !(
-          request.auth.uid == resource.data.buyerId
-          && request.resource.data.get('sellerUnreadCount', 0) != resource.data.get('sellerUnreadCount', 0)
-        )
-        && !(
-          request.auth.uid == resource.data.sellerId
-          && request.resource.data.get('buyerUnreadCount', 0) != resource.data.get('buyerUnreadCount', 0)
-        );
+        && request.resource.data.get('buyerUnreadCount', 0) == resource.data.get('buyerUnreadCount', 0)
+        && request.resource.data.get('sellerUnreadCount', 0) == resource.data.get('sellerUnreadCount', 0);
       allow delete: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
@@ -444,9 +450,11 @@ service cloud.firestore {
             get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId,
             get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId
           ];
-        allow update: if isChatParticipant(chatId)
-          && resource.data.receiverId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+        // status/unreadProcessed/unreadIncrementApplied ne sont modifiables
+        // que par les Cloud Functions (onNewMessage, markChatAsRead), via
+        // l'Admin SDK qui contourne ces règles — plus aucune écriture
+        // client sur un message existant.
+        allow update: if false;
         allow delete: if false;
       }
     }

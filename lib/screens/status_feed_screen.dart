@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/report.dart';
@@ -10,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../providers/status_provider.dart';
 import '../services/seller_subscription_guard.dart';
+import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
@@ -28,6 +30,10 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(statusNotifierProvider.notifier).loadFeed();
+      final userId = ref.read(authNotifierProvider).currentUser?.id;
+      if (userId != null) {
+        ref.read(statusNotifierProvider.notifier).loadLikedStatuses(userId);
+      }
     });
   }
 
@@ -148,6 +154,7 @@ class _StatusPage extends StatefulWidget {
 
 class _StatusPageState extends State<_StatusPage> {
   VideoPlayerController? _video;
+  bool _videoError = false;
 
   @override
   void initState() {
@@ -158,13 +165,30 @@ class _StatusPageState extends State<_StatusPage> {
   }
 
   void _initVideo() {
-    _video = VideoPlayerController.networkUrl(Uri.parse(widget.status.mediaUrl))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() {});
-        _video?.setLooping(true);
-        if (widget.isActive) _video?.play();
-      });
+    _videoError = false;
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.status.mediaUrl),
+    );
+    _video = controller;
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          setState(() {});
+          controller.setLooping(true);
+          if (widget.isActive) controller.play();
+        })
+        .catchError((Object error) {
+          if (!mounted) return;
+          setState(() => _videoError = true);
+        });
+  }
+
+  void _retryVideo() {
+    _video?.dispose();
+    _video = null;
+    setState(() => _videoError = false);
+    _initVideo();
   }
 
   @override
@@ -222,13 +246,51 @@ class _StatusPageState extends State<_StatusPage> {
 
   Widget _buildMedia() {
     if (widget.status.type == StatusType.video) {
+      if (_videoError) {
+        return Container(
+          color: Colors.black,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 48),
+                const SizedBox(height: 12),
+                const Text(
+                  'Impossible de lire cette vidéo.',
+                  style: TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _retryVideo,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white70),
+                  ),
+                  child: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
       if (_video?.value.isInitialized == true) {
-        return FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: _video!.value.size.width,
-            height: _video!.value.size.height,
-            child: VideoPlayer(_video!),
+        // BoxFit.contain (comme les images) : la vidéo entière reste
+        // visible sur fond noir, jamais rognée pour remplir l'écran.
+        return Container(
+          color: Colors.black,
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: _video!.value.aspectRatio,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: _video!.value.size.width,
+                  height: _video!.value.size.height,
+                  child: VideoPlayer(_video!),
+                ),
+              ),
+            ),
           ),
         );
       }
@@ -238,15 +300,9 @@ class _StatusPageState extends State<_StatusPage> {
       );
     }
 
-    return CachedNetworkImage(
-      imageUrl: widget.status.mediaUrl,
-      fit: BoxFit.cover,
-      placeholder: (context, url) =>
-          const Center(child: CircularProgressIndicator(color: Colors.white)),
-      errorWidget: (context, url, error) => const Center(
-        child: Icon(Icons.broken_image, color: Colors.white, size: 48),
-      ),
-    );
+    // Réutilise OccasionImage.detail (BoxFit.contain sur fond noir, ratio
+    // préservé) au lieu de dupliquer ce comportement ici.
+    return SizedBox.expand(child: OccasionImage.detail(widget.status.mediaUrl));
   }
 }
 
@@ -385,9 +441,13 @@ class _Actions extends ConsumerWidget {
           color: Colors.white,
           label: 'Partager',
           onTap: () {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Partage à venir')));
+            final caption = status.caption?.trim();
+            final text = [
+              'Découvrez ce que ${status.sellerName} propose sur Occasion !',
+              if (caption != null && caption.isNotEmpty) caption,
+              'https://davekbg08-cloud.github.io/occasion/',
+            ].join('\n');
+            Share.share(text);
           },
         ),
       ],

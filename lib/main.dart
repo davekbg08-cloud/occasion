@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,6 +46,7 @@ import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'search/screens/search_screen.dart';
 import 'services/notification_service.dart';
+import 'services/chat_service.dart';
 import 'services/firestore_bootstrap.dart';
 import 'services/payment_settlement_service.dart';
 import 'services/service_locator.dart';
@@ -163,11 +165,6 @@ class OccasionApp extends StatelessWidget {
             primaryRoute: '/products',
           ),
         ),
-      ),
-      GoRoute(
-        path: '/status',
-        builder: (context, state) =>
-            const _RoleGuard(role: UserRole.buyer, child: StatusFeedScreen()),
       ),
       GoRoute(
         path: '/add-status',
@@ -318,6 +315,13 @@ class OccasionApp extends StatelessWidget {
         },
       ),
       GoRoute(
+        path: '/chat/:chatId',
+        builder: (context, state) {
+          final chatId = state.pathParameters['chatId']!;
+          return _AuthGuard(child: _ChatByIdScreen(chatId: chatId));
+        },
+      ),
+      GoRoute(
         path: '/admin/orders',
         builder: (_, _) => const _AdminGuard(child: AdminOrdersScreen()),
       ),
@@ -393,14 +397,63 @@ class _AuthGate extends ConsumerWidget {
     }
 
     if (currentUser == null) {
+      // Une session Firebase Auth existe encore mais le profil Firestore
+      // n'a pas pu être chargé (réseau/permission, voir
+      // AuthNotifier._restoreSession) : proposer de réessayer plutôt que
+      // de basculer sur l'écran de connexion, qui ferait croire à tort que
+      // l'utilisateur est déconnecté.
+      final hasFirebaseSession =
+          firebase_auth.FirebaseAuth.instance.currentUser != null;
+      if (hasFirebaseSession && authState.errorMessage != null) {
+        return _AuthRestoreErrorPage(message: authState.errorMessage!);
+      }
       return const _AuthPage();
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService.saveToken(currentUser.id);
+      NotificationService.saveToken(
+        currentUser.id,
+        isBuyer: currentUser.isBuyer,
+      );
     });
 
     return const MainNav();
+  }
+}
+
+class _AuthRestoreErrorPage extends ConsumerWidget {
+  const _AuthRestoreErrorPage({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.cloud_off, size: 56),
+                const SizedBox(height: 16),
+                Text(message, textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () => ref
+                      .read(authNotifierProvider.notifier)
+                      .retryRestoreSession(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -757,6 +810,49 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
         }
 
         return ChatScreen(chat: snapshot.data!);
+      },
+    );
+  }
+}
+
+/// Ouvre une conversation existante par son [chatId] — utilisé pour le
+/// deep-link depuis une notification de message (`route: /chat/{chatId}`),
+/// qui ne connaît que l'identifiant du chat, pas les buyerId/sellerId/noms
+/// nécessaires à [_OpenChatScreen]/`getOrCreateChat`.
+class _ChatByIdScreen extends ConsumerStatefulWidget {
+  const _ChatByIdScreen({required this.chatId});
+
+  final String chatId;
+
+  @override
+  ConsumerState<_ChatByIdScreen> createState() => _ChatByIdScreenState();
+}
+
+class _ChatByIdScreenState extends ConsumerState<_ChatByIdScreen> {
+  late final Future<Chat?> _chatFuture = ChatService().getChat(widget.chatId);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Chat?>(
+      future: _chatFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final chat = snapshot.data;
+        if (snapshot.hasError || chat == null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Messages')),
+            body: const Center(
+              child: Text("Impossible d'ouvrir cette conversation."),
+            ),
+          );
+        }
+
+        return ChatScreen(chat: chat);
       },
     );
   }

@@ -284,16 +284,6 @@ class _BuyerOptions extends StatelessWidget {
           onTap: () => context.push('/payment'),
         ),
         _ProfileTile(
-          icon: Icons.location_on_outlined,
-          title: 'Adresses de livraison',
-          onTap: () => context.push('/addresses'),
-        ),
-        _ProfileTile(
-          icon: Icons.favorite_outline,
-          title: 'Favoris',
-          onTap: () => context.push('/favorites'),
-        ),
-        _ProfileTile(
           icon: Icons.stars_outlined,
           title: 'Mes points de fidélité',
           onTap: () => context.push('/loyalty-points'),

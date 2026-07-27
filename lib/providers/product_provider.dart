@@ -23,6 +23,15 @@ Future<UserModel?> _fetchSellerProfile(
   }
 }
 
+/// Cache Riverpod par vendeur : une seule lecture Firestore par [sellerId],
+/// réutilisée par tous les écrans/providers qui watchent ce même vendeur
+/// (marketplace, détail d'annonce), au lieu de relire `publicProfiles` à
+/// chaque reconstruction ou pour chaque provider séparé (N+1 répété).
+final sellerProfileProvider = FutureProvider.autoDispose
+    .family<UserModel?, String>((ref, sellerId) {
+      return _fetchSellerProfile(FirebaseFirestore.instance, sellerId);
+    });
+
 /// Conversion pure Annonce -> ProductModel (vue affichée par les widgets de
 /// listing existants). Fonction unique réutilisée par la liste marketplace
 /// et le détail d'annonce, pour ne plus dupliquer/désynchroniser cette
@@ -51,15 +60,20 @@ ProductModel annonceToProductModel(Annonce annonce, UserModel? seller) {
 /// `activeAnnoncesProvider` (Pile A / `AnnonceRepositoryImpl`).
 final productNotifierProvider = FutureProvider<List<ProductModel>>((ref) async {
   final annonces = await ref.watch(activeAnnoncesProvider.future);
-  final firestore = FirebaseFirestore.instance;
   final sellerIds = annonces
       .map((annonce) => annonce.userId)
       .where((sellerId) => sellerId.trim().isNotEmpty)
       .toSet();
+  // ref.watch(sellerProfileProvider(id).future) partage le même cache par
+  // sellerId que productFromAnnonceProvider ci-dessous — un vendeur déjà
+  // résolu ailleurs (ex. écran de détail déjà ouvert) ne redéclenche pas de
+  // lecture Firestore.
   final sellerEntries = await Future.wait(
     sellerIds.map(
-      (sellerId) async =>
-          MapEntry(sellerId, await _fetchSellerProfile(firestore, sellerId)),
+      (sellerId) async => MapEntry(
+        sellerId,
+        await ref.watch(sellerProfileProvider(sellerId).future),
+      ),
     ),
   );
   final sellers = <String, UserModel?>{
@@ -77,9 +91,6 @@ final productFromAnnonceProvider = FutureProvider.autoDispose
     .family<ProductModel, Annonce>((ref, annonce) async {
       final seller = annonce.userId.trim().isEmpty
           ? null
-          : await _fetchSellerProfile(
-              FirebaseFirestore.instance,
-              annonce.userId,
-            );
+          : await ref.watch(sellerProfileProvider(annonce.userId).future);
       return annonceToProductModel(annonce, seller);
     });

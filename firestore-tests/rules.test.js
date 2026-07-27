@@ -152,7 +152,7 @@ test("un utilisateur qui n'est pas participant ne peut pas lire un chat existant
   await assertFails(outsider.collection("chats").doc("chat1").get());
 });
 
-test("un acheteur peut remettre à zéro son propre compteur non-lu", async () => {
+test("un acheteur ne peut plus remettre à zéro son propre compteur non-lu (passe par markChatAsRead)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -162,7 +162,7 @@ test("un acheteur peut remettre à zéro son propre compteur non-lu", async () =
     });
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
-  await assertSucceeds(
+  await assertFails(
     buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 0 })
   );
 });
@@ -179,6 +179,252 @@ test("un acheteur ne peut pas modifier le compteur non-lu du vendeur", async () 
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(
     buyer.collection("chats").doc("chat1").update({ sellerUnreadCount: 0 })
+  );
+});
+
+test("un acheteur ne peut plus incrémenter son propre compteur non-lu (serveur uniquement)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 1 })
+  );
+});
+
+test("un vendeur ne peut plus incrémenter son propre compteur non-lu (serveur uniquement)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("chats").doc("chat1").update({ sellerUnreadCount: 5 })
+  );
+});
+
+test("un vendeur ne peut plus remettre à zéro son propre compteur non-lu (passe par markChatAsRead)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 1,
+      sellerUnreadCount: 4,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("chats").doc("chat1").update({ sellerUnreadCount: 0 })
+  );
+});
+
+test("un acheteur ne peut plus décrémenter son propre compteur non-lu, même partiellement", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 5,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
+  );
+});
+
+test("un acheteur ne peut toujours pas augmenter son propre compteur même partiellement", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 2,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ buyerUnreadCount: 3 })
+  );
+});
+
+test("un participant peut toujours modifier les autres métadonnées du chat (lastMessage)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+      lastMessage: "",
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .update({ lastMessage: "Bonjour", lastMessageAt: Date.now(), lastSenderId: "buyer1" })
+  );
+});
+
+test("un acheteur peut créer un message vers le vendeur du chat", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .set({
+        senderId: "buyer1",
+        receiverId: "seller1",
+        content: "Bonjour",
+        status: "sent",
+        sentAt: Date.now(),
+      })
+  );
+});
+
+test("un vendeur peut créer un message vers l'acheteur du chat", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m2")
+      .set({
+        senderId: "seller1",
+        receiverId: "buyer1",
+        content: "Bonjour !",
+        status: "sent",
+        sentAt: Date.now(),
+      })
+  );
+});
+
+test("les deux participants peuvent lire les messages du chat, pas un tiers", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx
+      .firestore()
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .set({
+        senderId: "buyer1",
+        receiverId: "seller1",
+        content: "Bonjour",
+        status: "sent",
+        sentAt: Date.now(),
+      });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertSucceeds(
+    buyer.collection("chats").doc("chat1").collection("messages").doc("m1").get()
+  );
+  await assertSucceeds(
+    seller.collection("chats").doc("chat1").collection("messages").doc("m1").get()
+  );
+  await assertFails(
+    outsider.collection("chats").doc("chat1").collection("messages").doc("m1").get()
+  );
+});
+
+test("le destinataire ne peut plus marquer directement un message comme lu (passe par markChatAsRead)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ status: "read" })
+  );
+});
+
+test("aucun participant ne peut modifier unreadProcessed/unreadIncrementApplied sur un message", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ unreadProcessed: true, unreadIncrementApplied: false })
+  );
+});
+
+test("un message ne peut pas être supprimé par un participant", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").collection("messages").doc("m1").delete()
   );
 });
 
@@ -637,6 +883,88 @@ test("le marqueur d'idempotence du crédit de points est fermé à tout client (
   await assertFails(
     buyer.collection("loyaltyPointsLedger").doc("order2_seller1").set({
       orderId: "order2",
+    })
+  );
+});
+
+test("un client ne peut plus du tout modifier likesCount d'un statut (passe par la Cloud Function toggleStatusLike)", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statuses").doc("status1").set({
+      sellerId: "seller1",
+      sellerName: "Vendeur test",
+      mediaUrl: "https://example.com/photo.jpg",
+      type: "image",
+      status: "published",
+      active: true,
+      likesCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("statuses").doc("status1").update({ likesCount: 1 })
+  );
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("statuses").doc("status1").update({ likesCount: 1 })
+  );
+});
+
+test("le propriétaire peut toujours modifier les autres champs de son propre statut", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statuses").doc("status1").set({
+      sellerId: "seller1",
+      sellerName: "Vendeur test",
+      mediaUrl: "https://example.com/photo.jpg",
+      type: "image",
+      status: "published",
+      active: true,
+      likesCount: 0,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller.collection("statuses").doc("status1").update({ caption: "Nouveau" })
+  );
+});
+
+test("un statut ne peut plus être supprimé directement par le client, même par son propriétaire (passe par la Cloud Function deleteStatus)", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statuses").doc("status1").set({
+      sellerId: "seller1",
+      sellerName: "Vendeur test",
+      mediaUrl: "https://example.com/photo.jpg",
+      type: "image",
+      status: "published",
+      active: true,
+      likesCount: 0,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(seller.collection("statuses").doc("status1").delete());
+});
+
+test("un utilisateur peut lire son propre statusLikes, pas celui d'un autre, et ne peut jamais y écrire", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statusLikes").doc("status1_buyer1").set({
+      statusId: "status1",
+      userId: "buyer1",
+    });
+  });
+  const buyer1 = testEnv.authenticatedContext("buyer1").firestore();
+  const buyer2 = testEnv.authenticatedContext("buyer2").firestore();
+  await assertSucceeds(
+    buyer1.collection("statusLikes").doc("status1_buyer1").get()
+  );
+  await assertFails(
+    buyer2.collection("statusLikes").doc("status1_buyer1").get()
+  );
+  await assertFails(
+    buyer1.collection("statusLikes").doc("status1_buyer2").set({
+      statusId: "status1",
+      userId: "buyer1",
     })
   );
 });

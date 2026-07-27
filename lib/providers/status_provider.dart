@@ -125,6 +125,20 @@ class StatusNotifier extends StateNotifier<StatusState> {
     }
   }
 
+  /// Restaure l'état "j'ai déjà aimé" depuis Firestore (`statusLikes`), qui
+  /// persiste après reconnexion — contrairement à l'ancien `Set` en mémoire
+  /// jamais alimenté qu'en local.
+  Future<void> loadLikedStatuses(String userId) async {
+    if (userId.isEmpty) return;
+    try {
+      final ids = await _service.likedStatusIds(userId);
+      state = state.copyWith(likedIds: ids);
+    } catch (_) {
+      // Best-effort : un like déjà connu côté serveur qui échoue à se
+      // charger ne doit pas bloquer l'affichage du feed.
+    }
+  }
+
   Future<bool> createStatus({
     required String sellerId,
     required String sellerName,
@@ -169,50 +183,64 @@ class StatusNotifier extends StateNotifier<StatusState> {
     }
   }
 
+  /// Bascule le like en optimiste (UI instantanée), puis réconcilie avec la
+  /// réponse serveur (`toggleStatusLike`, transaction anti-double-like) —
+  /// annule l'effet optimiste en cas d'échec réseau, ou corrige le
+  /// compteur/l'état si le serveur renvoie un résultat différent de la
+  /// supposition locale (ex. déjà basculé depuis un autre appareil).
   Future<void> toggleLike(String statusId) async {
-    final liked = state.likedIds.contains(statusId);
-    final nextLikedIds = {...state.likedIds};
-
-    if (liked) {
-      nextLikedIds.remove(statusId);
-    } else {
-      nextLikedIds.add(statusId);
-    }
-
-    final delta = liked ? -1 : 1;
-    final nextStatuses = [
-      for (final status in state.statuses)
-        if (status.id == statusId)
-          status.copyWith(likesCount: status.likesCount + delta)
-        else
-          status,
-    ];
+    final guessedLiked = !state.likedIds.contains(statusId);
+    final optimisticDelta = guessedLiked ? 1 : -1;
 
     state = state.copyWith(
-      statuses: nextStatuses,
-      likedIds: nextLikedIds,
+      statuses: [
+        for (final status in state.statuses)
+          if (status.id == statusId)
+            status.copyWith(likesCount: status.likesCount + optimisticDelta)
+          else
+            status,
+      ],
+      likedIds: guessedLiked
+          ? {...state.likedIds, statusId}
+          : ({...state.likedIds}..remove(statusId)),
       clearError: true,
     );
 
     try {
-      await _service.toggleLike(statusId, liked: !liked);
-    } catch (error) {
-      final rollbackLikedIds = {...state.likedIds};
-      if (liked) {
-        rollbackLikedIds.add(statusId);
-      } else {
-        rollbackLikedIds.remove(statusId);
-      }
+      final actuallyLiked = await _service.toggleLike(statusId);
+      if (actuallyLiked == guessedLiked) return;
 
+      // Le serveur a tranché différemment de notre supposition locale :
+      // corriger le compteur (annuler l'optimiste, appliquer le réel) et
+      // l'état "liké".
+      final correctionDelta = actuallyLiked ? 1 : -1;
       state = state.copyWith(
-        statuses: state.statuses
-            .map(
-              (status) => status.id == statusId
-                  ? status.copyWith(likesCount: status.likesCount - delta)
-                  : status,
-            )
-            .toList(),
-        likedIds: rollbackLikedIds,
+        statuses: [
+          for (final status in state.statuses)
+            if (status.id == statusId)
+              status.copyWith(
+                likesCount:
+                    status.likesCount - optimisticDelta + correctionDelta,
+              )
+            else
+              status,
+        ],
+        likedIds: actuallyLiked
+            ? {...state.likedIds, statusId}
+            : ({...state.likedIds}..remove(statusId)),
+      );
+    } catch (error) {
+      state = state.copyWith(
+        statuses: [
+          for (final status in state.statuses)
+            if (status.id == statusId)
+              status.copyWith(likesCount: status.likesCount - optimisticDelta)
+            else
+              status,
+        ],
+        likedIds: guessedLiked
+            ? ({...state.likedIds}..remove(statusId))
+            : {...state.likedIds, statusId},
         error: error.toString(),
       );
     }

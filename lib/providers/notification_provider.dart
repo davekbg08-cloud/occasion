@@ -24,6 +24,23 @@ class NotificationRepository {
         );
   }
 
+  /// Notifications plus anciennes que [before] (lecture ponctuelle, pas un
+  /// flux temps réel) — permet de paginer au-delà de la limite fixe de
+  /// [forUser] sans devoir l'augmenter.
+  Future<List<AppNotification>> fetchOlderNotifications({
+    required String userId,
+    required DateTime before,
+    int limit = 50,
+  }) async {
+    final snapshot = await _ref
+        .where('recipientId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .startAfter([before])
+        .limit(limit)
+        .get();
+    return snapshot.docs.map(AppNotification.fromFirestore).toList();
+  }
+
   Future<void> markAsRead(String notificationId) {
     return _ref.doc(notificationId).update({
       'isRead': true,

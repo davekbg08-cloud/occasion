@@ -407,13 +407,244 @@ détecte la transition quel que soit le chemin emprunté.
    géré par le propriétaire, demandes d'échange fermées en écriture client
    y compris création, journal d'audit réservé aux admins).
 
+## Phase 6 — Stabilisation finale avant AAB 1.1.1+7
+
+Passe de stabilisation demandée par l'utilisateur (14 sections), précédée
+d'une vérification indépendante de chaque affirmation contre le code réel
+(3 agents d'exploration + lecture directe). Quasi-totalité confirmée, avec
+une découverte majeure : **la messagerie était cassée en production**
+(règle Firestore déployée en Phase 2-5 qui contredisait le code client
+existant — tout envoi de message échouait). Corrigée en priorité.
+
+1. **Messagerie (bug bloquant)** : `firestore.rules` interdisait à un
+   participant de modifier le compteur non-lu de l'autre, mais
+   `ChatService.sendMessage` incrémentait toujours ce même compteur dans
+   son batch → `permission-denied` systématique, message jamais créé.
+   Corrigé en déplaçant l'incrément côté serveur (`onNewMessage`,
+   idempotent via un marqueur `unreadCounted` sur le message), le client ne
+   touchant plus que les métadonnées non sensibles du chat. Règle durcie :
+   le client ne peut plus que remettre SON propre compteur à 0, plus
+   l'incrémenter lui-même. `markAsRead` paginé par lots de 400 (limite
+   Firestore de 500 écritures/batch). 7 nouveaux cas de règles + garde
+   d'idempotence côté fonction.
+2. **Feed de statuts** : images en `BoxFit.contain` sur fond noir (réutilise
+   `OccasionImage.detail`, déjà correct pour ce cas) ; état d'erreur +
+   bouton Réessayer sur les vidéos ; partage réel (`share_plus`) au lieu du
+   `SnackBar` "Partage à venir" ; likes désormais idempotents via
+   `statusLikes/{statusId}_{userId}` + Cloud Function transactionnelle
+   `toggleStatusLike` (plus d'incrément client direct) ; suppression
+   devenue une Cloud Function `deleteStatus` (nettoie aussi le fichier
+   Storage et les likes associés, réservée au propriétaire ou à un admin) ;
+   route morte `/status` supprimée.
+3. **FullscreenImageViewer** : `PageController` déplacé de `build()` vers
+   `initState()`, avec `dispose()` (fuite de contrôleurs corrigée).
+4. **Fonctionnalités fantômes** : entrées de navigation retirées pour
+   `/addresses` et `/favorites` (écrans `SimplePlaceholderScreen` non
+   branchés) ; `/seller-revenue` déjà sans aucun point d'entrée. Fichiers
+   conservés pour un développement futur.
+5. **Notification admin abonnement** : nouveau trigger
+   `onSubscriptionAwaitingVerification` (Firestore `paymentIntents`) qui
+   notifie tous les admins dès qu'une demande passe à
+   `awaiting_manual_verification`. `applySettlement` (confirmation/rejet
+   d'un paiement manuel) rendu entièrement atomique (une seule transaction
+   lecture+décision+écriture) — élimine la fenêtre de course entre deux
+   admins ou un double-clic qui pouvait doubler les compteurs
+   `sellerStatistics` ou réinitialiser une date d'abonnement.
+6. **NotificationService** : repli sur `message.data` quand
+   `message.notification` est absent (data-only) ; notification de message
+   route désormais vers `/chat/{chatId}` (nouvelle route + résolution du
+   chat par id) au lieu de `/chat-list` en dur ; envoi FCM rendu idempotent
+   via un champ `pushSentAt` (une redélivrance de trigger ne renvoie plus
+   le push) ; badge natif iOS (`aps.badge`) calculé à partir du vrai nombre
+   de notifications non lues au lieu d'une valeur `1` codée en dur.
+7. **Session en cas d'erreur réseau** : `AuthNotifier._restoreSession`
+   distingue désormais réseau/permission (session Firebase conservée,
+   message "Connexion indisponible, réessayez", log Crashlytics, aucun
+   `signOut()`) du seul cas qui déconnecte réellement (profil confirmé
+   absent après lecture serveur). Nouvel écran de retry (`_AuthGate`) et
+   méthode `retryRestoreSession()`.
+8. **Statistiques vendeur** : libellés corrigés ("Messages" →
+   "Conversations" pour le compteur de fils uniques du tableau de bord ;
+   "En attente" → "Annonces inactives"). `recordAnnonceView` refuse
+   désormais l'auto-vue du propriétaire et les annonces non publiées.
+9. **Coûts Firestore** : `.limit(20)` + `fetchMoreActiveAnnonces` (pagination)
+   sur le listing public ; plafond défensif sur les annonces vendeur (tri
+   client conservé, un `orderBy('dateCreation')` aurait exclu les annonces
+   historiques qui n'ont que l'ancien champ `createdAt`) ; cache Riverpod
+   par vendeur (`sellerProfileProvider`) partagé entre marketplace et
+   détail d'annonce ; suppression complète de la notification de masse à
+   la publication d'un statut (`onNewStatus` lisait tous les acheteurs +
+   toutes leurs sous-collections `devices` à chaque publication — décision
+   produit : le feed paginé reste le canal de découverte, pas de sujet FCM
+   ni de préférences d'abonnement dans cette passe) ; `.limit(30)` sur la
+   liste de conversations.
+10. **Fidélité** : logique intacte (comme demandé), commentaire "placeholder"
+    remplacé par une documentation claire du barème (méthode de calcul,
+    taux, date d'entrée en vigueur).
+
+**Tests** : 7 nouveaux cas de règles messagerie, 4 nouveaux cas
+statuts/statusLikes (53/53 au total côté émulateur), test widget
+`FullscreenImageViewer` (balayage sur 5 photos), 3 nouveaux tests
+`AuthNotifier._restoreSession` (erreur réseau persistante, profil absent,
+cas nominal). CI (`ci.yml`) : ajout de `flutter build web` et
+`node --check functions/index.js` (`npm test` dans `functions/`), qui ne
+tournaient auparavant que dans `deploy-pages.yml`, jamais sur les PR.
+
+## Phase 6bis — Corrections de suivi sur la Phase 6 (7 points)
+
+Vérification indépendante demandée par l'utilisateur sur 7 points précis de
+la Phase 6, effectuée par relecture directe du code (pas de nouvelle
+exploration à l'aveugle). 3 régressions/risques réels confirmés et non
+détectés en Phase 6, 2 omissions, et 1 décision produit reconsidérée à la
+demande de l'utilisateur.
+
+1. **Canaux Android** : le canal unique `occasion_channel` remplacé par
+   trois canaux dédiés (`occasion_messages`, `occasion_orders`,
+   `occasion_general`), chacun avec sa propre vibration explicite. Un canal
+   Android ne peut pas être reconfiguré une fois créé sur l'appareil — d'où
+   des identifiants distincts plutôt qu'une modification du canal existant.
+   Mapping type → canal synchronisé entre `functions/index.js`
+   (`androidChannelIdForType`) et `lib/services/notification_service.dart`
+   (`_channelForType`).
+2. **Idempotence de `sendToUser`** : le fix Phase 6 (lecture `pushSentAt`
+   puis écriture séparée après l'envoi FCM) restait racy — deux appels
+   quasi simultanés pouvaient tous les deux lire "non envoyé" avant que
+   l'un des deux n'écrive le marqueur. Remplacé par `claimPushSlot`, une
+   transaction Firestore qui lit et réserve le marqueur atomiquement juste
+   avant l'appel FCM ; en cas d'échec réel de l'envoi, le marqueur est
+   retiré (`FieldValue.delete()`) pour que l'échec reste retentable.
+3. **Course sur le compteur lu/non lu** : `markAsRead` remettait le
+   compteur à `0` par une écriture absolue, ce qui pouvait écraser
+   silencieusement un `increment(1)` serveur concurrent (message reçu au
+   moment même où l'utilisateur ouvre la conversation). Remplacé par
+   `FieldValue.increment(-n)` où `n` est le nombre exact de messages
+   marqués lus dans le lot — commutatif avec les incréments serveur quel
+   que soit l'ordre d'arrivée. `firestore.rules` assoupli en conséquence :
+   le client peut décrémenter son propre compteur de tout montant partiel
+   (plus seulement le remettre à 0), toujours interdit de l'augmenter.
+4. **Vidéos du feed** : dimensionnement aligné sur les images
+   (`AspectRatio` + `FittedBox(fit: BoxFit.contain)` sur fond noir) au lieu
+   d'un `FittedBox(fit: BoxFit.cover)` autour des dimensions natives.
+5. **Notification de publication** : réintroduite via un sujet FCM global
+   `new_status` (au lieu de la suppression pure décidée en Phase 6) — tout
+   acheteur s'y abonne automatiquement à l'enregistrement de son appareil
+   (pas d'écran de préférence, décision produit confirmée avec
+   l'utilisateur). `onNewStatus` n'effectue plus aucune lecture
+   Firestore (ni utilisateurs ni sous-collections `devices`), un seul
+   appel `fcm.send({topic: ...})`.
+6. **Tests réels des Cloud Functions** : nouveau
+   `functions/test/functions.test.js` (6 tests) exécuté contre le véritable
+   émulateur Firestore via `.run()` (méthode exposée par les fonctions
+   `onCall`/`onDocumentCreated` de `firebase-functions` v2, qui invoque le
+   handler directement sans mock) : idempotence de
+   `incrementChatUnread`/`onNewMessage`, concurrence de `claimPushSlot`,
+   bascule `toggleStatusLike`, chunking de `deleteStatus` (450 likes
+   seedés), atomicité de `applySettlement` sous double confirmation
+   concurrente, garde-fous de `recordAnnonceView`. Exécuté dans le même
+   `firebase emulators:exec` que `firestore-tests` (CI mise à jour).
+7. **Suppression des likes par lots** : `deleteStatus` construisait un seul
+   `batch()` pour le statut + tous ses likes, risquant de dépasser la
+   limite de 500 écritures/batch sur un statut viral (échec total de la
+   suppression). Découpé en lots de 400.
+
+**Tests** : 2 nouveaux cas de règles messagerie (décrément partiel autorisé,
+augmentation toujours refusée — 55/55 au total côté émulateur rules) ; 6
+nouveaux tests d'intégration Cloud Functions (`functions/test/`,
+`npm run test:integration`, contre l'émulateur réel).
+
+## Phase 6ter — Durcissement de l'idempotence du push (bug résiduel de la Phase 6bis)
+
+Le fix Phase 6bis (`claimPushSlot` transactionnel) restait incomplet sur
+deux cas non couverts :
+
+1. **Échec total silencieux** : si `fcm.sendEachForMulticast` répondait
+   sans lever d'exception mais avec 100% des jetons en échec (aucun des
+   deux codes d'erreur surveillés par le nettoyage des jetons), le
+   marqueur `pushSentAt` restait posé indéfiniment — la notification était
+   marquée "envoyée" alors qu'aucun push n'avait atteint l'utilisateur, et
+   plus aucune redélivrance ne pouvait jamais retenter l'envoi.
+2. **Absence de bail** : si la Cloud Function s'arrêtait (crash, timeout)
+   entre la réservation du slot et l'application du résultat FCM, le
+   marqueur posé par la réservation restait lui aussi bloqué pour
+   toujours, sans jamais expirer.
+
+**Fix** : remplacement du simple champ `pushSentAt` par une machine à
+états `pushState` (`functions/index.js`) : `pending` (jamais tenté),
+`sending` (réservation posée par `claimPushSlot`, avec un bail
+`pushLeaseUntil` de `PUSH_LEASE_MS = 2 min` — une réservation dont le bail
+a expiré peut être reprise par un appel suivant), `sent` (au moins un
+succès FCM réel, appliqué par `applyPushResult` uniquement si
+`result.successCount > 0`), `failed` (tenté, zéro succès ou exception —
+retentable), `pending_no_device` (aucun appareil enregistré au moment de
+l'appel, posé par `markNoDevicePush`, sans jamais régresser un état déjà
+`sent`). Le contenu de la notification (titre/corps/route/data) est
+maintenant mis à jour séparément par `upsertNotificationContent`, qui ne
+touche jamais `isRead`/`createdAt` sur une redélivrance — une notification
+déjà lue par l'utilisateur ne peut plus jamais redevenir non lue à cause
+d'un retry du trigger appelant.
+
+**Tests** : 6 nouveaux tests d'intégration Cloud Functions au total pour
+cette partie (création initiale de la notification, aucun appareil,
+reprise après bail expiré, échec total non marqué comme envoyé et
+retentable, au moins un succès marqué `sent` avec nettoyage du jeton
+invalide, contenu mis à jour sans jamais réinitialiser `isRead`).
+
+## Phase 6quater — Compteurs non lus : élimination du risque de valeur négative/incohérente
+
+La Phase 6bis (décrément exact `increment(-n)`) restait vulnérable à deux
+scénarios non couverts : un message marqué lu par le client avant même
+qu'`onNewMessage` ne l'ait traité pouvait quand même incrémenter le
+compteur ensuite (le marqueur `unreadCounted` ne portait aucune
+information sur le statut au moment du traitement) ; et rien
+n'empêchait structurellement un compteur de devenir négatif si
+l'historique était déjà incohérent (le client gardait la main sur
+l'écriture finale du compteur).
+
+**Fix** :
+- `incrementChatUnread` (`functions/index.js`) remplace le marqueur
+  unique `unreadCounted` par deux marqueurs distincts posés dans la même
+  transaction : `unreadProcessed` (ce message a déjà été traité, jamais
+  retraité sur redélivrance) et `unreadIncrementApplied` (le compteur a
+  RÉELLEMENT été incrémenté pour ce message — `false` si le message était
+  déjà `status: read` au moment du traitement, course avec
+  `markChatAsRead`).
+- Le client ne modifie plus JAMAIS `buyerUnreadCount`/`sellerUnreadCount`
+  ni le `status` d'un message, y compris pour les diminuer
+  (`firestore.rules`) : tout passe désormais par la nouvelle Cloud
+  Function callable `markChatAsRead`, qui identifie l'utilisateur via
+  `request.auth.uid` (jamais un paramètre client), pagine les messages non
+  lus par lots de 200, et calcule le nouveau compteur comme
+  `max(0, actuel - nombreDeMessagesAvecIncrémentAppliqué)` dans une
+  transaction par page (jamais un `increment` négatif non borné : la
+  transaction se relance automatiquement si `onNewMessage` incrémente le
+  compteur au même moment, garantissant qu'aucune écriture n'est perdue et
+  que le résultat ne peut jamais devenir négatif).
+- `ChatService.markAsRead` (Flutter) appelle désormais cette fonction au
+  lieu d'écrire directement Firestore, avec un verrou local par `chatId`
+  pour éviter deux appels concurrents identiques.
+- Script de migration `tool/migrate_chat_unread_processing.dart`
+  (dry-run par défaut) pour initialiser ces marqueurs sur les messages
+  antérieurs à ce changement et recaler les compteurs existants, sans
+  jamais supprimer de champ ni exécuter automatiquement l'écriture.
+
+**Tests** : 9 nouveaux tests d'intégration Cloud Functions (course avec
+`markChatAsRead`, remise à 0, idempotence, jamais de valeur négative même
+sur un historique incohérent, cohérence sous concurrence avec un nouveau
+message, isolation stricte entre participants, rejets
+non-authentifié/non-participant, pagination sur 250 messages non lus) et
+9 tests de règles Firestore (compteurs et statut totalement non
+modifiables par le client, autres métadonnées du chat toujours
+modifiables). **80 tests au total côté émulateur : 59 rules + 21
+fonctions.**
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
   d'activation sécurisée (évalué en Phase 4 : faible valeur ajoutée,
   l'écran générique différencie déjà commande/abonnement).
 - App Check.
-- Documentation d'optimisation des coûts Firestore.
+- Documentation d'optimisation des coûts Firestore (partiellement traitée
+  en Phase 6 : pagination/plafonds ajoutés, pas de document dédié).
 - Migrations généralisées (anciens signalements, anciens champs). Le champ
   legacy `users/{uid}.fcmToken` n'est plus écrit à partir de cette phase ;
   les appareils déjà connectés migrent automatiquement vers
@@ -423,4 +654,11 @@ détecte la transition quel que soit le chemin emprunté.
   sous-collection).
 - Suite de tests Firebase Emulator exhaustive (rôles, sécurité, tous les
   scénarios listés dans le cahier des charges original).
+- Écran de liste "Favoris" réellement branché (le système de like sur les
+  annonces existe déjà côté données, `lib/favoris/`, juste pas d'écran de
+  liste dédié — route `/favorites` masquée en attendant).
+- Pagination "charger plus" pour les annonces publiques : la méthode
+  `fetchMoreActiveAnnonces` existe côté repository mais n'est pas encore
+  branchée à un bouton/scroll infini dans l'écran marketplace (seules les
+  20 annonces les plus récentes sont visibles en temps réel pour l'instant).
 - Plan de validation sur appareils physiques.

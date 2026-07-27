@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
@@ -18,10 +19,21 @@ class StatusUploadProgress {
 }
 
 class StatusService {
-  StatusService([this._firestore, this._storageOverride]);
+  StatusService([
+    this._firestore,
+    this._storageOverride,
+    this._functionsOverride,
+  ]);
 
   final FirebaseFirestore? _firestore;
   final FirebaseStorage? _storageOverride;
+  // Résolu paresseusement (pas dans l'initializer list) pour ne jamais
+  // toucher FirebaseFunctions.instance tant que toggleLike/deleteStatus ne
+  // sont pas réellement appelés — évite de casser les tests qui
+  // construisent ce service sans avoir initialisé Firebase.
+  final FirebaseFunctions? _functionsOverride;
+  FirebaseFunctions get _functions =>
+      _functionsOverride ?? FirebaseFunctions.instance;
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
   FirebaseStorage get _storage => _storageOverride ?? FirebaseStorage.instance;
@@ -192,13 +204,34 @@ class StatusService {
     await docRef.set(status.toMap());
   }
 
-  Future<void> toggleLike(String statusId, {required bool liked}) async {
-    await _statuses.doc(statusId).update({
-      'likesCount': FieldValue.increment(liked ? 1 : -1),
+  /// Bascule le like côté serveur (transaction anti-double-like, voir
+  /// `functions/index.js::toggleStatusLike`) — `likesCount` n'est plus
+  /// modifiable directement par le client (`firestore.rules`).
+  Future<bool> toggleLike(String statusId) async {
+    final result = await _functions.httpsCallable('toggleStatusLike').call({
+      'statusId': statusId,
     });
+    return (result.data as Map)['liked'] as bool;
   }
 
+  /// Identifiants des statuts déjà likés par [userId] (lecture ponctuelle,
+  /// utilisée pour restaurer l'état "j'ai déjà aimé" après reconnexion —
+  /// jamais persisté seulement en mémoire côté client).
+  Future<Set<String>> likedStatusIds(String userId) async {
+    final snap = await _db
+        .collection('statusLikes')
+        .where('userId', isEqualTo: userId)
+        .get();
+    return snap.docs
+        .map((doc) => doc.data()['statusId'] as String?)
+        .whereType<String>()
+        .toSet();
+  }
+
+  /// Suppression côté serveur (voir `functions/index.js::deleteStatus`) :
+  /// nettoie aussi le fichier Storage et les `statusLikes` associés, ce
+  /// qu'une suppression Firestore directe ne ferait pas.
   Future<void> deleteStatus(String statusId) async {
-    await _statuses.doc(statusId).delete();
+    await _functions.httpsCallable('deleteStatus').call({'statusId': statusId});
   }
 }
