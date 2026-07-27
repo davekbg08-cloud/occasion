@@ -38,6 +38,9 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Build web release
+        run: flutter build web --release --base-href /occasion/
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -48,6 +51,14 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "21"
+
+      - name: Install Cloud Functions dependencies
+        run: npm install
+        working-directory: functions
+
+      - name: Check Cloud Functions syntax
+        run: npm test
+        working-directory: functions
 
       - name: Install Firestore rules test dependencies
         run: npm install

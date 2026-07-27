@@ -21,8 +21,19 @@ abstract class AnnonceRepository {
   Future<Annonce?> getAnnonceById(String id);
 
   /// Flux temps réel des annonces publiées et actives (marketplace),
-  /// triées par date de création décroissante.
+  /// triées par date de création décroissante. Limité aux premières
+  /// [AnnonceRepositoryImpl.activeAnnoncesPageSize] (pas d'écoute temps
+  /// réel sans limite sur toute la collection) — utiliser
+  /// [fetchMoreActiveAnnonces] pour paginer au-delà.
   Stream<List<Annonce>> watchActiveAnnonces({String? category});
+
+  /// Page suivante d'annonces actives, plus anciennes que [after] (lecture
+  /// ponctuelle, pas un flux temps réel — suffisant pour du contenu déjà
+  /// consulté).
+  Future<List<Annonce>> fetchMoreActiveAnnonces({
+    required DateTime after,
+    String? category,
+  });
 }
 
 class AnnonceRepositoryImpl implements AnnonceRepository {
@@ -163,11 +174,16 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
     return annonces;
   }
 
+  /// Taille de la première page (temps réel) d'annonces actives — pas
+  /// d'écoute sans limite sur toute la collection.
+  static const int activeAnnoncesPageSize = 20;
+
   @override
   Stream<List<Annonce>> watchActiveAnnonces({String? category}) {
     Query<Map<String, dynamic>> query = _annoncesRef
         .where('isPublished', isEqualTo: true)
-        .orderBy('dateCreation', descending: true);
+        .orderBy('dateCreation', descending: true)
+        .limit(activeAnnoncesPageSize);
 
     if (category != null && category.trim().isNotEmpty) {
       query = query.where('categorie', isEqualTo: category.trim());
@@ -184,14 +200,50 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
+  Future<List<Annonce>> fetchMoreActiveAnnonces({
+    required DateTime after,
+    String? category,
+  }) async {
+    Query<Map<String, dynamic>> query = _annoncesRef
+        .where('isPublished', isEqualTo: true)
+        .orderBy('dateCreation', descending: true)
+        .startAfter([after])
+        .limit(activeAnnoncesPageSize);
+
+    if (category != null && category.trim().isNotEmpty) {
+      query = query.where('categorie', isEqualTo: category.trim());
+    }
+
+    final snapshot = await query.get();
+    return snapshot.docs
+        .map(_fromFirestore)
+        .where(
+          (annonce) => annonce.isActive && _isPublishedStatus(annonce.status),
+        )
+        .toList();
+  }
+
+  // Plafond défensif (pas de limite fonctionnelle réaliste attendue pour un
+  // seul vendeur) : évite une lecture non bornée dans le cas pathologique
+  // d'un compte avec un historique très important, sans changer l'ordre de
+  // tri existant (voir commentaire sur `dateCreation`/`createdAt` plus bas).
+  static const int _sellerAnnoncesCap = 500;
+
+  @override
   Future<List<Annonce>> getSellerAnnonces(String sellerId) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null || currentUser.uid != sellerId) {
       throw Exception('Connecte-toi avec ton compte vendeur.');
     }
 
+    // Pas de `orderBy('dateCreation')` ici : certaines annonces plus
+    // anciennes n'ont que le champ `createdAt` (voir le repli
+    // `json['dateCreation'] ?? json['createdAt']` dans `Annonce.fromMap`),
+    // et un tri Firestore sur un champ absent exclurait ces documents des
+    // résultats. Le tri par date reste fait ici, côté client, après lecture.
     final snapshot = await _annoncesRef
         .where('vendeurId', isEqualTo: sellerId)
+        .limit(_sellerAnnoncesCap)
         .get();
     final annonces = snapshot.docs.map(_fromFirestore).toList();
     annonces.sort((a, b) {

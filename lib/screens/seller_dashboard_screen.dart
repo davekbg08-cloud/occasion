@@ -93,12 +93,20 @@ class _DashboardContent extends ConsumerWidget {
               ),
               _MetricCard(
                 icon: Icons.mark_unread_chat_alt_outlined,
-                label: 'Messages',
+                // `messages` compte un fil de discussion par annonce (un
+                // seul incrément par nouvelle conversation, pas par
+                // message individuel) — "Conversations" plutôt que
+                // "Messages" pour ne pas laisser croire au nombre de
+                // messages échangés (voir sellerStatistics.totalMessages
+                // sur l'écran statistiques pour ce chiffre-là).
+                label: 'Conversations',
                 value: '$messages',
               ),
               _MetricCard(
                 icon: Icons.pending_actions_outlined,
-                label: 'En attente',
+                // `pending` = annonces non publiées/inactives, pas des
+                // commandes en attente.
+                label: 'Annonces inactives',
                 value: '$pending',
               ),
               _MetricCard(

@@ -7,16 +7,48 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { getStorage } = require("firebase-admin/storage");
 
 initializeApp();
 
 const db = getFirestore();
 const fcm = getMessaging();
+const storageBucket = getStorage().bucket();
+
+/**
+ * Chemin objet Cloud Storage à partir d'une URL de téléchargement Firebase
+ * (`.../o/<chemin-encodé>?alt=media&token=...`). Retourne `null` si l'URL ne
+ * correspond pas au format attendu (jamais bloquant : appelant doit ignorer
+ * silencieusement une suppression Storage impossible plutôt que faire
+ * échouer la suppression Firestore).
+ */
+function storagePathFromDownloadUrl(url) {
+  if (!url) return null;
+  try {
+    const match = new URL(url).pathname.match(/\/o\/(.+)$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
 
 const ESCROW_AUTO_RELEASE_DAYS = 3;
-// Barème de points de fidélité (placeholder business, à ajuster ici sans
-// toucher à la logique) : compté indépendamment par devise, pas de taux de
-// change inventé (même principe que `sellerStatistics.revenue`).
+
+/**
+ * Configuration du barème de points de fidélité (référence commerciale,
+ * pas un placeholder à remplacer plus tard) — modifier uniquement les
+ * valeurs ci-dessous pour ajuster le taux, sans toucher à la logique
+ * (`pointsForAmount`, `creditOrderLoyaltyPoints`, tout le flux d'échange).
+ *
+ * Méthode de calcul : points = floor(montant dépensé/vendu * taux),
+ * compté indépendamment par devise — jamais de conversion FC/USD inventée
+ * (même principe que `sellerStatistics.revenue`, qui garde aussi les
+ * devises séparées).
+ *
+ * Taux en vigueur depuis la version 1.1.1 (stabilisation) :
+ *   - FC  : 1 point pour 1000 FC dépensés/vendus (1/1000).
+ *   - USD : 1 point pour 1 USD dépensé/vendu (1/1).
+ */
 const LOYALTY_POINTS_RATE = { FC: 1 / 1000, USD: 1 };
 const NOTIFICATIONS_COLLECTION = "notifications";
 const NOTIFICATION_ENTITY_FIELDS = [
@@ -72,31 +104,52 @@ async function sendToUser({
   }
 
   const docId = notificationId || db.collection(NOTIFICATIONS_COLLECTION).doc().id;
-  await db
-    .collection(NOTIFICATIONS_COLLECTION)
-    .doc(docId)
-    .set(
-      {
-        recipientId,
-        senderId,
-        type,
-        title,
-        body,
-        route,
-        isRead: false,
-        createdAt: FieldValue.serverTimestamp(),
-        ...entityFields,
-        data,
-      },
-      { merge: true }
-    );
+  const notifRef = db.collection(NOTIFICATIONS_COLLECTION).doc(docId);
+  const existingSnap = await notifRef.get();
+
+  await notifRef.set(
+    {
+      recipientId,
+      senderId,
+      type,
+      title,
+      body,
+      route,
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp(),
+      ...entityFields,
+      data,
+    },
+    { merge: true }
+  );
+
+  // Idempotence du PUSH : une redélivrance "au moins une fois" du trigger
+  // appelant (le document Firestore ci-dessus est réécrit à chaque appel,
+  // sans problème, `merge: true`) ne doit jamais renvoyer une seconde
+  // alerte push pour une notification déjà envoyée avec succès.
+  if (existingSnap.data()?.pushSentAt) return;
 
   const devices = await deviceTokensFor(recipientId);
   if (devices.length === 0) return;
 
+  // Badge natif de l'icône de l'app (iOS) : le vrai nombre de
+  // notifications non lues de ce destinataire, pas une valeur codée en dur
+  // — se met à jour via push même quand l'app n'est pas ouverte. Même
+  // définition de "non lu" que `unreadNotificationsCountProvider` côté
+  // client, calculée ici côté serveur.
+  const unreadCountSnap = await db
+    .collection(NOTIFICATIONS_COLLECTION)
+    .where("recipientId", "==", recipientId)
+    .where("isRead", "==", false)
+    .count()
+    .get();
+  const badge = unreadCountSnap.data().count;
+
   const pushData = {
     type,
     route: route ?? "",
+    title: title ?? "",
+    body: body ?? "",
     ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])),
   };
 
@@ -106,8 +159,12 @@ async function sendToUser({
       notification: { title, body },
       data: pushData,
       android: { priority: "high", notification: { channelId: "occasion_channel" } },
-      apns: { payload: { aps: { sound: "default", badge: 1 } } },
+      apns: { payload: { aps: { sound: "default", badge } } },
     });
+
+    await notifRef
+      .update({ pushSentAt: FieldValue.serverTimestamp() })
+      .catch(() => {});
 
     await Promise.all(
       result.responses.map((res, i) => {
@@ -220,6 +277,37 @@ async function creditOrderLoyaltyPoints({ orderId, sellerId, buyerId, points }) 
   });
 }
 
+/**
+ * Incrémente le compteur non-lu du DESTINATAIRE réel sur `chats/{chatId}`
+ * (`buyerUnreadCount`/`sellerUnreadCount` selon `receiverId`), en remplacement
+ * de l'ancien incrément client (interdit par les règles Firestore, qui
+ * empêchent un participant de modifier le compteur de l'autre). Idempotent
+ * via un marqueur `unreadCounted` posé sur le message lui-même, dans la même
+ * transaction que l'incrément : une redélivrance "au moins une fois" du
+ * trigger `onNewMessage` ne recompte jamais le même message deux fois (même
+ * pattern que `creditOrderLoyaltyPoints`).
+ */
+async function incrementChatUnread({ chatId, messageId, receiverId }) {
+  const chatRef = db.collection("chats").doc(chatId);
+  const msgRef = chatRef.collection("messages").doc(messageId);
+
+  await db.runTransaction(async (tx) => {
+    const msgSnap = await tx.get(msgRef);
+    if (!msgSnap.exists || msgSnap.data()?.unreadCounted === true) return;
+
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) return;
+
+    const buyerId = chatSnap.data()?.buyerId;
+    const unreadField = receiverId === buyerId
+      ? "buyerUnreadCount"
+      : "sellerUnreadCount";
+
+    tx.update(msgRef, { unreadCounted: true });
+    tx.update(chatRef, { [unreadField]: FieldValue.increment(1) });
+  });
+}
+
 exports.onNewMessage = onDocumentCreated(
   "chats/{chatId}/messages/{messageId}",
   async (event) => {
@@ -228,6 +316,10 @@ exports.onNewMessage = onDocumentCreated(
     const senderId = msg.senderId;
     const chatId = event.params.chatId;
     const messageId = event.params.messageId;
+
+    await incrementChatUnread({ chatId, messageId, receiverId }).catch((err) =>
+      console.error(`Erreur incrementChatUnread ${chatId}/${messageId} :`, err)
+    );
 
     const [senderDoc, receiverDoc] = await Promise.all([
       db.collection("users").doc(senderId).get(),
@@ -244,7 +336,7 @@ exports.onNewMessage = onDocumentCreated(
       type: "message",
       title: `💬 ${senderName}`,
       body,
-      route: "/chat-list",
+      route: `/chat/${chatId}`,
       data: { chatId },
     });
 
@@ -258,65 +350,108 @@ exports.onNewMessage = onDocumentCreated(
   }
 );
 
-exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => {
-  const status = event.data.data();
-  const sellerName = status.sellerName ?? "Un vendeur";
-  const caption = status.caption;
+/**
+ * Bascule le like d'un statut pour l'utilisateur connecté : transaction sur
+ * un document par (statut, utilisateur) `statusLikes/{statusId}_{uid}`,
+ * jamais un simple `increment` client. Empêche structurellement le double
+ * like (un seul document possible par utilisateur), la persistance après
+ * reconnexion (état lisible depuis Firestore) et un compteur négatif (le
+ * décrément n'a lieu que si le document de like existait).
+ */
+exports.toggleStatusLike = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
 
-  const buyersSnap = await db
-    .collection("users")
-    .where("role", "==", "buyer")
+  const statusId = request.data?.statusId;
+  if (!statusId || typeof statusId !== "string") {
+    throw new HttpsError("invalid-argument", "statusId manquant");
+  }
+
+  const statusRef = db.collection("statuses").doc(statusId);
+  const likeRef = db.collection("statusLikes").doc(`${statusId}_${uid}`);
+
+  const liked = await db.runTransaction(async (tx) => {
+    const [statusSnap, likeSnap] = await Promise.all([
+      tx.get(statusRef),
+      tx.get(likeRef),
+    ]);
+    if (!statusSnap.exists) {
+      throw new HttpsError("not-found", "Statut introuvable.");
+    }
+
+    if (likeSnap.exists) {
+      tx.delete(likeRef);
+      tx.update(statusRef, { likesCount: FieldValue.increment(-1) });
+      return false;
+    }
+
+    tx.set(likeRef, {
+      statusId,
+      userId: uid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(statusRef, { likesCount: FieldValue.increment(1) });
+    return true;
+  });
+
+  return { liked };
+});
+
+/**
+ * Supprime un statut : réservé au vendeur propriétaire ou à un admin.
+ * Nettoie dans la foulée le fichier Storage associé et tous les
+ * `statusLikes` du statut (jamais laissés orphelins), contrairement à
+ * l'ancienne suppression Firestore directe côté client.
+ */
+exports.deleteStatus = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const statusId = request.data?.statusId;
+  if (!statusId || typeof statusId !== "string") {
+    throw new HttpsError("invalid-argument", "statusId manquant");
+  }
+
+  const statusRef = db.collection("statuses").doc(statusId);
+  const statusSnap = await statusRef.get();
+  if (!statusSnap.exists) {
+    return { status: "already_deleted" };
+  }
+
+  const status = statusSnap.data();
+  if (status.sellerId !== uid) {
+    await assertIsAdmin(uid);
+  }
+
+  const likesSnap = await db
+    .collection("statusLikes")
+    .where("statusId", "==", statusId)
     .get();
 
-  const tokenLists = await Promise.all(
-    buyersSnap.docs.map((doc) => deviceTokensFor(doc.id))
-  );
-  const tokens = tokenLists.flat().map((device) => device.token);
-
-  if (tokens.length === 0) {
-    console.log("Aucun acheteur avec appareil enregistré.");
-    return null;
+  const batch = db.batch();
+  batch.delete(statusRef);
+  for (const doc of likesSnap.docs) {
+    batch.delete(doc.reference);
   }
+  await batch.commit();
 
-  const body = caption
-    ? caption.length > 80
-      ? `${caption.substring(0, 80)}...`
-      : caption
-    : "Découvrez ce nouvel article !";
-
-  const chunkSize = 500;
-  for (let i = 0; i < tokens.length; i += chunkSize) {
-    const chunk = tokens.slice(i, i + chunkSize);
-    try {
-      const result = await fcm.sendEachForMulticast({
-        tokens: chunk,
-        notification: {
-          title: `🛍️ ${sellerName} a publié un article`,
-          body,
-        },
-        data: {
-          type: "status",
-          statusId: event.params.statusId,
-        },
-        android: {
-          priority: "normal",
-          notification: { channelId: "occasion_channel" },
-        },
-        apns: {
-          payload: { aps: { sound: "default" } },
-        },
+  const mediaPath = storagePathFromDownloadUrl(status.mediaUrl);
+  if (mediaPath) {
+    await storageBucket
+      .file(mediaPath)
+      .delete()
+      .catch((err) => {
+        if (err.code !== 404) {
+          console.error(`Erreur suppression Storage statut ${statusId} :`, err);
+        }
       });
-      console.log(
-        `Statut notifié : ${result.successCount} succès, ${result.failureCount} échecs (lot ${
-          i / chunkSize + 1
-        })`
-      );
-    } catch (err) {
-      console.error("Erreur envoi notif statut :", err);
-    }
   }
 
-  return null;
+  return { status: "deleted" };
 });
 
 /**
@@ -324,97 +459,125 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
  * transaction, met à jour la commande ou active l'abonnement, et met à
  * jour l'intention de paiement elle-même.
  */
+/**
+ * Règle un paiement (commande ou abonnement) de façon entièrement atomique :
+ * lecture de `paymentIntents/{transactionId}`, vérification qu'il est
+ * encore en attente, et toutes les écritures (transactions, orders ou
+ * subscriptions, users, paymentIntents) dans une seule transaction
+ * Firestore — plus de fenêtre de course entre la lecture et l'écriture.
+ * Si deux admins confirment en même temps (ou double-tap/retry réseau), la
+ * transaction perdante relit `status` déjà `paid`/`failed` et n'applique
+ * rien une seconde fois (compteurs `sellerStatistics` et date de départ
+ * d'abonnement jamais doublés).
+ */
 async function applySettlement({
   transactionId,
-  intent,
   isPaid,
   paymentMethod,
   extra = {},
 }) {
   const now = FieldValue.serverTimestamp();
-  const batch = db.batch();
+  const intentRef = db.collection("paymentIntents").doc(transactionId);
 
-  batch.set(
-    db.collection("transactions").doc(transactionId),
-    {
-      id: transactionId,
-      type: intent.type,
-      userId: intent.userId,
-      orderId: intent.orderId ?? null,
-      planId: intent.planId ?? null,
-      amount: intent.amount,
-      currency: intent.currency ?? "FC",
-      paymentMethod,
-      paymentReference: intent.manualPaymentReference ?? null,
-      status: isPaid ? "paid" : "failed",
-      createdAt: now,
-      ...extra,
-    },
-    { merge: true }
-  );
-
-  if (intent.type === "order" && intent.orderId) {
-    const orderUpdate = {
-      status: isPaid ? "paid" : "payment_failed",
-      transactionId,
-      updatedAt: now,
-    };
-    if (isPaid) {
-      const paidAtDate = new Date();
-      orderUpdate.paidAt = paidAtDate;
-      orderUpdate.autoReleaseAt = new Date(
-        paidAtDate.getTime() + ESCROW_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000
-      );
-    }
-    batch.set(db.collection("orders").doc(intent.orderId), orderUpdate, {
-      merge: true,
-    });
-  }
-
-  if (intent.type === "subscription" && isPaid && intent.userId) {
-    const durationDays = intent.durationDays ?? 30;
-    const startDate = new Date();
-    const expiryDate = new Date(
-      startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
-    );
-
-    batch.set(
-      db.collection("subscriptions").doc(intent.userId),
-      {
-        id: intent.userId,
-        userId: intent.userId,
-        planId: intent.planId,
-        planName: intent.planName,
-        price: intent.amount,
-        startDate,
-        expiryDate,
-        isActive: true,
-        paymentMethod,
-        transactionId,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    batch.set(
-      db.collection("users").doc(intent.userId),
-      {
-        sellerSubscriptionActive: true,
-        sellerSubscriptionExpiresAt: expiryDate,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-  }
-
-  batch.set(
-    db.collection("paymentIntents").doc(transactionId),
-    { status: isPaid ? "paid" : "failed", confirmedAt: now, ...extra },
-    { merge: true }
-  );
-
+  let outcome;
   try {
-    await batch.commit();
+    outcome = await db.runTransaction(async (tx) => {
+      const intentSnap = await tx.get(intentRef);
+      if (!intentSnap.exists) {
+        return { applied: false, notFound: true };
+      }
+
+      const intent = intentSnap.data();
+      if (intent.status === "paid" || intent.status === "failed") {
+        // Déjà réglé (double-tap admin, retry réseau, deux admins sur la
+        // même ligne en même temps) : ré-appliquer doublerait les
+        // compteurs sellerStatistics et réinitialiserait la date de
+        // départ d'un abonnement. No-op silencieux plutôt qu'une erreur
+        // bloquante.
+        return { applied: false, alreadySettled: true, status: intent.status };
+      }
+
+      tx.set(
+        db.collection("transactions").doc(transactionId),
+        {
+          id: transactionId,
+          type: intent.type,
+          userId: intent.userId,
+          orderId: intent.orderId ?? null,
+          planId: intent.planId ?? null,
+          amount: intent.amount,
+          currency: intent.currency ?? "FC",
+          paymentMethod,
+          paymentReference: intent.manualPaymentReference ?? null,
+          status: isPaid ? "paid" : "failed",
+          createdAt: now,
+          ...extra,
+        },
+        { merge: true }
+      );
+
+      if (intent.type === "order" && intent.orderId) {
+        const orderUpdate = {
+          status: isPaid ? "paid" : "payment_failed",
+          transactionId,
+          updatedAt: now,
+        };
+        if (isPaid) {
+          const paidAtDate = new Date();
+          orderUpdate.paidAt = paidAtDate;
+          orderUpdate.autoReleaseAt = new Date(
+            paidAtDate.getTime() + ESCROW_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000
+          );
+        }
+        tx.set(db.collection("orders").doc(intent.orderId), orderUpdate, {
+          merge: true,
+        });
+      }
+
+      if (intent.type === "subscription" && isPaid && intent.userId) {
+        const durationDays = intent.durationDays ?? 30;
+        const startDate = new Date();
+        const expiryDate = new Date(
+          startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
+        );
+
+        tx.set(
+          db.collection("subscriptions").doc(intent.userId),
+          {
+            id: intent.userId,
+            userId: intent.userId,
+            planId: intent.planId,
+            planName: intent.planName,
+            price: intent.amount,
+            startDate,
+            expiryDate,
+            isActive: true,
+            paymentMethod,
+            transactionId,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+
+        tx.set(
+          db.collection("users").doc(intent.userId),
+          {
+            sellerSubscriptionActive: true,
+            sellerSubscriptionExpiresAt: expiryDate,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
+
+      tx.set(
+        intentRef,
+        { status: isPaid ? "paid" : "failed", confirmedAt: now, ...extra },
+        { merge: true }
+      );
+
+      return { applied: true, intent };
+    });
   } catch (err) {
     // Un paiement déjà vérifié qui échoue à s'écrire en base est le pire des
     // cas silencieux (argent reçu, jamais reflété côté app) : log distinct et
@@ -427,7 +590,18 @@ async function applySettlement({
     throw err;
   }
 
-  await notifySettlement({ transactionId, intent, isPaid });
+  if (outcome.notFound) {
+    console.error(
+      `PAYMENT_ALERT applySettlement: intention de paiement introuvable pour ${transactionId}`
+    );
+    throw new HttpsError("not-found", "Intention de paiement introuvable");
+  }
+  if (outcome.alreadySettled) {
+    return { status: outcome.status, alreadySettled: true };
+  }
+
+  await notifySettlement({ transactionId, intent: outcome.intent, isPaid });
+  return { status: isPaid ? "paid" : "failed" };
 }
 
 /**
@@ -522,6 +696,60 @@ async function assertIsAdmin(uid) {
 }
 
 /**
+ * Notifie tous les administrateurs dès qu'une demande d'abonnement passe à
+ * `awaiting_manual_verification` (paiement Orange Money manuel envoyé par
+ * le vendeur, en attente de vérification humaine). Écrit directement par
+ * le client (`submitManualSubscriptionPayment`) : ce trigger est le seul
+ * point d'accroche serveur, quel que soit le chemin client emprunté.
+ * `sendToUser` persiste le document `notifications/{id}` même si un admin
+ * n'a aucun appareil enregistré — il verra la demande à sa prochaine
+ * ouverture de l'app, même sans notification push.
+ */
+exports.onSubscriptionAwaitingVerification = onDocumentUpdated(
+  "paymentIntents/{intentId}",
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const intentId = event.params.intentId;
+
+    if (
+      after.type !== "subscription" ||
+      after.status !== "awaiting_manual_verification" ||
+      before.status === "awaiting_manual_verification"
+    ) {
+      return null;
+    }
+
+    const adminsSnap = await db.collection("admins").get();
+    await Promise.all(
+      adminsSnap.docs.map((doc) =>
+        sendToUser({
+          recipientId: doc.id,
+          notificationId: `subscription_request_${intentId}`,
+          type: "subscription_request",
+          title: "Nouvelle demande d'abonnement",
+          body: "Un vendeur a envoyé une demande de vérification Orange Money.",
+          route: "/admin/orders",
+          data: {
+            paymentIntentId: intentId,
+            sellerId: after.userId ?? "",
+            planName: after.planName ?? "",
+            amount: after.amount ?? 0,
+          },
+        }).catch((err) =>
+          console.error(
+            `Erreur notification admin (abonnement) ${doc.id}/${intentId} :`,
+            err
+          )
+        )
+      )
+    );
+
+    return null;
+  }
+);
+
+/**
  * Enregistre une vue unique par (annonce, visiteur connecté) : idempotent,
  * incrémente `annonces/{id}.vues` et `sellerStatistics/{sellerId}.totalViews`
  * seulement la première fois qu'un utilisateur donné consulte une annonce
@@ -550,11 +778,19 @@ exports.recordAnnonceView = onCall(async (request) => {
     const annonceSnap = await tx.get(annonceRef);
     if (!annonceSnap.exists) return;
 
+    const annonce = annonceSnap.data();
+    // Une annonce dépubliée/inactive ne doit plus progresser en vues.
+    if (annonce?.isPublished !== true) return;
+
+    const sellerId = annonce?.sellerId ?? annonce?.vendeurId;
+    // Le propriétaire qui consulte sa propre annonce ne compte pas comme
+    // une vue (auto-vue) — évite qu'un vendeur gonfle ses propres
+    // statistiques en rouvrant ses annonces.
+    if (sellerId === uid) return;
+
     tx.set(viewerRef, { viewedAt: FieldValue.serverTimestamp() });
     tx.update(annonceRef, { vues: FieldValue.increment(1) });
 
-    const sellerId =
-      annonceSnap.data()?.sellerId ?? annonceSnap.data()?.vendeurId;
     if (sellerId) {
       tx.set(
         db.collection(SELLER_STATISTICS_COLLECTION).doc(sellerId),
@@ -585,32 +821,19 @@ exports.confirmManualPayment = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "transactionId manquant");
   }
 
-  const intentRef = db.collection("paymentIntents").doc(transactionId);
-  const intentSnap = await intentRef.get();
-  if (!intentSnap.exists) {
-    console.error(
-      `PAYMENT_ALERT confirmManualPayment: intention de paiement introuvable pour ${transactionId}`
-    );
-    throw new HttpsError("not-found", "Intention de paiement introuvable");
-  }
-  const intent = intentSnap.data();
-  if (intent.status === "paid" || intent.status === "failed") {
-    // Déjà réglé (double-tap admin, retry réseau, deux admins sur la même
-    // ligne) : ré-appliquer applySettlement doublerait les compteurs
-    // sellerStatistics et réinitialiserait la date de départ d'un
-    // abonnement. No-op silencieux plutôt qu'une erreur bloquante.
-    return { status: intent.status, alreadySettled: true };
-  }
+  // Lit le mode de paiement manuel dans la même intention que celle réglée
+  // atomiquement par applySettlement (pas de lecture séparée qui rouvrirait
+  // une fenêtre de course).
+  const intentSnap = await db.collection("paymentIntents").doc(transactionId).get();
+  const manualPaymentMethod =
+    intentSnap.data()?.manualPaymentMethod ?? "Orange Money (manuel)";
 
-  await applySettlement({
+  return applySettlement({
     transactionId,
-    intent,
     isPaid: true,
-    paymentMethod: intent.manualPaymentMethod ?? "Orange Money (manuel)",
+    paymentMethod: manualPaymentMethod,
     extra: { verifiedBy: request.auth.uid },
   });
-
-  return { status: "paid" };
 });
 
 /**
@@ -624,28 +847,16 @@ exports.rejectManualPayment = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "transactionId manquant");
   }
 
-  const intentRef = db.collection("paymentIntents").doc(transactionId);
-  const intentSnap = await intentRef.get();
-  if (!intentSnap.exists) {
-    console.error(
-      `PAYMENT_ALERT rejectManualPayment: intention de paiement introuvable pour ${transactionId}`
-    );
-    throw new HttpsError("not-found", "Intention de paiement introuvable");
-  }
-  const intent = intentSnap.data();
-  if (intent.status === "paid" || intent.status === "failed") {
-    return { status: intent.status, alreadySettled: true };
-  }
+  const intentSnap = await db.collection("paymentIntents").doc(transactionId).get();
+  const manualPaymentMethod =
+    intentSnap.data()?.manualPaymentMethod ?? "Orange Money (manuel)";
 
-  await applySettlement({
+  return applySettlement({
     transactionId,
-    intent,
     isPaid: false,
-    paymentMethod: intent.manualPaymentMethod ?? "Orange Money (manuel)",
+    paymentMethod: manualPaymentMethod,
     extra: { verifiedBy: request.auth.uid },
   });
-
-  return { status: "payment_failed" };
 });
 
 /**

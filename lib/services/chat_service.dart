@@ -79,6 +79,10 @@ class ChatService {
     return Chat.fromMap({...?doc.data(), 'id': doc.id});
   }
 
+  /// Nombre de conversations les plus récentes écoutées en temps réel — pas
+  /// d'écoute sans limite sur tout l'historique des conversations.
+  static const int userChatsPageSize = 30;
+
   Stream<List<Chat>> userChats(String userId) {
     return _chats
         .where(
@@ -88,6 +92,7 @@ class ChatService {
           ),
         )
         .orderBy('lastMessageAt', descending: true)
+        .limit(userChatsPageSize)
         .snapshots()
         .map(
           (snap) => snap.docs
@@ -134,6 +139,12 @@ class ChatService {
         .toList();
   }
 
+  /// Crée le message et met à jour uniquement les métadonnées non sensibles
+  /// du chat (`lastMessage`/`lastMessageAt`/`lastSenderId`). L'incrément du
+  /// compteur non-lu du destinataire est fait côté serveur par la Cloud
+  /// Function `onNewMessage` (les règles Firestore interdisent à un
+  /// participant de modifier le compteur de l'autre : un incrément client
+  /// ferait échouer tout ce batch).
   Future<void> sendMessage({
     required String chatId,
     required String senderId,
@@ -142,13 +153,6 @@ class ChatService {
   }) async {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return;
-
-    final chatDoc = await _chats.doc(chatId).get();
-    final chatData = chatDoc.data();
-    final buyerId = chatData?['buyerId'] as String?;
-    final unreadField = receiverId == buyerId
-        ? 'buyerUnreadCount'
-        : 'sellerUnreadCount';
 
     final msgRef = _msgs(chatId).doc();
     final now = DateTime.now();
@@ -167,15 +171,30 @@ class ChatService {
       'lastMessage': trimmed,
       'lastMessageAt': now.millisecondsSinceEpoch,
       'lastSenderId': senderId,
-      // Jamais l'expéditeur : on n'incrémente que le compteur du
-      // destinataire réel, l'autre champ n'est pas touché.
-      unreadField: FieldValue.increment(1),
     });
     await batch.commit();
   }
 
+  /// Récupère un chat par son identifiant (contrairement à
+  /// [getOrCreateChat], ne le crée jamais) — utilisé pour ouvrir une
+  /// conversation depuis une notification (`chatId` connu, pas de
+  /// buyerId/sellerId/noms à disposition).
+  Future<Chat?> getChat(String chatId) async {
+    final doc = await _chats.doc(chatId).get();
+    if (!doc.exists) return null;
+    return Chat.fromMap({...?doc.data(), 'id': doc.id});
+  }
+
+  /// Taille de lot pour marquer les messages non lus comme lus, sous la
+  /// limite Firestore de 500 écritures/batch (marge pour l'écriture du
+  /// compteur en plus des messages eux-mêmes).
+  static const int _markAsReadBatchSize = 400;
+
   /// Ne marque comme lus que les messages reçus par [userId], et ne remet à
   /// zéro que le compteur de [userId] — jamais celui de l'autre participant.
+  /// Traite les non-lus par lots successifs (au lieu d'un unique batch sans
+  /// limite) pour ne jamais dépasser la limite Firestore de 500 écritures
+  /// par batch sur un chat avec beaucoup de messages non lus.
   Future<void> markAsRead(String chatId, String userId) async {
     final chatDoc = await _chats.doc(chatId).get();
     final chatData = chatDoc.data();
@@ -185,17 +204,30 @@ class ChatService {
         ? 'buyerUnreadCount'
         : 'sellerUnreadCount';
 
-    final unread = await _msgs(chatId)
-        .where('receiverId', isEqualTo: userId)
-        .where('status', isNotEqualTo: MessageStatus.read.name)
-        .get();
+    var hasMore = true;
+    var isFirstBatch = true;
+    while (hasMore) {
+      final unread = await _msgs(chatId)
+          .where('receiverId', isEqualTo: userId)
+          .where('status', isNotEqualTo: MessageStatus.read.name)
+          .limit(_markAsReadBatchSize)
+          .get();
 
-    final batch = _db.batch();
-    for (final doc in unread.docs) {
-      batch.update(doc.reference, {'status': MessageStatus.read.name});
+      final batch = _db.batch();
+      for (final doc in unread.docs) {
+        batch.update(doc.reference, {'status': MessageStatus.read.name});
+      }
+      // Le compteur n'est remis à 0 qu'une fois, sur le premier lot : les
+      // lots suivants ne font que rattraper le marquage `status` des
+      // messages restants, le compteur est déjà à 0.
+      if (isFirstBatch) {
+        batch.update(_chats.doc(chatId), {unreadField: 0});
+        isFirstBatch = false;
+      }
+      await batch.commit();
+
+      hasMore = unread.docs.length == _markAsReadBatchSize;
     }
-    batch.update(_chats.doc(chatId), {unreadField: 0});
-    await batch.commit();
   }
 
   Future<void> deleteChat(String chatId) async {

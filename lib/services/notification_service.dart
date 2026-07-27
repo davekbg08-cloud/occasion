@@ -25,7 +25,8 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   } catch (_) {
     // Firebase may already be initialized by the platform isolate.
   }
-  debugPrint('Notification arrière-plan : ${message.notification?.title}');
+  final title = message.notification?.title ?? message.data['title'];
+  debugPrint('Notification arrière-plan : $title');
 }
 
 class NotificationService {
@@ -110,14 +111,22 @@ class NotificationService {
         ?.createNotificationChannel(_channel);
   }
 
+  /// Affiche la notification locale à partir du bloc `notification` du
+  /// message FCM s'il est présent (cas normal aujourd'hui), sinon depuis
+  /// `data['title']`/`data['body']` (message data-only) — ne renonce que si
+  /// aucune des deux sources n'a de contenu affichable.
   static Future<void> _showLocalNotification(RemoteMessage message) async {
-    final notification = message.notification;
-    if (notification == null) return;
+    final title =
+        message.notification?.title ?? message.data['title'] as String?;
+    final body = message.notification?.body ?? message.data['body'] as String?;
+    if ((title == null || title.isEmpty) && (body == null || body.isEmpty)) {
+      return;
+    }
 
     await _local.show(
       id: message.hashCode,
-      title: notification.title,
-      body: notification.body,
+      title: title,
+      body: body,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           _channel.id,

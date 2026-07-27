@@ -407,13 +407,97 @@ détecte la transition quel que soit le chemin emprunté.
    géré par le propriétaire, demandes d'échange fermées en écriture client
    y compris création, journal d'audit réservé aux admins).
 
+## Phase 6 — Stabilisation finale avant AAB 1.1.1+7
+
+Passe de stabilisation demandée par l'utilisateur (14 sections), précédée
+d'une vérification indépendante de chaque affirmation contre le code réel
+(3 agents d'exploration + lecture directe). Quasi-totalité confirmée, avec
+une découverte majeure : **la messagerie était cassée en production**
+(règle Firestore déployée en Phase 2-5 qui contredisait le code client
+existant — tout envoi de message échouait). Corrigée en priorité.
+
+1. **Messagerie (bug bloquant)** : `firestore.rules` interdisait à un
+   participant de modifier le compteur non-lu de l'autre, mais
+   `ChatService.sendMessage` incrémentait toujours ce même compteur dans
+   son batch → `permission-denied` systématique, message jamais créé.
+   Corrigé en déplaçant l'incrément côté serveur (`onNewMessage`,
+   idempotent via un marqueur `unreadCounted` sur le message), le client ne
+   touchant plus que les métadonnées non sensibles du chat. Règle durcie :
+   le client ne peut plus que remettre SON propre compteur à 0, plus
+   l'incrémenter lui-même. `markAsRead` paginé par lots de 400 (limite
+   Firestore de 500 écritures/batch). 7 nouveaux cas de règles + garde
+   d'idempotence côté fonction.
+2. **Feed de statuts** : images en `BoxFit.contain` sur fond noir (réutilise
+   `OccasionImage.detail`, déjà correct pour ce cas) ; état d'erreur +
+   bouton Réessayer sur les vidéos ; partage réel (`share_plus`) au lieu du
+   `SnackBar` "Partage à venir" ; likes désormais idempotents via
+   `statusLikes/{statusId}_{userId}` + Cloud Function transactionnelle
+   `toggleStatusLike` (plus d'incrément client direct) ; suppression
+   devenue une Cloud Function `deleteStatus` (nettoie aussi le fichier
+   Storage et les likes associés, réservée au propriétaire ou à un admin) ;
+   route morte `/status` supprimée.
+3. **FullscreenImageViewer** : `PageController` déplacé de `build()` vers
+   `initState()`, avec `dispose()` (fuite de contrôleurs corrigée).
+4. **Fonctionnalités fantômes** : entrées de navigation retirées pour
+   `/addresses` et `/favorites` (écrans `SimplePlaceholderScreen` non
+   branchés) ; `/seller-revenue` déjà sans aucun point d'entrée. Fichiers
+   conservés pour un développement futur.
+5. **Notification admin abonnement** : nouveau trigger
+   `onSubscriptionAwaitingVerification` (Firestore `paymentIntents`) qui
+   notifie tous les admins dès qu'une demande passe à
+   `awaiting_manual_verification`. `applySettlement` (confirmation/rejet
+   d'un paiement manuel) rendu entièrement atomique (une seule transaction
+   lecture+décision+écriture) — élimine la fenêtre de course entre deux
+   admins ou un double-clic qui pouvait doubler les compteurs
+   `sellerStatistics` ou réinitialiser une date d'abonnement.
+6. **NotificationService** : repli sur `message.data` quand
+   `message.notification` est absent (data-only) ; notification de message
+   route désormais vers `/chat/{chatId}` (nouvelle route + résolution du
+   chat par id) au lieu de `/chat-list` en dur ; envoi FCM rendu idempotent
+   via un champ `pushSentAt` (une redélivrance de trigger ne renvoie plus
+   le push) ; badge natif iOS (`aps.badge`) calculé à partir du vrai nombre
+   de notifications non lues au lieu d'une valeur `1` codée en dur.
+7. **Session en cas d'erreur réseau** : `AuthNotifier._restoreSession`
+   distingue désormais réseau/permission (session Firebase conservée,
+   message "Connexion indisponible, réessayez", log Crashlytics, aucun
+   `signOut()`) du seul cas qui déconnecte réellement (profil confirmé
+   absent après lecture serveur). Nouvel écran de retry (`_AuthGate`) et
+   méthode `retryRestoreSession()`.
+8. **Statistiques vendeur** : libellés corrigés ("Messages" →
+   "Conversations" pour le compteur de fils uniques du tableau de bord ;
+   "En attente" → "Annonces inactives"). `recordAnnonceView` refuse
+   désormais l'auto-vue du propriétaire et les annonces non publiées.
+9. **Coûts Firestore** : `.limit(20)` + `fetchMoreActiveAnnonces` (pagination)
+   sur le listing public ; plafond défensif sur les annonces vendeur (tri
+   client conservé, un `orderBy('dateCreation')` aurait exclu les annonces
+   historiques qui n'ont que l'ancien champ `createdAt`) ; cache Riverpod
+   par vendeur (`sellerProfileProvider`) partagé entre marketplace et
+   détail d'annonce ; suppression complète de la notification de masse à
+   la publication d'un statut (`onNewStatus` lisait tous les acheteurs +
+   toutes leurs sous-collections `devices` à chaque publication — décision
+   produit : le feed paginé reste le canal de découverte, pas de sujet FCM
+   ni de préférences d'abonnement dans cette passe) ; `.limit(30)` sur la
+   liste de conversations.
+10. **Fidélité** : logique intacte (comme demandé), commentaire "placeholder"
+    remplacé par une documentation claire du barème (méthode de calcul,
+    taux, date d'entrée en vigueur).
+
+**Tests** : 7 nouveaux cas de règles messagerie, 4 nouveaux cas
+statuts/statusLikes (53/53 au total côté émulateur), test widget
+`FullscreenImageViewer` (balayage sur 5 photos), 3 nouveaux tests
+`AuthNotifier._restoreSession` (erreur réseau persistante, profil absent,
+cas nominal). CI (`ci.yml`) : ajout de `flutter build web` et
+`node --check functions/index.js` (`npm test` dans `functions/`), qui ne
+tournaient auparavant que dans `deploy-pages.yml`, jamais sur les PR.
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
   d'activation sécurisée (évalué en Phase 4 : faible valeur ajoutée,
   l'écran générique différencie déjà commande/abonnement).
 - App Check.
-- Documentation d'optimisation des coûts Firestore.
+- Documentation d'optimisation des coûts Firestore (partiellement traitée
+  en Phase 6 : pagination/plafonds ajoutés, pas de document dédié).
 - Migrations généralisées (anciens signalements, anciens champs). Le champ
   legacy `users/{uid}.fcmToken` n'est plus écrit à partir de cette phase ;
   les appareils déjà connectés migrent automatiquement vers
@@ -423,4 +507,11 @@ détecte la transition quel que soit le chemin emprunté.
   sous-collection).
 - Suite de tests Firebase Emulator exhaustive (rôles, sécurité, tous les
   scénarios listés dans le cahier des charges original).
+- Écran de liste "Favoris" réellement branché (le système de like sur les
+  annonces existe déjà côté données, `lib/favoris/`, juste pas d'écran de
+  liste dédié — route `/favorites` masquée en attendant).
+- Pagination "charger plus" pour les annonces publiques : la méthode
+  `fetchMoreActiveAnnonces` existe côté repository mais n'est pas encore
+  branchée à un bouton/scroll infini dans l'écran marketplace (seules les
+  20 annonces les plus récentes sont visibles en temps réel pour l'instant).
 - Plan de validation sur appareils physiques.

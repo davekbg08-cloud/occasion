@@ -3,7 +3,9 @@ import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -89,6 +91,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void selectRole(UserRole role) {
     state = state.copyWith(selectedRole: role, clearError: true);
+  }
+
+  /// Relance le chargement du profil pour l'utilisateur Firebase actuel —
+  /// bouton "Réessayer" après un échec réseau/permission dans
+  /// [_restoreSession] (la session Firebase Auth, elle, n'a jamais été
+  /// perdue dans ce cas).
+  Future<void> retryRestoreSession() {
+    state = state.copyWith(isLoading: true, clearError: true);
+    return _restoreSession(_auth.currentUser);
   }
 
   Future<void> signIn({required String email, required String password}) async {
@@ -294,33 +305,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return;
     }
 
-    try {
-      Map<String, dynamic>? data;
-      // Jusqu'à 3 tentatives (0ms, 400ms, 900ms) : le document Firestore peut
-      // ne pas être immédiatement lisible juste après sa création (latence
-      // réseau/cohérence), on évite de déconnecter l'utilisateur à tort.
-      for (final delayMs in [0, 400, 900]) {
-        if (delayMs > 0) {
-          await Future<void>.delayed(Duration(milliseconds: delayMs));
-        }
+    Map<String, dynamic>? data;
+    Object? lastError;
+
+    // Jusqu'à 3 tentatives (0ms, 400ms, 900ms) : le document Firestore peut
+    // ne pas être immédiatement lisible juste après sa création (latence
+    // réseau/cohérence), ou la lecture peut échouer temporairement (réseau
+    // indisponible) — dans les deux cas on retente plutôt que de
+    // déconnecter l'utilisateur à tort.
+    for (final delayMs in [0, 400, 900]) {
+      if (delayMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: delayMs));
+      }
+      try {
         final snapshot = await _users.doc(firebaseUser.uid).get();
         data = snapshot.data();
+        lastError = null;
         if (data != null) break;
+      } catch (error) {
+        lastError = error;
       }
+    }
 
-      if (data == null) {
-        await _auth.signOut();
-        state = state.copyWith(
-          isAuthenticated: false,
-          isLoading: false,
-          clearUser: true,
-          clearSelectedRole: true,
-          errorMessage:
-              'Profil Occasion introuvable. Crée un compte acheteur ou vendeur.',
-        );
-        return;
-      }
-
+    if (data != null) {
       final user = UserModel.fromMap({...data, 'id': firebaseUser.uid});
       state = state.copyWith(
         isAuthenticated: true,
@@ -329,14 +336,70 @@ class AuthNotifier extends StateNotifier<AuthState> {
         clearError: true,
         user: user,
       );
-    } catch (_) {
-      state = state.copyWith(
-        isAuthenticated: false,
-        isLoading: false,
-        clearUser: true,
-        errorMessage: 'Impossible de charger le profil utilisateur.',
-      );
+      return;
     }
+
+    if (lastError != null) {
+      _handleRestoreSessionError(lastError);
+      return;
+    }
+
+    // Les 3 tentatives ont répondu sans lever d'erreur, mais sans jamais
+    // trouver de document : profil réellement absent (pas une panne
+    // réseau/permission) — seul cas où on déconnecte réellement.
+    await _auth.signOut();
+    state = state.copyWith(
+      isAuthenticated: false,
+      isLoading: false,
+      clearUser: true,
+      clearSelectedRole: true,
+      errorMessage:
+          'Profil Occasion introuvable. Crée un compte acheteur ou vendeur.',
+    );
+  }
+
+  /// Une erreur réseau/permission lors du chargement du profil ne doit
+  /// jamais déconnecter l'utilisateur ni effacer son profil déjà en
+  /// mémoire : Firebase Authentication garde une session valide, seul le
+  /// profil Firestore a échoué à se charger *cette fois*. `isAuthenticated`
+  /// et `user` ne sont volontairement pas touchés ici (retiennent leur
+  /// valeur précédente via `copyWith`) — jamais de `signOut()` dans cette
+  /// branche (voir `_restoreSession` pour le seul cas qui déconnecte
+  /// réellement : profil confirmé absent après lecture serveur).
+  void _handleRestoreSessionError(Object error) {
+    if (!kIsWeb) {
+      // Un souci de télémétrie (Crashlytics indisponible, app pas encore
+      // initialisée dans certains contextes de test) ne doit jamais
+      // empêcher la mise à jour d'état ci-dessous.
+      try {
+        unawaited(
+          FirebaseCrashlytics.instance.recordError(
+            error,
+            StackTrace.current,
+            reason: 'AuthNotifier._restoreSession',
+          ),
+        );
+      } catch (_) {
+        // Ignoré volontairement, voir commentaire ci-dessus.
+      }
+    }
+
+    final isConnectivityIssue =
+        error is FirebaseException &&
+        const {
+          'unavailable',
+          'deadline-exceeded',
+          'aborted',
+          'unknown',
+          'permission-denied',
+        }.contains(error.code);
+
+    state = state.copyWith(
+      isLoading: false,
+      errorMessage: isConnectivityIssue
+          ? 'Connexion indisponible, réessayez.'
+          : 'Impossible de charger le profil utilisateur.',
+    );
   }
 
   void _fail(String message) {
