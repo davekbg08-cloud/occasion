@@ -132,6 +132,255 @@ test("sendToUser (via onNewMessage) : crée la notification avec isRead=false, c
   assert.deepEqual(notifSnap.data().createdAt, createdAtBefore, "createdAt ne doit jamais changer après la création");
 });
 
+async function seedChat(chatId, { buyerUnreadCount = 0, sellerUnreadCount = 0 } = {}) {
+  await db.collection("chats").doc(chatId).set({
+    buyerId: "buyer1",
+    sellerId: "seller1",
+    buyerUnreadCount,
+    sellerUnreadCount,
+  });
+}
+
+function newMessageEvent(chatId, messageId, { senderId, receiverId, status } = {}) {
+  return {
+    data: { data: () => ({ senderId, receiverId, content: "Bonjour", status }) },
+    params: { chatId, messageId },
+  };
+}
+
+test("incrementChatUnread : un message déjà marqué lu avant onNewMessage (course avec markChatAsRead) n'incrémente jamais le compteur", async () => {
+  const chatId = "chat-race-read-before";
+  const messageId = "msg1";
+  await seedChat(chatId);
+  // Simule une course : le message a déjà été marqué "read" par
+  // markChatAsRead avant même qu'onNewMessage ne s'exécute (redélivrance
+  // tardive du trigger).
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "read",
+  });
+
+  await functions.onNewMessage.run(
+    newMessageEvent(chatId, messageId, { senderId: "buyer1", receiverId: "seller1" })
+  );
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 0);
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().unreadProcessed, true);
+  assert.equal(msgSnap.data().unreadIncrementApplied, false);
+});
+
+test("markChatAsRead : un message compté puis lu ramène le compteur à 0", async () => {
+  const chatId = "chat-mark-read-basic";
+  const messageId = "msg1";
+  await seedChat(chatId);
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+  });
+  await functions.onNewMessage.run(
+    newMessageEvent(chatId, messageId, { senderId: "buyer1", receiverId: "seller1" })
+  );
+  let chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 1);
+
+  const result = await functions.markChatAsRead.run({
+    data: { chatId },
+    auth: { uid: "seller1" },
+  });
+  assert.equal(result.messagesMarkedRead, 1);
+  assert.equal(result.counterBefore, 1);
+  assert.equal(result.counterAfter, 0);
+
+  chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 0);
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().status, "read");
+  assert.ok(msgSnap.data().readAt);
+});
+
+test("markChatAsRead : un appel répété alors qu'il n'y a plus rien à lire ne modifie rien (idempotent)", async () => {
+  const chatId = "chat-mark-read-idempotent";
+  await seedChat(chatId);
+
+  const first = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
+  assert.equal(first.messagesMarkedRead, 0);
+  assert.equal(first.counterAfter, 0);
+
+  const second = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
+  assert.equal(second.messagesMarkedRead, 0);
+  assert.equal(second.counterBefore, 0);
+  assert.equal(second.counterAfter, 0);
+});
+
+test("markChatAsRead : un compteur initial à 0 sans message ne peut jamais produire une valeur négative", async () => {
+  const chatId = "chat-mark-read-no-message";
+  await seedChat(chatId, { sellerUnreadCount: 0 });
+
+  const result = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
+  assert.equal(result.counterAfter, 0);
+  assert.ok(result.counterAfter >= 0);
+});
+
+test("markChatAsRead : un compteur historique incohérent est borné à 0, jamais négatif", async () => {
+  const chatId = "chat-mark-read-inconsistent";
+  // Compteur stocké volontairement TROP BAS par rapport aux messages
+  // réellement marqués `unreadIncrementApplied` (historique incohérent,
+  // ex. avant la migration `tool/migrate_chat_unread_processing.dart`) :
+  // decompter naïvement (1 - 2) donnerait -1, ce qui ne doit jamais arriver.
+  await seedChat(chatId, { sellerUnreadCount: 1 });
+  for (const messageId of ["msg1", "msg2"]) {
+    await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      unreadProcessed: true,
+      unreadIncrementApplied: true,
+    });
+  }
+
+  const result = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
+  assert.equal(result.messagesMarkedRead, 2);
+  assert.equal(result.counterAfter, 0, "jamais négatif même si l'historique est incohérent");
+});
+
+test("markChatAsRead : reste cohérent si un nouveau message est incrémenté pendant l'appel (aucune écriture perdue)", async () => {
+  const chatId = "chat-mark-read-concurrent-new-message";
+  await seedChat(chatId, { sellerUnreadCount: 3 });
+  for (const messageId of ["msg1", "msg2", "msg3"]) {
+    await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      unreadProcessed: true,
+      unreadIncrementApplied: true,
+    });
+  }
+  await db.collection("chats").doc(chatId).collection("messages").doc("msg-new").set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Nouveau message",
+    status: "sent",
+  });
+
+  // Lance markChatAsRead (qui traite msg1/msg2/msg3) et l'incrément serveur
+  // du nouveau message en parallèle (pas séquentiellement, Promise.all) :
+  // markChatAsRead relit le compteur À L'INTÉRIEUR de sa transaction, donc
+  // Firestore la relance automatiquement si onNewMessage écrit le même
+  // document entre-temps — aucune écriture n'est jamais perdue, quel que
+  // soit l'ordre réel d'exécution (les deux issues possibles sont
+  // légitimes selon que la page de markChatAsRead ait ou non capturé le
+  // nouveau message avant son propre traitement ; ce qui ne doit JAMAIS
+  // arriver, c'est un compteur final incohérent avec l'état réel).
+  const [markResult] = await Promise.all([
+    functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } }),
+    functions.onNewMessage.run(
+      newMessageEvent(chatId, "msg-new", { senderId: "buyer1", receiverId: "seller1" })
+    ),
+  ]);
+
+  const newMsgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg-new").get();
+  const newMessageStillUnread = newMsgSnap.data().status !== "read";
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(
+    chatSnap.data().sellerUnreadCount,
+    newMessageStillUnread ? 1 : 0,
+    "le compteur final doit refléter exactement l'état réel des messages, sans écriture perdue"
+  );
+  assert.ok(markResult.messagesMarkedRead === 3 || markResult.messagesMarkedRead === 4);
+});
+
+test("markChatAsRead : ne modifie jamais le compteur de l'autre participant", async () => {
+  const chatId = "chat-mark-read-cross-participant";
+  await seedChat(chatId, { buyerUnreadCount: 2, sellerUnreadCount: 1 });
+  await db.collection("chats").doc(chatId).collection("messages").doc("msg1").set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+    unreadProcessed: true,
+    unreadIncrementApplied: true,
+  });
+
+  await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 0);
+  assert.equal(
+    chatSnap.data().buyerUnreadCount,
+    2,
+    "markChatAsRead appelé par le vendeur ne doit jamais toucher le compteur de l'acheteur"
+  );
+});
+
+test("markChatAsRead : refuse un utilisateur qui ne participe pas à la conversation", async () => {
+  const chatId = "chat-mark-read-outsider";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "outsider" } }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("markChatAsRead : refuse un appel non authentifié", async () => {
+  const chatId = "chat-mark-read-unauth";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.markChatAsRead.run({ data: { chatId }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+});
+
+test("markChatAsRead : traite plusieurs pages sur une conversation avec plus de 200 messages non lus", async () => {
+  const chatId = "chat-mark-read-pagination";
+  const totalMessages = 250;
+  await seedChat(chatId, { sellerUnreadCount: totalMessages });
+
+  const batchSize = 400; // marge Firestore (< 500 écritures/batch)
+  for (let start = 0; start < totalMessages; start += batchSize) {
+    const batch = db.batch();
+    const end = Math.min(start + batchSize, totalMessages);
+    for (let i = start; i < end; i++) {
+      batch.set(db.collection("chats").doc(chatId).collection("messages").doc(`msg${i}`), {
+        senderId: "buyer1",
+        receiverId: "seller1",
+        content: "Bonjour",
+        status: "sent",
+        unreadProcessed: true,
+        unreadIncrementApplied: true,
+      });
+    }
+    await batch.commit();
+  }
+
+  const result = await functions.markChatAsRead.run({
+    data: { chatId },
+    auth: { uid: "seller1" },
+  });
+  assert.equal(result.messagesMarkedRead, totalMessages);
+  assert.equal(result.counterAfter, 0);
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 0);
+});
+
 test("claimPushSlot : réserve l'envoi une seule fois, y compris pour des appels concurrents", async () => {
   const notifRef = db.collection("notifications").doc("notif-test-1");
   await notifRef.set({ recipientId: "buyer1", isRead: false });
