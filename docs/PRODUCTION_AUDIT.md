@@ -637,6 +637,46 @@ modifiables par le client, autres métadonnées du chat toujours
 modifiables). **80 tests au total côté émulateur : 59 rules + 21
 fonctions.**
 
+## Phase 6quinquies — Mise en production
+
+Fusion et déploiement de l'ensemble des Phases 6/6bis/6ter/6quater (PR #7),
+sur demande explicite de l'utilisateur.
+
+1. **Fusion** : PR #7 (`fix/occasion-final-stabilization-1-1-1` →
+   `main`), merge commit `a1df124`. CI ("Verify (format, analyze, test,
+   rules)") verte avant fusion.
+2. **Déploiement Cloud Functions** (`firebase deploy --only functions`,
+   projet `occasion-10cdb`) : création de `markChatAsRead`,
+   `onSubscriptionAwaitingVerification`, `onOrderCompleted`,
+   `toggleStatusLike`, `deleteStatus`, `recordAnnonceView`,
+   `requestGiftRedemption`, `respondToGiftRedemption`,
+   `adminResetLoyaltyPoints` ; mise à jour de `onNewMessage`,
+   `onNewStatus`, `confirmManualPayment`, `rejectManualPayment`,
+   `autoReleaseEscrow`. Aucune erreur.
+3. **Déploiement règles/index** (`firebase deploy --only
+   firestore:rules,firestore:indexes`) : `firestore.rules` compilées et
+   publiées, index déployés. Aucune erreur.
+4. **Migration des données historiques**
+   (`tool/migrate_chat_unread_processing.dart --project=occasion-10cdb`) :
+   dry-run puis `--apply`. Résultat : 11 chats traités, 25 messages
+   examinés, 25 messages migrés (marqueurs `unreadProcessed`/
+   `unreadIncrementApplied` initialisés), 1 chat dont le compteur était
+   incohérent avec l'historique réel corrigé, 0 erreur. Un second dry-run
+   après application confirme 0 changement restant (idempotence
+   vérifiée).
+5. **Build signé 1.1.1+7** (`web/downloads/occasion-release.apk`,
+   `releases/occasion-release.aab`) généré à partir du code fusionné,
+   signé avec le keystore de production (même certificat que les
+   versions précédentes, SHA256
+   `6F:C7:1F:89:C8:23:6F:C0:5C:36:80:1B:20:63:EE:4F:31:71:8A:00:9A:5B:5D:18:62:4F:68:0F:D1:48:E6:B5`,
+   vérifié `apksigner`/`jarsigner`), puis **téléversé sur Play Store par
+   l'utilisateur**.
+
+À cette étape, le code, les règles/index Firestore, les Cloud Functions et
+les données de production sont tous alignés sur l'état final de la Phase
+6quater, et la version 1.1.1+7 correspondante est en cours de diffusion
+sur Play Store.
+
 ## Phases suivantes (hors de portée de cette session)
 
 - Écran administrateur dédié aux demandes d'abonnement + Cloud Function
