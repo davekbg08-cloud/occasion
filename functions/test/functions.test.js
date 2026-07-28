@@ -634,6 +634,224 @@ test("applySettlement (via confirmManualPayment) : deux confirmations concurrent
   assert.equal(statsSnap.data().totalSales, 1);
 });
 
+test("sendChatMessage : crée le message avec senderId/receiverId/status déterminés côté serveur", async () => {
+  const chatId = "chat-send-basic";
+  await seedChat(chatId);
+
+  const result = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+  assert.equal(result.messageId, "client-msg-1");
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-1").get();
+  assert.equal(msgSnap.data().senderId, "buyer1");
+  assert.equal(msgSnap.data().receiverId, "seller1", "le destinataire doit être déterminé par le serveur, jamais par le client");
+  assert.equal(msgSnap.data().status, "sent");
+  assert.equal(msgSnap.data().content, "Bonjour");
+  assert.ok(typeof msgSnap.data().sentAt === "number");
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().lastMessage, "Bonjour");
+  assert.equal(chatSnap.data().lastSenderId, "buyer1");
+});
+
+test("sendChatMessage : le client ne peut jamais imposer senderId/receiverId/status (ignorés, dérivés du serveur)", async () => {
+  const chatId = "chat-send-spoof";
+  await seedChat(chatId);
+
+  await functions.sendChatMessage.run({
+    data: {
+      chatId,
+      clientMessageId: "client-msg-spoof",
+      content: "Tentative",
+      senderId: "seller1",
+      receiverId: "buyer1",
+      status: "read",
+    },
+    auth: { uid: "buyer1" },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-spoof").get();
+  assert.equal(msgSnap.data().senderId, "buyer1", "senderId vient de request.auth.uid, jamais du payload client");
+  assert.equal(msgSnap.data().receiverId, "seller1");
+  assert.equal(msgSnap.data().status, "sent");
+});
+
+test("sendChatMessage : un rejeu sur le même clientMessageId ne crée jamais de doublon ni ne régresse lastMessage", async () => {
+  const chatId = "chat-send-retry";
+  await seedChat(chatId);
+
+  const first = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-retry", content: "Premier envoi" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(first.alreadyExisted, false);
+
+  // Un message plus récent est envoyé entre-temps (simulateur d'un vrai
+  // scénario : le retry arrive après qu'un autre message a déjà été
+  // envoyé) — le rejeu ne doit jamais écraser lastMessage avec l'ancien
+  // contenu.
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-2", content: "Message suivant" },
+    auth: { uid: "buyer1" },
+  });
+
+  const retry = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-retry", content: "Premier envoi" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(retry.alreadyExisted, true, "un rejeu sur le même clientMessageId ne doit jamais recréer le message");
+
+  const messagesSnap = await db.collection("chats").doc(chatId).collection("messages").get();
+  assert.equal(messagesSnap.size, 2, "aucun doublon créé par le rejeu");
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(
+    chatSnap.data().lastMessage,
+    "Message suivant",
+    "le rejeu ne doit jamais régresser lastMessage vers un contenu plus ancien"
+  );
+});
+
+test("sendChatMessage : rejette un appel non authentifié, un non-participant, un contenu invalide et un chat introuvable", async () => {
+  const chatId = "chat-send-rejects";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.sendChatMessage.run({ data: { chatId, clientMessageId: "x", content: "Bonjour" }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "outsider" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "   " },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "x".repeat(4001) },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId: "chat-inexistant", clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "not-found");
+      return true;
+    }
+  );
+});
+
+test("sendChatMessage puis onNewMessage : le pipeline compteur non lu/badge s'applique aux messages créés via la nouvelle fonction", async () => {
+  const chatId = "chat-send-then-trigger";
+  await seedChat(chatId);
+
+  const { messageId } = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-chain", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  // Simule le déclenchement du trigger onDocumentCreated sur le document
+  // réellement créé par sendChatMessage (même pattern que les autres tests
+  // onNewMessage de ce fichier).
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  await functions.onNewMessage.run({
+    data: { data: () => msgSnap.data() },
+    params: { chatId, messageId },
+  });
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 1);
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(sellerSnap.data().unreadMessageCount, 1);
+});
+
+test("applyPushResult : un succès FCM réel fait passer un message de sent à delivered", async () => {
+  const chatId = "chat-delivered-basic";
+  const messageId = "msg-delivered-1";
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+  });
+  const notifRef = db.collection("notifications").doc("notif-delivered-1");
+  await notifRef.set({ recipientId: "seller1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "seller1",
+    devices: [{ id: "device1", token: "tok1" }],
+    result: { successCount: 1, failureCount: 0, responses: [{ success: true }] },
+    type: "message",
+    data: { chatId, messageId },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().status, "delivered");
+  assert.ok(msgSnap.data().deliveredAt);
+});
+
+test("applyPushResult : ne régresse jamais un message déjà lu vers delivered (course avec markChatAsRead)", async () => {
+  const chatId = "chat-delivered-race-read";
+  const messageId = "msg-delivered-2";
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "read",
+    readAt: Timestamp.now(),
+  });
+  const notifRef = db.collection("notifications").doc("notif-delivered-2");
+  await notifRef.set({ recipientId: "seller1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "seller1",
+    devices: [{ id: "device1", token: "tok1" }],
+    result: { successCount: 1, failureCount: 0, responses: [{ success: true }] },
+    type: "message",
+    data: { chatId, messageId },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().status, "read", "un message déjà lu ne doit jamais redevenir delivered");
+});
+
 test("recordAnnonceView : refuse l'auto-vue du propriétaire et les annonces inactives", async () => {
   await db.collection("annonces").doc("annonce1").set({
     sellerId: "seller1",

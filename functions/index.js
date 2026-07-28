@@ -226,8 +226,15 @@ async function claimPushSlot(notifRef) {
  * Ne marque `pushState: sent` que si au moins un appareil a réellement reçu
  * le push (`successCount > 0`) — un envoi dont tous les jetons ont échoué
  * reste `failed` et retentable, jamais faussement marqué comme envoyé.
+ *
+ * Pour une notification de type `message` (`type`/`data.chatId`/
+ * `data.messageId` fournis), un succès FCM réel (`successCount > 0`) fait
+ * aussi passer le message correspondant de `sent` à `delivered` — "livré"
+ * signifie ici qu'au moins un appareil du destinataire a effectivement reçu
+ * le push, distinct de "lu" (`markChatAsRead`). Ne régresse jamais un
+ * message déjà `read` (lu avant que le push n'ait fini d'être traité).
  */
-async function applyPushResult({ notifRef, recipientId, devices, result }) {
+async function applyPushResult({ notifRef, recipientId, devices, result, type, data }) {
   const successCount = result.successCount ?? 0;
   const failureCount = result.failureCount ?? 0;
 
@@ -257,6 +264,22 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
       pushFailureCount: failureCount,
       pushLeaseUntil: FieldValue.delete(),
     });
+
+    if (type === "message" && data?.chatId && data?.messageId) {
+      const msgRef = db
+        .collection("chats")
+        .doc(data.chatId)
+        .collection("messages")
+        .doc(data.messageId);
+      await db
+        .runTransaction(async (tx) => {
+          const snap = await tx.get(msgRef);
+          if (!snap.exists) return;
+          if (snap.data()?.status !== "sent") return; // jamais régresser "read"
+          tx.update(msgRef, { status: "delivered", deliveredAt: FieldValue.serverTimestamp() });
+        })
+        .catch((err) => console.error(`Erreur marquage delivered ${data.chatId}/${data.messageId} :`, err));
+    }
   } else {
     await notifRef.update({
       pushState: "failed",
@@ -268,17 +291,6 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
   }
 }
 
-/**
- * Persiste une notification (historique in-app, lue par le client via
- * `notifications/{id}`) et l'envoie en push à tous les appareils du
- * destinataire. `notificationId` déterministe = idempotent (les retries
- * Cloud Functions ne créent jamais de doublon, et ne font jamais redevenir
- * "non lue" une notification déjà lue par l'utilisateur — voir
- * `upsertNotificationContent`). L'envoi push lui-même est réservé
- * atomiquement (voir `claimPushSlot`) et son résultat réel appliqué au
- * document (voir `applyPushResult`) : jamais marqué "envoyé" sans au moins
- * un succès FCM réel.
- */
 /**
  * Nombre de messages de conversation non lus d'un utilisateur, source
  * unique du badge natif (`users/{uid}.unreadMessageCount`, tenu à jour par
@@ -292,6 +304,17 @@ async function badgeCountForUser(uid) {
   return snap.data()?.unreadMessageCount ?? 0;
 }
 
+/**
+ * Persiste une notification (historique in-app, lue par le client via
+ * `notifications/{id}`) et l'envoie en push à tous les appareils du
+ * destinataire. `notificationId` déterministe = idempotent (les retries
+ * Cloud Functions ne créent jamais de doublon, et ne font jamais redevenir
+ * "non lue" une notification déjà lue par l'utilisateur — voir
+ * `upsertNotificationContent`). L'envoi push lui-même est réservé
+ * atomiquement (voir `claimPushSlot`) et son résultat réel appliqué au
+ * document (voir `applyPushResult`) : jamais marqué "envoyé" sans au moins
+ * un succès FCM réel.
+ */
 async function sendToUser({
   recipientId,
   notificationId,
@@ -362,7 +385,7 @@ async function sendToUser({
       },
       apns: { payload: { aps: { sound: "default", badge } } },
     });
-    await applyPushResult({ notifRef, recipientId, devices, result });
+    await applyPushResult({ notifRef, recipientId, devices, result, type, data });
   } catch (err) {
     console.error(`Erreur envoi notif -> ${recipientId} :`, err);
     // Échec global (pas un simple jeton invalide, déjà géré par
@@ -561,7 +584,7 @@ exports.onNewMessage = onDocumentCreated(
       title: `💬 ${senderName}`,
       body,
       route: `/chat/${chatId}`,
-      data: { chatId },
+      data: { chatId, messageId },
     });
 
     if (receiverDoc.data()?.role === "seller") {
@@ -573,6 +596,86 @@ exports.onNewMessage = onDocumentCreated(
     return null;
   }
 );
+
+/**
+ * Cloud Function callable qui remplace l'écriture directe côté client de
+ * `ChatService.sendMessage` (ancien `chat_service.dart`) : le client ne
+ * choisit plus jamais `senderId`/`receiverId`/`status`, et
+ * `clientMessageId` — généré localement une seule fois par l'appelant,
+ * jamais régénéré sur retry — sert directement d'id de document Firestore.
+ * Un rejeu (retry réseau, double appel) sur le même `clientMessageId` ne
+ * crée donc jamais de doublon : la transaction détecte le document déjà
+ * existant et retourne `alreadyExisted: true` sans rien réécrire (en
+ * particulier sans jamais régresser `lastMessage`/`lastMessageAt` si un
+ * message plus récent a été envoyé entre-temps).
+ *
+ * Le document créé sous `chats/{chatId}/messages/{clientMessageId}` reste
+ * strictement identique à ce que le trigger `onNewMessage` attend (même
+ * collection, mêmes champs) : aucune duplication de logique, le pipeline
+ * d'incrément du compteur non lu et de notification s'applique tel quel.
+ */
+exports.sendChatMessage = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+  const clientMessageId = request.data?.clientMessageId;
+  if (
+    !clientMessageId ||
+    typeof clientMessageId !== "string" ||
+    clientMessageId.length === 0 ||
+    clientMessageId.length > 128
+  ) {
+    throw new HttpsError("invalid-argument", "clientMessageId requis.");
+  }
+  const rawContent = request.data?.content;
+  const content = typeof rawContent === "string" ? rawContent.trim() : "";
+  if (!content || content.length > 4000) {
+    throw new HttpsError("invalid-argument", "content requis (max 4000 caractères).");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const msgRef = chatRef.collection("messages").doc(clientMessageId);
+
+  return db.runTransaction(async (tx) => {
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) {
+      throw new HttpsError("not-found", "Conversation introuvable.");
+    }
+    const chatData = chatSnap.data();
+    if (uid !== chatData.buyerId && uid !== chatData.sellerId) {
+      throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+    }
+    // Le serveur détermine seul le destinataire à partir des participants
+    // réels du chat — jamais une valeur envoyée par le client.
+    const receiverId = uid === chatData.buyerId ? chatData.sellerId : chatData.buyerId;
+
+    const msgSnap = await tx.get(msgRef);
+    if (msgSnap.exists) {
+      return { chatId, messageId: clientMessageId, alreadyExisted: true };
+    }
+
+    const sentAt = Date.now();
+    tx.set(msgRef, {
+      senderId: uid,
+      receiverId,
+      content,
+      status: "sent",
+      clientMessageId,
+      sentAt,
+    });
+    tx.update(chatRef, {
+      lastMessage: content,
+      lastMessageAt: sentAt,
+      lastSenderId: uid,
+    });
+    return { chatId, messageId: clientMessageId, alreadyExisted: false };
+  });
+});
 
 /** Taille de page pour `markChatAsRead` (marge sous la limite Firestore de
  * 500 écritures/lectures par transaction : 200 messages + 1 chat). */
