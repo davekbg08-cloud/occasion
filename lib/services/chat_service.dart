@@ -146,40 +146,29 @@ class ChatService {
         .toList();
   }
 
-  /// Crée le message et met à jour uniquement les métadonnées non sensibles
-  /// du chat (`lastMessage`/`lastMessageAt`/`lastSenderId`). L'incrément du
-  /// compteur non-lu du destinataire est fait côté serveur par la Cloud
-  /// Function `onNewMessage` (les règles Firestore interdisent à un
-  /// participant de modifier le compteur de l'autre : un incrément client
-  /// ferait échouer tout ce batch).
-  Future<void> sendMessage({
+  /// Génère un identifiant de message stable, localement (aucun appel
+  /// réseau, aucune nouvelle dépendance — réutilise l'id auto généré par
+  /// le SDK Firestore côté client). Doit être généré UNE SEULE FOIS par
+  /// message ; un retry doit toujours réutiliser le même id (jamais en
+  /// générer un nouveau), c'est ce qui rend [sendChatMessage] idempotent.
+  String newClientMessageId(String chatId) => _msgs(chatId).doc().id;
+
+  /// Délègue entièrement à la Cloud Function callable `sendChatMessage` :
+  /// le client ne choisit plus jamais `senderId`/`receiverId`/`status`
+  /// (dérivés côté serveur de `request.auth.uid` et des participants du
+  /// chat), et `clientMessageId` sert directement d'id de document — un
+  /// retry sur le même id ne crée jamais de doublon (voir
+  /// `functions/index.js::sendChatMessage`).
+  Future<void> sendChatMessage({
     required String chatId,
-    required String senderId,
-    required String receiverId,
+    required String clientMessageId,
     required String content,
   }) async {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) return;
-
-    final msgRef = _msgs(chatId).doc();
-    final now = DateTime.now();
-    final message = Message(
-      id: msgRef.id,
-      chatId: chatId,
-      senderId: senderId,
-      receiverId: receiverId,
-      content: trimmed,
-      sentAt: now,
-    );
-
-    final batch = _db.batch();
-    batch.set(msgRef, message.toMap());
-    batch.update(_chats.doc(chatId), {
-      'lastMessage': trimmed,
-      'lastMessageAt': now.millisecondsSinceEpoch,
-      'lastSenderId': senderId,
+    await _functions.httpsCallable('sendChatMessage').call(<String, dynamic>{
+      'chatId': chatId,
+      'clientMessageId': clientMessageId,
+      'content': content,
     });
-    await batch.commit();
   }
 
   /// Récupère un chat par son identifiant (contrairement à

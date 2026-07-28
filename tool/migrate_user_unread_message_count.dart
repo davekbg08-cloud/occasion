@@ -46,7 +46,11 @@ Future<void> main(List<String> args) async {
   var chatsProcessed = 0;
   final totals = <String, int>{};
 
-  print(apply ? '=== MODE APPLICATION ===' : '=== MODE DRY-RUN (aucune écriture) ===');
+  print(
+    apply
+        ? '=== MODE APPLICATION ==='
+        : '=== MODE DRY-RUN (aucune écriture) ===',
+  );
 
   String? chatPageToken;
   do {
@@ -55,7 +59,9 @@ Future<void> main(List<String> args) async {
     );
     final chatRes = await client.get(chatUri, headers: _headers(token));
     if (chatRes.statusCode != 200) {
-      stderr.writeln('Échec liste chats (${chatRes.statusCode}): ${chatRes.body}');
+      stderr.writeln(
+        'Échec liste chats (${chatRes.statusCode}): ${chatRes.body}',
+      );
       break;
     }
     final chatBody = jsonDecode(chatRes.body) as Map<String, dynamic>;
@@ -71,8 +77,10 @@ Future<void> main(List<String> args) async {
       final buyerUnread = _intField(fields, 'buyerUnreadCount') ?? 0;
       final sellerUnread = _intField(fields, 'sellerUnreadCount') ?? 0;
 
-      if (buyerId != null) totals[buyerId] = (totals[buyerId] ?? 0) + buyerUnread;
-      if (sellerId != null) totals[sellerId] = (totals[sellerId] ?? 0) + sellerUnread;
+      if (buyerId != null)
+        totals[buyerId] = (totals[buyerId] ?? 0) + buyerUnread;
+      if (sellerId != null)
+        totals[sellerId] = (totals[sellerId] ?? 0) + sellerUnread;
     }
   } while (chatPageToken != null);
 
@@ -94,7 +102,8 @@ Future<void> main(List<String> args) async {
       continue;
     }
     final userBody = jsonDecode(userRes.body) as Map<String, dynamic>;
-    final userFields = (userBody['fields'] as Map<String, dynamic>? ?? const {});
+    final userFields =
+        (userBody['fields'] as Map<String, dynamic>? ?? const {});
     final existing = _intField(userFields, 'unreadMessageCount') ?? 0;
     final changed = existing != recomputed;
     if (changed) usersWithChange++;
@@ -121,7 +130,9 @@ Future<void> main(List<String> args) async {
         usersUpdated++;
       } else {
         errors++;
-        stderr.writeln('Échec écriture utilisateur $uid (${patchRes.statusCode}): ${patchRes.body}');
+        stderr.writeln(
+          'Échec écriture utilisateur $uid (${patchRes.statusCode}): ${patchRes.body}',
+        );
       }
     }
   }
@@ -139,7 +150,9 @@ Future<void> main(List<String> args) async {
   }
 }
 
-Map<String, String> _headers(String token) => {'Authorization': 'Bearer $token'};
+Map<String, String> _headers(String token) => {
+  'Authorization': 'Bearer $token',
+};
 
 String? _stringField(Map<String, dynamic> fields, String key) {
   final value = fields[key] as Map<String, dynamic>?;

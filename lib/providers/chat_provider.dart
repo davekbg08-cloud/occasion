@@ -112,7 +112,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
               (list) {
                 state = state.copyWith(
                   activeChatId: chatId,
-                  messagesByChatId: {...state.messagesByChatId, chatId: list},
+                  messagesByChatId: {
+                    ...state.messagesByChatId,
+                    chatId: _reconcileWithFirestore(chatId, list),
+                  },
                   clearError: true,
                 );
               },
@@ -201,22 +204,139 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
+  /// Envoi optimiste : insère immédiatement une bulle locale `sending`
+  /// (jamais persistée telle quelle — voir `MessageStatus`), puis appelle
+  /// la Cloud Function `sendChatMessage`. En cas d'échec, la bulle locale
+  /// passe à `failed` (jamais dans [ChatState.error], qui reste réservé aux
+  /// erreurs globales d'écran) ; [retryMessage] permet de retenter avec le
+  /// même `clientMessageId`, donc sans jamais créer de doublon. En cas de
+  /// succès, on ne fait rien de plus ici : le flux Firestore
+  /// ([_reconcileWithFirestore]) remplacera la bulle locale par le document
+  /// réel dès qu'il arrive — l'état local n'est jamais la source de vérité.
   Future<void> sendMessage({
     required String chatId,
     required String senderId,
     required String receiverId,
     required String content,
   }) async {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return;
+
+    final clientMessageId = _service.newClientMessageId(chatId);
+    final optimistic = Message(
+      id: clientMessageId,
+      chatId: chatId,
+      senderId: senderId,
+      receiverId: receiverId,
+      content: trimmed,
+      status: MessageStatus.sending,
+      sentAt: DateTime.now(),
+    );
+    _appendLocalMessage(chatId, optimistic);
+
+    await _dispatchSend(
+      chatId: chatId,
+      clientMessageId: clientMessageId,
+      content: trimmed,
+    );
+  }
+
+  /// Retente l'envoi d'une bulle en échec (`MessageStatus.failed`) en
+  /// réutilisant EXACTEMENT le même `clientMessageId` — un nouveau clic sur
+  /// Réessayer ne peut donc jamais produire un doublon, la Cloud Function
+  /// reconnaît un rejeu sur un id déjà traité.
+  Future<void> retryMessage(String chatId, String clientMessageId) async {
+    final current = state.messagesByChatId[chatId] ?? const [];
+    final target = _findById(current, clientMessageId);
+    if (target == null || target.status != MessageStatus.failed) return;
+
+    _replaceLocalMessage(
+      chatId,
+      target.copyWith(status: MessageStatus.sending),
+    );
+    await _dispatchSend(
+      chatId: chatId,
+      clientMessageId: clientMessageId,
+      content: target.content,
+    );
+  }
+
+  Future<void> _dispatchSend({
+    required String chatId,
+    required String clientMessageId,
+    required String content,
+  }) async {
     try {
-      await _service.sendMessage(
+      await _service.sendChatMessage(
         chatId: chatId,
-        senderId: senderId,
-        receiverId: receiverId,
+        clientMessageId: clientMessageId,
         content: content,
       );
-    } catch (error) {
-      state = state.copyWith(error: error.toString());
+    } catch (_) {
+      // Erreur réseau/serveur : jamais silencieuse, jamais dans l'état
+      // d'erreur global (qui fermerait/masquerait tout l'écran) — la bulle
+      // elle-même passe en échec avec un bouton Réessayer.
+      final current = state.messagesByChatId[chatId] ?? const [];
+      final target = _findById(current, clientMessageId);
+      if (target != null) {
+        _replaceLocalMessage(
+          chatId,
+          target.copyWith(status: MessageStatus.failed),
+        );
+      }
     }
+  }
+
+  Message? _findById(List<Message> messages, String id) {
+    for (final message in messages) {
+      if (message.id == id) return message;
+    }
+    return null;
+  }
+
+  void _appendLocalMessage(String chatId, Message message) {
+    final current = state.messagesByChatId[chatId] ?? const [];
+    state = state.copyWith(
+      messagesByChatId: {
+        ...state.messagesByChatId,
+        chatId: [...current, message],
+      },
+    );
+  }
+
+  void _replaceLocalMessage(String chatId, Message message) {
+    final current = state.messagesByChatId[chatId] ?? const [];
+    state = state.copyWith(
+      messagesByChatId: {
+        ...state.messagesByChatId,
+        chatId: [
+          for (final m in current)
+            if (m.id == message.id) message else m,
+        ],
+      },
+    );
+  }
+
+  /// Fusionne la liste autoritaire reçue de Firestore avec les bulles
+  /// locales encore `sending`/`failed` qui n'ont pas (ou pas encore) de
+  /// contrepartie dans ce flux : dès qu'un document Firestore porte le même
+  /// id qu'une bulle locale (l'id EST le `clientMessageId`), la bulle
+  /// locale disparaît au profit du document réel — l'état local n'est
+  /// jamais gardé comme source de vérité une fois confirmé par le serveur.
+  List<Message> _reconcileWithFirestore(
+    String chatId,
+    List<Message> firestoreMessages,
+  ) {
+    final firestoreIds = firestoreMessages.map((m) => m.id).toSet();
+    final stillPendingLocal = (state.messagesByChatId[chatId] ?? const [])
+        .where(
+          (m) =>
+              (m.status == MessageStatus.sending ||
+                  m.status == MessageStatus.failed) &&
+              !firestoreIds.contains(m.id),
+        )
+        .toList();
+    return [...firestoreMessages, ...stillPendingLocal];
   }
 
   Future<void> deleteChat(String chatId) async {
