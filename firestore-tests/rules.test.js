@@ -276,7 +276,7 @@ test("un acheteur ne peut toujours pas augmenter son propre compteur même parti
   );
 });
 
-test("un participant peut toujours modifier les autres métadonnées du chat (lastMessage)", async () => {
+test("un participant ne peut plus modifier lastMessage/lastMessageAt/lastSenderId (passe par sendChatMessage)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -287,7 +287,7 @@ test("un participant peut toujours modifier les autres métadonnées du chat (la
     });
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
-  await assertSucceeds(
+  await assertFails(
     buyer
       .collection("chats")
       .doc("chat1")
@@ -295,7 +295,7 @@ test("un participant peut toujours modifier les autres métadonnées du chat (la
   );
 });
 
-test("un acheteur peut créer un message vers le vendeur du chat", async () => {
+test("un acheteur ne peut plus créer directement un message (passe par sendChatMessage)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -303,7 +303,7 @@ test("un acheteur peut créer un message vers le vendeur du chat", async () => {
     });
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
-  await assertSucceeds(
+  await assertFails(
     buyer
       .collection("chats")
       .doc("chat1")
@@ -319,7 +319,7 @@ test("un acheteur peut créer un message vers le vendeur du chat", async () => {
   );
 });
 
-test("un vendeur peut créer un message vers l'acheteur du chat", async () => {
+test("un vendeur ne peut plus créer directement un message (passe par sendChatMessage)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
       buyerId: "buyer1",
@@ -327,7 +327,7 @@ test("un vendeur peut créer un message vers l'acheteur du chat", async () => {
     });
   });
   const seller = testEnv.authenticatedContext("seller1").firestore();
-  await assertSucceeds(
+  await assertFails(
     seller
       .collection("chats")
       .doc("chat1")

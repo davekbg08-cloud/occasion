@@ -426,20 +426,23 @@ service cloud.firestore {
           || resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         );
-      // buyerUnreadCount/sellerUnreadCount sont désormais entièrement
-      // non modifiables par le client, y compris pour les diminuer :
-      // l'incrément (onNewMessage) comme la remise à jour lors de la
-      // lecture (markChatAsRead, Cloud Function callable) passent
-      // exclusivement par l'Admin SDK, qui contourne ces règles. Un
-      // participant peut toujours modifier les autres métadonnées du chat
-      // (lastMessage, lastMessageAt, lastSenderId, listingTitle, ...).
+      // buyerUnreadCount/sellerUnreadCount/lastMessage/lastMessageAt/
+      // lastSenderId sont désormais entièrement non modifiables par le
+      // client : l'incrément (onNewMessage), la remise à jour lors de la
+      // lecture (markChatAsRead) et l'écriture du dernier message
+      // (sendChatMessage) passent exclusivement par l'Admin SDK, qui
+      // contourne ces règles. Un participant peut toujours modifier les
+      // autres métadonnées du chat (listingId, listingTitle, ...).
       allow update: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         )
         && request.resource.data.get('buyerUnreadCount', 0) == resource.data.get('buyerUnreadCount', 0)
-        && request.resource.data.get('sellerUnreadCount', 0) == resource.data.get('sellerUnreadCount', 0);
+        && request.resource.data.get('sellerUnreadCount', 0) == resource.data.get('sellerUnreadCount', 0)
+        && request.resource.data.get('lastMessage', null) == resource.data.get('lastMessage', null)
+        && request.resource.data.get('lastMessageAt', null) == resource.data.get('lastMessageAt', null)
+        && request.resource.data.get('lastSenderId', null) == resource.data.get('lastSenderId', null);
       allow delete: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
@@ -448,12 +451,14 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isChatParticipant(chatId);
-        allow create: if isChatParticipant(chatId)
-          && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.receiverId in [
-            get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId,
-            get(/databases/$(database)/documents/chats/$(chatId)).data.sellerId
-          ];
+        // Création exclusivement via la Cloud Function callable
+        // `sendChatMessage` (Admin SDK, contourne ces règles) : le serveur
+        // dérive senderId/receiverId de l'authentification et des
+        // participants du chat, garantit l'idempotence via clientMessageId
+        // comme id de document, et met à jour lastMessage/lastMessageAt/
+        // lastSenderId dans la même transaction. Plus aucune écriture
+        // client directe, même conforme au format attendu.
+        allow create: if false;
         // status/unreadProcessed/unreadIncrementApplied ne sont modifiables
         // que par les Cloud Functions (onNewMessage, markChatAsRead), via
         // l'Admin SDK qui contourne ces règles — plus aucune écriture
