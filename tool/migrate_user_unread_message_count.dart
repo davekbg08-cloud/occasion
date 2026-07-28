@@ -45,6 +45,7 @@ Future<void> main(List<String> args) async {
 
   var chatsProcessed = 0;
   final totals = <String, int>{};
+  var scanIncomplete = false;
 
   print(
     apply
@@ -62,6 +63,7 @@ Future<void> main(List<String> args) async {
       stderr.writeln(
         'Échec liste chats (${chatRes.statusCode}): ${chatRes.body}',
       );
+      scanIncomplete = true;
       break;
     }
     final chatBody = jsonDecode(chatRes.body) as Map<String, dynamic>;
@@ -85,6 +87,18 @@ Future<void> main(List<String> args) async {
       }
     }
   } while (chatPageToken != null);
+
+  if (scanIncomplete) {
+    client.close();
+    stderr.writeln(
+      'Lecture des chats interrompue avant la fin de la pagination : '
+      '$chatsProcessed chat(s) traité(s) seulement, les totaux sont '
+      'incomplets et donc invalides (sous-comptage possible). Aucune '
+      'écriture effectuée. Relance le script.',
+    );
+    exitCode = 1;
+    return;
+  }
 
   var usersChecked = 0;
   var usersWithChange = 0;
