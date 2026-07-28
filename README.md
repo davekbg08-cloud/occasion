@@ -55,7 +55,7 @@ recreer l'application Android sous le package final dans Firebase et remplacer
 ```bash
 flutter pub get
 flutter analyze
-flutter build web --release
+flutter build web --release --pwa-strategy=none
 flutter build apk --release
 firebase deploy --only firestore:rules,firestore:indexes,storage
 ```

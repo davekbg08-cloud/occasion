@@ -34,8 +34,8 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not $SkipBuild) {
-  Write-Host "==> flutter build web --release --base-href $BaseHref" -ForegroundColor Cyan
-  flutter build web --release --base-href $BaseHref
+  Write-Host "==> flutter build web --release --base-href $BaseHref --pwa-strategy=none" -ForegroundColor Cyan
+  flutter build web --release --base-href $BaseHref --pwa-strategy=none
   if ($LASTEXITCODE -ne 0) { throw "flutter build web a echoue (code $LASTEXITCODE)." }
 }
 

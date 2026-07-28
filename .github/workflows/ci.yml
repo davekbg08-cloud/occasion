@@ -39,7 +39,9 @@ jobs:
         run: flutter test
 
       - name: Build web release
-        run: flutter build web --release --base-href /occasion/
+        # Mêmes flags que le déploiement réel (deploy-pages.yml), pour que
+        # cette vérification CI reste représentative de ce qui est publié.
+        run: flutter build web --release --base-href /occasion/ --pwa-strategy=none
 
       - name: Set up Node
         uses: actions/setup-node@v4
