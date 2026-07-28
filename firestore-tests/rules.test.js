@@ -82,6 +82,25 @@ test("un acheteur ne peut pas s'attribuer un abonnement vendeur actif", async ()
   );
 });
 
+test("un client ne peut pas s'attribuer unreadMessageCount à la création du compte", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("users").doc("buyer1").set({
+      id: "buyer1",
+      role: "buyer",
+      unreadMessageCount: 99,
+    })
+  );
+});
+
+test("un client ne peut jamais modifier son propre unreadMessageCount (source unique : le serveur)", async () => {
+  await seed("buyer1", { id: "buyer1", role: "buyer", unreadMessageCount: 3 });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("users").doc("buyer1").update({ unreadMessageCount: 0 })
+  );
+});
+
 test("un client ne peut pas passer une commande à 'paid' directement", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertSucceeds(

@@ -79,6 +79,13 @@ test("incrementChatUnread (via onNewMessage) : idempotent malgré une redélivra
   const chatSnap = await db.collection("chats").doc(chatId).get();
   assert.equal(chatSnap.data().sellerUnreadCount, 1);
   assert.equal(chatSnap.data().buyerUnreadCount, 0);
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data().unreadMessageCount,
+    1,
+    "le badge global du destinataire doit suivre le compteur par conversation, sans double incrément sur redélivrance"
+  );
 });
 
 test("sendToUser (via onNewMessage) : crée la notification avec isRead=false, createdAt, et aucun appareil -> pending_no_device", async () => {
@@ -203,6 +210,13 @@ test("markChatAsRead : un message compté puis lu ramène le compteur à 0", asy
   const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
   assert.equal(msgSnap.data().status, "read");
   assert.ok(msgSnap.data().readAt);
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data().unreadMessageCount,
+    0,
+    "le badge global doit revenir à 0 en miroir du compteur de conversation"
+  );
 });
 
 test("markChatAsRead : un appel répété alors qu'il n'y a plus rien à lire ne modifie rien (idempotent)", async () => {
@@ -249,6 +263,13 @@ test("markChatAsRead : un compteur historique incohérent est borné à 0, jamai
   const result = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
   assert.equal(result.messagesMarkedRead, 2);
   assert.equal(result.counterAfter, 0, "jamais négatif même si l'historique est incohérent");
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data()?.unreadMessageCount ?? 0,
+    0,
+    "le badge global ne doit jamais non plus devenir négatif sur un historique incohérent"
+  );
 });
 
 test("markChatAsRead : reste cohérent si un nouveau message est incrémenté pendant l'appel (aucune écriture perdue)", async () => {
@@ -466,6 +487,24 @@ test("applyPushResult : au moins un succès marque la notification comme réelle
   // Le jeton définitivement invalide doit être nettoyé.
   const deviceSnap = await db.collection("users").doc("buyer1").collection("devices").doc("device2").get();
   assert.equal(deviceSnap.exists, false);
+});
+
+test("badgeCountForUser : lit unreadMessageCount, 0 si le champ ou le document est absent", async () => {
+  assert.equal(
+    await functions._testables.badgeCountForUser("utilisateur-inexistant"),
+    0,
+    "aucun document utilisateur : ne doit jamais planter, renvoie 0"
+  );
+
+  await db.collection("users").doc("buyer1").set({ name: "Acheteur" });
+  assert.equal(
+    await functions._testables.badgeCountForUser("buyer1"),
+    0,
+    "document existant mais champ absent : 0, pas d'exception"
+  );
+
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 5 }, { merge: true });
+  assert.equal(await functions._testables.badgeCountForUser("buyer1"), 5);
 });
 
 test("upsertNotificationContent : une redélivrance du trigger appelant ne réinitialise jamais isRead", async () => {

@@ -269,16 +269,20 @@ service cloud.firestore {
         && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
         && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
         && !('sellerSubscriptionActive' in request.resource.data)
-        && !('sellerSubscriptionExpiresAt' in request.resource.data);
+        && !('sellerSubscriptionExpiresAt' in request.resource.data)
+        && !('unreadMessageCount' in request.resource.data);
 
       // Mise à jour : le rôle et l'abonnement vendeur ne sont plus jamais
       // modifiables par le client une fois le compte créé (uniquement par
       // une Cloud Function via l'Admin SDK, qui contourne ces règles).
       // Le statut d'identité ne peut être déplacé que vers un statut de
       // "soumission" (jamais 'verified'/'rejected', décision admin).
+      // `unreadMessageCount` (source du badge natif) suit le même principe
+      // que les compteurs par conversation : exclusivement serveur
+      // (`incrementChatUnread`/`markChatAsRead`).
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(
-            ['role', 'sellerSubscriptionActive', 'sellerSubscriptionExpiresAt']
+            ['role', 'sellerSubscriptionActive', 'sellerSubscriptionExpiresAt', 'unreadMessageCount']
           )
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['identityStatus', 'sellerStatus'])

@@ -279,6 +279,19 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
  * document (voir `applyPushResult`) : jamais marqué "envoyé" sans au moins
  * un succès FCM réel.
  */
+/**
+ * Nombre de messages de conversation non lus d'un utilisateur, source
+ * unique du badge natif (`users/{uid}.unreadMessageCount`, tenu à jour par
+ * `incrementChatUnread`/`markChatAsRead`, jamais modifiable côté client —
+ * voir `firestore.rules`). Extraite en fonction nommée (plutôt qu'inlinée
+ * dans `sendToUser`) pour être testée isolément sans dépendre d'un envoi
+ * FCM réel, même pattern que `claimPushSlot`/`applyPushResult`.
+ */
+async function badgeCountForUser(uid) {
+  const snap = await db.collection("users").doc(uid).get();
+  return snap.data()?.unreadMessageCount ?? 0;
+}
+
 async function sendToUser({
   recipientId,
   notificationId,
@@ -323,18 +336,12 @@ async function sendToUser({
   const claim = await claimPushSlot(notifRef);
   if (!claim.claimed) return;
 
-  // Badge natif de l'icône de l'app (iOS) : le vrai nombre de
-  // notifications non lues de ce destinataire, pas une valeur codée en dur
-  // — se met à jour via push même quand l'app n'est pas ouverte. Même
-  // définition de "non lu" que `unreadNotificationsCountProvider` côté
-  // client, calculée ici côté serveur.
-  const unreadCountSnap = await db
-    .collection(NOTIFICATIONS_COLLECTION)
-    .where("recipientId", "==", recipientId)
-    .where("isRead", "==", false)
-    .count()
-    .get();
-  const badge = unreadCountSnap.data().count;
+  // Badge natif de l'icône de l'app (iOS) : uniquement le nombre de
+  // MESSAGES de conversation non lus (`users/{uid}.unreadMessageCount`,
+  // tenu à jour par `incrementChatUnread`/`markChatAsRead`), pas toutes les
+  // notifications (publications, commandes, abonnements...) — se met à
+  // jour via push même quand l'app n'est pas ouverte.
+  const badge = await badgeCountForUser(recipientId);
 
   const pushData = {
     type,
@@ -478,10 +485,16 @@ async function creditOrderLoyaltyPoints({ orderId, sellerId, buyerId, points }) 
  *   bas) : un message déjà marqué lu avant le passage d'`onNewMessage`
  *   (course avec `markChatAsRead`) ne doit jamais incrémenter le compteur,
  *   donc `markChatAsRead` ne doit pas non plus le décompter à la lecture.
+ *
+ * Incrémente aussi, dans la même transaction, `users/{receiverId}.
+ * unreadMessageCount` — le compteur global qui alimente le badge natif de
+ * l'icône (voir `sendToUser`/`badgeCountForUser`), tenu à jour par les
+ * mêmes marqueurs que le compteur par conversation.
  */
 async function incrementChatUnread({ chatId, messageId, receiverId }) {
   const chatRef = db.collection("chats").doc(chatId);
   const msgRef = chatRef.collection("messages").doc(messageId);
+  const receiverUserRef = db.collection("users").doc(receiverId);
 
   await db.runTransaction(async (tx) => {
     const msgSnap = await tx.get(msgRef);
@@ -515,6 +528,7 @@ async function incrementChatUnread({ chatId, messageId, receiverId }) {
       unreadProcessedAt: FieldValue.serverTimestamp(),
     });
     tx.update(chatRef, { [unreadField]: FieldValue.increment(1) });
+    tx.set(receiverUserRef, { unreadMessageCount: FieldValue.increment(1) }, { merge: true });
   });
 }
 
@@ -610,6 +624,7 @@ exports.markChatAsRead = onCall(async (request) => {
 
   let messagesMarkedRead = 0;
   const messagesRef = chatRef.collection("messages");
+  const readerUserRef = db.collection("users").doc(uid);
 
   for (;;) {
     const pageSnap = await messagesRef
@@ -623,6 +638,8 @@ exports.markChatAsRead = onCall(async (request) => {
       const msgSnaps = await Promise.all(pageSnap.docs.map((doc) => tx.get(doc.ref)));
       const freshChatSnap = await tx.get(chatRef);
       const freshCurrent = freshChatSnap.data()?.[unreadField] ?? 0;
+      const freshUserSnap = await tx.get(readerUserRef);
+      const freshUserCount = freshUserSnap.data()?.unreadMessageCount ?? 0;
 
       let marked = 0;
       let incrementAppliedCount = 0;
@@ -637,6 +654,17 @@ exports.markChatAsRead = onCall(async (request) => {
 
       if (incrementAppliedCount > 0 || marked > 0) {
         tx.update(chatRef, { [unreadField]: Math.max(0, freshCurrent - incrementAppliedCount) });
+      }
+      if (incrementAppliedCount > 0) {
+        // Même principe que le compteur par conversation ci-dessus : jamais
+        // un increment négatif non borné, toujours max(0, ...) — le badge
+        // global (`users/{uid}.unreadMessageCount`) ne peut jamais devenir
+        // négatif même si l'historique était incohérent.
+        tx.set(
+          readerUserRef,
+          { unreadMessageCount: Math.max(0, freshUserCount - incrementAppliedCount) },
+          { merge: true }
+        );
       }
       return marked;
     });
@@ -1592,4 +1620,5 @@ exports._testables = {
   applyPushResult,
   upsertNotificationContent,
   PUSH_LEASE_MS,
+  badgeCountForUser,
 };
