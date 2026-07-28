@@ -77,10 +77,12 @@ Future<void> main(List<String> args) async {
       final buyerUnread = _intField(fields, 'buyerUnreadCount') ?? 0;
       final sellerUnread = _intField(fields, 'sellerUnreadCount') ?? 0;
 
-      if (buyerId != null)
+      if (buyerId != null) {
         totals[buyerId] = (totals[buyerId] ?? 0) + buyerUnread;
-      if (sellerId != null)
+      }
+      if (sellerId != null) {
         totals[sellerId] = (totals[sellerId] ?? 0) + sellerUnread;
+      }
     }
   } while (chatPageToken != null);
 

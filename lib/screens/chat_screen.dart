@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +7,7 @@ import '../models/message.dart';
 import '../models/report.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -110,19 +110,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         leadingWidth: 30,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.grey[700],
-              backgroundImage: otherImage == null || otherImage.isEmpty
-                  ? null
-                  : CachedNetworkImageProvider(otherImage),
-              child: otherImage == null || otherImage.isEmpty
-                  ? Text(
+            (otherImage == null || otherImage.isEmpty)
+                ? CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.grey[700],
+                    child: Text(
                       initial,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
-                    )
-                  : null,
-            ),
+                    ),
+                  )
+                : ClipOval(
+                    child: OccasionImage.thumbnail(
+                      otherImage,
+                      width: 36,
+                      height: 36,
+                      cacheWidth: 72,
+                      cacheHeight: 72,
+                      semanticsLabel: 'Photo de profil de $otherName',
+                    ),
+                  ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
