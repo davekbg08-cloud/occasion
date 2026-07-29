@@ -136,7 +136,10 @@ void main() {
         notifierSeller.listenMessages('chat1', 'seller1');
         await Future<void>.delayed(Duration.zero);
 
-        expect(notifierSeller.state.messagesByChatId['chat1'] ?? const [], isEmpty);
+        expect(
+          notifierSeller.state.messagesByChatId['chat1'] ?? const [],
+          isEmpty,
+        );
       },
     );
   });

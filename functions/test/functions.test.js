@@ -800,6 +800,200 @@ test("sendChatMessage puis onNewMessage : le pipeline compteur non lu/badge s'ap
   assert.equal(sellerSnap.data().unreadMessageCount, 1);
 });
 
+test("sendChatMessage (vendeur→acheteur) : seller1 peut répondre à buyer1, compteurs/badge/notification vont bien vers l'acheteur", async () => {
+  const chatId = "chat-seller-to-buyer";
+  await seedChat(chatId);
+
+  const result = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-reply", content: "Voici ma réponse" },
+    auth: { uid: "seller1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-reply").get();
+  assert.equal(msgSnap.data().senderId, "seller1");
+  assert.equal(msgSnap.data().receiverId, "buyer1", "le destinataire doit être l'acheteur, déterminé par le serveur");
+  assert.equal(msgSnap.data().status, "sent");
+
+  const chatSnapBefore = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnapBefore.data().lastSenderId, "seller1");
+
+  // Simule le trigger onDocumentCreated réel, comme pour le sens acheteur→vendeur.
+  await functions.onNewMessage.run({
+    data: { data: () => msgSnap.data() },
+    params: { chatId, messageId: "client-msg-reply" },
+  });
+
+  const chatSnapAfter = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnapAfter.data().buyerUnreadCount, 1, "le compteur non lu de l'ACHETEUR doit augmenter");
+  assert.equal(chatSnapAfter.data().sellerUnreadCount, 0, "le compteur du vendeur (expéditeur) ne doit jamais changer");
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(buyerSnap.data().unreadMessageCount, 1, "le badge global de l'acheteur doit augmenter");
+  const sellerUserSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerUserSnap.data()?.unreadMessageCount ?? 0,
+    0,
+    "le badge global du vendeur (expéditeur) ne doit jamais changer"
+  );
+
+  const notifSnap = await db.collection("notifications").doc(`message_${chatId}_client-msg-reply`).get();
+  assert.equal(notifSnap.exists, true, "une notification doit être créée pour ce message");
+  assert.equal(notifSnap.data().recipientId, "buyer1", "la notification doit cibler l'acheteur, jamais l'expéditeur");
+  assert.equal(notifSnap.data().route, `/chat/${chatId}`, "la notification doit ouvrir la bonne conversation");
+});
+
+test(
+  "sendChatMessage : deux appels PARALLÈLES avec le même clientMessageId ne créent qu'un seul document, un seul incrément, une seule notification",
+  async () => {
+    const chatId = "chat-concurrent-same-id";
+    await seedChat(chatId);
+
+    const call = () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "client-msg-concurrent", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      });
+    const [first, second] = await Promise.all([call(), call()]);
+
+    // L'un des deux (peu importe lequel) a créé le message, l'autre a
+    // reconnu un rejeu — jamais les deux `alreadyExisted: false`.
+    const createdCount = [first, second].filter((r) => r.alreadyExisted === false).length;
+    assert.equal(createdCount, 1, "un seul des deux appels concurrents doit avoir réellement créé le message");
+
+    const messagesSnap = await db
+      .collection("chats")
+      .doc(chatId)
+      .collection("messages")
+      .get();
+    assert.equal(messagesSnap.size, 1, "aucun doublon même avec deux appels strictement simultanés");
+
+    const msgSnap = messagesSnap.docs[0];
+    await functions.onNewMessage.run({
+      data: { data: () => msgSnap.data() },
+      params: { chatId, messageId: msgSnap.id },
+    });
+    // Un seul incrément malgré le message unique traité une seule fois par
+    // le trigger (le trigger lui-même n'est déclenché qu'une fois ici, ce
+    // qui reflète la réalité : un seul document créé = un seul trigger).
+    const chatSnap = await db.collection("chats").doc(chatId).get();
+    assert.equal(chatSnap.data().sellerUnreadCount, 1);
+    const notifsSnap = await db
+      .collection("notifications")
+      .where("recipientId", "==", "seller1")
+      .get();
+    assert.equal(notifsSnap.size, 1, "une seule notification, jamais deux, pour ce message unique");
+  }
+);
+
+test(
+  "sendChatMessage : une collision avec l'identifiant d'un message d'un autre expéditeur est refusée sans rien modifier",
+  async () => {
+    const chatId = "chat-hostile-collision";
+    await seedChat(chatId);
+
+    await functions.sendChatMessage.run({
+      data: { chatId, clientMessageId: "shared-id", content: "Message légitime du vendeur" },
+      auth: { uid: "seller1" },
+    });
+
+    await assert.rejects(
+      () =>
+        functions.sendChatMessage.run({
+          data: { chatId, clientMessageId: "shared-id", content: "Tentative malveillante" },
+          auth: { uid: "buyer1" },
+        }),
+      (err) => {
+        assert.equal(err.code, "permission-denied");
+        return true;
+      }
+    );
+
+    const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("shared-id").get();
+    assert.equal(msgSnap.data().senderId, "seller1", "le message original n'a jamais été modifié");
+    assert.equal(msgSnap.data().content, "Message légitime du vendeur");
+
+    const messagesSnap = await db.collection("chats").doc(chatId).collection("messages").get();
+    assert.equal(messagesSnap.size, 1, "aucun second document créé par la tentative refusée");
+  }
+);
+
+test(
+  "sendChatMessage : un rejeu avec le même expéditeur mais un contenu différent est refusé (already-exists), jamais silencieusement ignoré ni n'écrase le message",
+  async () => {
+    const chatId = "chat-content-mismatch";
+    await seedChat(chatId);
+
+    await functions.sendChatMessage.run({
+      data: { chatId, clientMessageId: "msg-1", content: "Contenu original" },
+      auth: { uid: "buyer1" },
+    });
+
+    await assert.rejects(
+      () =>
+        functions.sendChatMessage.run({
+          data: { chatId, clientMessageId: "msg-1", content: "Contenu modifié" },
+          auth: { uid: "buyer1" },
+        }),
+      (err) => {
+        assert.equal(err.code, "already-exists");
+        return true;
+      }
+    );
+
+    const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg-1").get();
+    assert.equal(msgSnap.data().content, "Contenu original", "le contenu original ne doit jamais être écrasé");
+  }
+);
+
+test("sendChatMessage : rejette un chatId/clientMessageId contenant '/' ou un chat aux participants corrompus", async () => {
+  const chatId = "chat-corrupt-checks";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId: "not/a-valid-id", clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "not/valid", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  const corruptChatId = "chat-corrupt-same-participant";
+  await db.collection("chats").doc(corruptChatId).set({
+    buyerId: "buyer1",
+    sellerId: "buyer1",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId: corruptChatId, clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
 test("deleteChat : supprime le chat et décrémente le badge global des deux participants pour leurs messages non lus", async () => {
   const chatId = "chat-delete-basic";
   await seedChat(chatId, { buyerUnreadCount: 3, sellerUnreadCount: 2 });

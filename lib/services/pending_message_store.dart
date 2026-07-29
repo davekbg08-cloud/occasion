@@ -52,7 +52,11 @@ class PendingMessageStore {
     await _save(userId, next);
   }
 
-  Future<void> remove(String userId, String chatId, String clientMessageId) async {
+  Future<void> remove(
+    String userId,
+    String chatId,
+    String clientMessageId,
+  ) async {
     final current = await load(userId);
     final next = current
         .where(

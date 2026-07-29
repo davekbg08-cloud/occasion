@@ -29,18 +29,24 @@ void main() {
   });
 
   group('PendingMessageStore', () {
-    test('load() renvoie une liste vide tant que rien n\'a été persisté', () async {
-      expect(await store.load('buyer1'), isEmpty);
-    });
+    test(
+      'load() renvoie une liste vide tant que rien n\'a été persisté',
+      () async {
+        expect(await store.load('buyer1'), isEmpty);
+      },
+    );
 
-    test('upsert() persiste réellement (relecture après un nouvel appel à load)', () async {
-      await store.upsert('buyer1', _entry());
-      final loaded = await store.load('buyer1');
-      expect(loaded, hasLength(1));
-      expect(loaded.single.clientMessageId, 'local-1');
-      expect(loaded.single.content, 'Bonjour');
-      expect(loaded.single.state, PendingMessageState.queued);
-    });
+    test(
+      'upsert() persiste réellement (relecture après un nouvel appel à load)',
+      () async {
+        await store.upsert('buyer1', _entry());
+        final loaded = await store.load('buyer1');
+        expect(loaded, hasLength(1));
+        expect(loaded.single.clientMessageId, 'local-1');
+        expect(loaded.single.content, 'Bonjour');
+        expect(loaded.single.state, PendingMessageState.queued);
+      },
+    );
 
     test(
       'upsert() sur la même clé (chatId+clientMessageId) remplace, jamais un doublon',
@@ -57,12 +63,15 @@ void main() {
       },
     );
 
-    test('deux clientMessageId différents dans le même chat cohabitent', () async {
-      await store.upsert('buyer1', _entry(clientMessageId: 'local-1'));
-      await store.upsert('buyer1', _entry(clientMessageId: 'local-2'));
-      final loaded = await store.load('buyer1');
-      expect(loaded, hasLength(2));
-    });
+    test(
+      'deux clientMessageId différents dans le même chat cohabitent',
+      () async {
+        await store.upsert('buyer1', _entry(clientMessageId: 'local-1'));
+        await store.upsert('buyer1', _entry(clientMessageId: 'local-2'));
+        final loaded = await store.load('buyer1');
+        expect(loaded, hasLength(2));
+      },
+    );
 
     test('remove() ne supprime que l\'entrée exacte demandée', () async {
       await store.upsert('buyer1', _entry(clientMessageId: 'local-1'));
@@ -106,24 +115,27 @@ void main() {
       },
     );
 
-    test('toJson/fromJson préserve tous les champs y compris les optionnels', () {
-      final entry = PendingChatMessage(
-        clientMessageId: 'local-1',
-        chatId: 'chat1',
-        senderId: 'buyer1',
-        receiverId: 'seller1',
-        content: 'Bonjour',
-        localCreatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
-        state: PendingMessageState.failed,
-        attemptCount: 3,
-        lastAttemptAt: DateTime.fromMillisecondsSinceEpoch(2000),
-        lastErrorCode: 'unavailable',
-      );
-      final restored = PendingChatMessage.fromJson(entry.toJson());
-      expect(restored.clientMessageId, entry.clientMessageId);
-      expect(restored.attemptCount, 3);
-      expect(restored.lastAttemptAt, entry.lastAttemptAt);
-      expect(restored.lastErrorCode, 'unavailable');
-    });
+    test(
+      'toJson/fromJson préserve tous les champs y compris les optionnels',
+      () {
+        final entry = PendingChatMessage(
+          clientMessageId: 'local-1',
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: 'Bonjour',
+          localCreatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          state: PendingMessageState.failed,
+          attemptCount: 3,
+          lastAttemptAt: DateTime.fromMillisecondsSinceEpoch(2000),
+          lastErrorCode: 'unavailable',
+        );
+        final restored = PendingChatMessage.fromJson(entry.toJson());
+        expect(restored.clientMessageId, entry.clientMessageId);
+        expect(restored.attemptCount, 3);
+        expect(restored.lastAttemptAt, entry.lastAttemptAt);
+        expect(restored.lastErrorCode, 'unavailable');
+      },
+    );
   });
 }
