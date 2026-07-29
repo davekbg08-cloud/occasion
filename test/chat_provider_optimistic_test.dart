@@ -4,13 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:occasion/models/message.dart';
 import 'package:occasion/providers/chat_provider.dart';
 import 'package:occasion/services/chat_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Double de test de `ChatService` : ne recouvre que les méthodes
 /// effectivement appelées par `ChatNotifier` dans ce test
 /// (`chatMessages`/`sendChatMessage`/`newClientMessageId`/`markAsRead`),
 /// ne touche donc jamais Firestore/Functions réels. `chatMessages` est
 /// piloté manuellement via [emitMessages] pour simuler l'arrivée d'un
-/// instantané du flux réel.
+/// instantané du flux réel. `ChatNotifier` utilise le vrai
+/// `PendingMessageStore` (boîte d'envoi locale persistante), adossé à
+/// `SharedPreferences` avec des valeurs mock (voir `setUp`) — pas de faux
+/// store séparé, pour tester la vraie persistance de bout en bout.
 class _FakeChatService extends ChatService {
   final _messagesController = StreamController<List<Message>>.broadcast();
   bool shouldFailSend = false;
@@ -50,29 +54,58 @@ void main() {
     late ChatNotifier notifier;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       service = _FakeChatService();
       notifier = ChatNotifier(service: service);
       notifier.listenMessages('chat1', 'buyer1');
     });
 
     test(
-      'insère une bulle locale sending avant même la résolution du futur',
+      'appelle onQueued (persistance locale confirmée) avant même la résolution du futur complet, avec la bulle déjà visible',
       () async {
+        var queuedCalledBeforeCompletion = false;
+
         final future = notifier.sendMessage(
           chatId: 'chat1',
           senderId: 'buyer1',
           receiverId: 'seller1',
           content: 'Bonjour',
+          onQueued: () {
+            queuedCalledBeforeCompletion = true;
+            // Au moment précis où onQueued est appelé (juste après
+            // persistance locale + bulle affichée), le message doit déjà
+            // être visible — c'est le seul signal sur lequel l'écran a le
+            // droit de vider son champ de saisie.
+            final messages =
+                notifier.state.messagesByChatId['chat1'] ?? const [];
+            expect(messages.length, 1);
+            expect(messages.first.status, MessageStatus.sending);
+            expect(messages.first.content, 'Bonjour');
+          },
         );
 
-        // La bulle locale doit être visible IMMÉDIATEMENT, sans attendre la
-        // fin de l'appel réseau simulé.
-        final messages = notifier.state.messagesByChatId['chat1'] ?? const [];
-        expect(messages.length, 1);
-        expect(messages.first.status, MessageStatus.sending);
-        expect(messages.first.content, 'Bonjour');
-
         await future;
+        expect(
+          queuedCalledBeforeCompletion,
+          isTrue,
+          reason: 'onQueued doit toujours être appelé avant la fin de l\'envoi',
+        );
+      },
+    );
+
+    test(
+      'ne vide jamais le champ (n\'appelle jamais onQueued) si le contenu est vide',
+      () async {
+        var called = false;
+        await notifier.sendMessage(
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: '   ',
+          onQueued: () => called = true,
+        );
+        expect(called, isFalse);
+        expect(notifier.state.messagesByChatId['chat1'] ?? const [], isEmpty);
       },
     );
 
