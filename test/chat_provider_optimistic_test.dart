@@ -194,5 +194,37 @@ void main() {
         expect(messages.single.status, MessageStatus.sending);
       },
     );
+
+    test(
+      'un double appui réel sur le bouton Envoyer (deux appels sans attendre le premier) ne crée jamais deux messages',
+      () async {
+        // Ni le premier ni le second appel n'est attendu avant l'autre —
+        // exactement ce que produit un utilisateur qui tape deux fois de
+        // suite sur Envoyer avant que la persistance locale du premier tap
+        // n'ait eu le temps de se terminer.
+        final first = notifier.sendMessage(
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: 'Bonjour',
+        );
+        final second = notifier.sendMessage(
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: 'Bonjour',
+        );
+        await Future.wait([first, second]);
+
+        expect(
+          service.sentClientMessageIds,
+          hasLength(1),
+          reason:
+              'le second appel, pendant que le premier persiste encore, doit être ignoré sans générer de nouvel id',
+        );
+        final messages = notifier.state.messagesByChatId['chat1'] ?? const [];
+        expect(messages, hasLength(1));
+      },
+    );
   });
 }

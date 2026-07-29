@@ -22,7 +22,7 @@ PendingChatMessage _entry({
 }
 
 void main() {
-  const store = PendingMessageStore();
+  final store = PendingMessageStore();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -109,9 +109,54 @@ void main() {
         await store.upsert('buyer1', _entry());
         // Nouvelle instance : SharedPreferences.getInstance() relit le même
         // stockage sous-jacent, jamais une instance en mémoire du store.
-        const freshStore = PendingMessageStore();
+        final freshStore = PendingMessageStore();
         final loaded = await freshStore.load('buyer1');
         expect(loaded, hasLength(1));
+      },
+    );
+
+    test(
+      'deux upsert() strictement CONCURRENTS (sans attendre le premier) ne se perdent jamais l\'un l\'autre',
+      () async {
+        // Sans sérialisation, les deux liraient le même état initial vide
+        // puis la seconde écriture écraserait la première (perte
+        // silencieuse d'un message jamais confirmé). `Future.wait` sans
+        // `await` entre les deux appels simule ce cas réel (deux envois
+        // rapprochés dans deux chats différents, ou un envoi + une purge
+        // de réconciliation en même temps).
+        final first = store.upsert(
+          'buyer1',
+          _entry(clientMessageId: 'local-1'),
+        );
+        final second = store.upsert(
+          'buyer1',
+          _entry(clientMessageId: 'local-2'),
+        );
+        await Future.wait([first, second]);
+
+        final loaded = await store.load('buyer1');
+        expect(
+          loaded.map((e) => e.clientMessageId).toSet(),
+          {'local-1', 'local-2'},
+          reason: 'aucune des deux entrées ne doit être perdue',
+        );
+      },
+    );
+
+    test(
+      'un upsert() concurrent à un remove() sur des clés différentes ne perd rien',
+      () async {
+        await store.upsert('buyer1', _entry(clientMessageId: 'to-remove'));
+
+        final removeFuture = store.remove('buyer1', 'chat1', 'to-remove');
+        final upsertFuture = store.upsert(
+          'buyer1',
+          _entry(clientMessageId: 'to-keep'),
+        );
+        await Future.wait([removeFuture, upsertFuture]);
+
+        final loaded = await store.load('buyer1');
+        expect(loaded.map((e) => e.clientMessageId).toList(), ['to-keep']);
       },
     );
 

@@ -61,7 +61,7 @@ class ChatState {
 class ChatNotifier extends StateNotifier<ChatState> {
   ChatNotifier({ChatService? service, PendingMessageStore? pendingStore})
     : _service = service ?? ChatService(),
-      _pendingStore = pendingStore ?? const PendingMessageStore(),
+      _pendingStore = pendingStore ?? PendingMessageStore(),
       super(const ChatState());
 
   final ChatService _service;
@@ -71,6 +71,24 @@ class ChatNotifier extends StateNotifier<ChatState> {
   String? _listeningUserId;
   String? _listeningChatId;
   String? _pendingLoadedForChatId;
+
+  /// Verrou anti-double-appui : un `chatId` y figure entre le moment où
+  /// [sendMessage] commence (génération de `clientMessageId`) et celui où
+  /// la bulle optimiste est affichée. Un second appel pour le MÊME chat
+  /// pendant cette fenêtre (double-tap réel sur le bouton Envoyer, ou tout
+  /// double appel accidentel) est ignoré sans rien faire — sans ce verrou,
+  /// les deux appels liraient le même texte et généreraient deux
+  /// `clientMessageId` différents, donc deux messages dupliqués. L'appel
+  /// réseau qui suit reste hors du verrou : un message suivant, différent,
+  /// ne doit jamais être bloqué par l'envoi précédent encore en vol.
+  final Set<String> _sendInFlightChatIds = {};
+
+  /// `clientMessageId` dont l'appel réseau (`_dispatchSend`) est
+  /// ACTUELLEMENT en cours dans cette session — distinct d'un message
+  /// affiché `sending` simplement RESTAURÉ du disque après un redémarrage
+  /// (voir `_loadPendingForChat`), qui lui n'a aucun appel en vol et doit
+  /// être relancé par `retryAllPending`.
+  final Set<String> _inFlightDispatchIds = {};
 
   void listenChats(String userId) {
     if (userId.isEmpty || _listeningUserId == userId) return;
@@ -318,36 +336,50 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return;
 
-    final clientMessageId = _service.newClientMessageId(chatId);
-    final now = DateTime.now();
-    final pending = PendingChatMessage(
-      clientMessageId: clientMessageId,
-      chatId: chatId,
-      senderId: senderId,
-      receiverId: receiverId,
-      content: trimmed,
-      localCreatedAt: now,
-      state: PendingMessageState.queued,
-    );
+    // Double-appui réel (deux taps rapprochés sur le bouton Envoyer avant
+    // que le premier n'ait fini de persister) : ignoré silencieusement,
+    // jamais un second message dupliqué avec un autre clientMessageId.
+    if (_sendInFlightChatIds.contains(chatId)) return;
+    _sendInFlightChatIds.add(chatId);
 
+    final String clientMessageId;
+    final PendingChatMessage pending;
     try {
-      await _pendingStore.upsert(senderId, pending);
-    } catch (error) {
-      state = state.copyWith(error: error.toString());
-      return;
-    }
+      clientMessageId = _service.newClientMessageId(chatId);
+      final now = DateTime.now();
+      pending = PendingChatMessage(
+        clientMessageId: clientMessageId,
+        chatId: chatId,
+        senderId: senderId,
+        receiverId: receiverId,
+        content: trimmed,
+        localCreatedAt: now,
+        state: PendingMessageState.queued,
+      );
 
-    final optimistic = Message(
-      id: clientMessageId,
-      chatId: chatId,
-      senderId: senderId,
-      receiverId: receiverId,
-      content: trimmed,
-      status: MessageStatus.sending,
-      sentAt: now,
-    );
-    _appendLocalMessage(chatId, optimistic);
-    onQueued?.call();
+      try {
+        await _pendingStore.upsert(senderId, pending);
+      } catch (error) {
+        state = state.copyWith(error: error.toString());
+        return;
+      }
+
+      final optimistic = Message(
+        id: clientMessageId,
+        chatId: chatId,
+        senderId: senderId,
+        receiverId: receiverId,
+        content: trimmed,
+        status: MessageStatus.sending,
+        sentAt: now,
+      );
+      _appendLocalMessage(chatId, optimistic);
+      onQueued?.call();
+    } finally {
+      // Relâché dès la fin de la persistance/affichage — jamais après
+      // l'appel réseau, qui ne doit jamais bloquer un message suivant.
+      _sendInFlightChatIds.remove(chatId);
+    }
 
     await _dispatchSend(
       userId: senderId,
@@ -389,29 +421,59 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   /// Retente, de façon bornée (jamais de boucle infinie), tous les
-  /// messages `failed`/en attente d'un chat — déclenché par le retour au
-  /// premier plan de l'application ou la réouverture d'une conversation
-  /// (voir `chat_screen.dart`), jamais en tâche de fond illimitée. Le
-  /// résultat réel de l'appel serveur reste la seule source de vérité : la
-  /// simple présence d'une connexion ne garantit rien, ce retry ne fait que
-  /// retenter l'appel, jamais supposer un succès.
+  /// messages `failed` — ET les messages affichés `sending` mais qui n'ont
+  /// PLUS aucun appel réseau réellement en vol (`_inFlightDispatchIds`) :
+  /// c'est le cas d'un message restauré du disque après que l'application
+  /// a été tuée pendant son envoi (voir `_loadPendingForChat`), qui sinon
+  /// resterait bloqué indéfiniment sur une bulle "en cours d'envoi" sans
+  /// jamais être relancé (aucun bouton Réessayer, réservé à `failed`).
+  /// Déclenché par le retour au premier plan de l'application ou la
+  /// réouverture d'une conversation (voir `chat_screen.dart`), jamais en
+  /// tâche de fond illimitée. Le résultat réel de l'appel serveur reste la
+  /// seule source de vérité : la simple présence d'une connexion ne
+  /// garantit rien, ce retry ne fait que retenter l'appel, jamais supposer
+  /// un succès.
   static const int maxAutoRetryAttempts = 5;
 
   Future<void> retryAllPending(String chatId) async {
     final current = state.messagesByChatId[chatId] ?? const [];
-    final failedIds = current
-        .where((m) => m.status == MessageStatus.failed)
-        .map((m) => m.id)
+    final candidates = current
+        .where(
+          (m) =>
+              (m.status == MessageStatus.failed ||
+                  m.status == MessageStatus.sending) &&
+              !_inFlightDispatchIds.contains(m.id),
+        )
         .toList();
-    for (final id in failedIds) {
-      final pending = await _pendingStore.load(
-        current.firstWhere((m) => m.id == id).senderId,
-      );
-      final entry = _findPending(pending, chatId, id);
+    for (final target in candidates) {
+      final pendingList = await _pendingStore.load(target.senderId);
+      final entry = _findPending(pendingList, chatId, target.id);
       if (entry != null && entry.attemptCount >= maxAutoRetryAttempts) {
         continue; // plafond atteint : reste visible avec Réessayer manuel.
       }
-      await retryMessage(chatId, id);
+      if (target.status == MessageStatus.failed) {
+        await retryMessage(chatId, target.id);
+        continue;
+      }
+      // Restauré en `sending` du disque, aucun appel en vol : relance
+      // directement sans jamais changer son clientMessageId ni son texte.
+      await _dispatchSend(
+        userId: target.senderId,
+        chatId: chatId,
+        clientMessageId: target.id,
+        content: target.content,
+        basePending:
+            entry ??
+            PendingChatMessage(
+              clientMessageId: target.id,
+              chatId: chatId,
+              senderId: target.senderId,
+              receiverId: target.receiverId,
+              content: target.content,
+              localCreatedAt: target.sentAt,
+              state: PendingMessageState.sending,
+            ),
+      );
     }
   }
 
@@ -450,6 +512,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
       ),
     );
 
+    // Marque cet id comme réellement en vol pendant toute la durée de
+    // l'appel réseau : c'est ce qui distingue, pour `retryAllPending`, un
+    // envoi activement en cours dans cette session d'un message
+    // simplement restauré `sending` du disque (celui-ci n'a jamais son id
+    // dans cet ensemble, donc jamais bloqué indéfiniment).
+    _inFlightDispatchIds.add(clientMessageId);
     try {
       await _service.sendChatMessage(
         chatId: chatId,
@@ -479,6 +547,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
           lastErrorCode: _errorCodeOf(error),
         ),
       );
+    } finally {
+      _inFlightDispatchIds.remove(clientMessageId);
     }
   }
 
@@ -571,6 +641,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _listeningUserId = null;
     _listeningChatId = null;
     _pendingLoadedForChatId = null;
+    _sendInFlightChatIds.clear();
+    _inFlightDispatchIds.clear();
     state = const ChatState();
   }
 

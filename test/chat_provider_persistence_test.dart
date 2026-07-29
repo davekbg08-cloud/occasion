@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:occasion/models/message.dart';
+import 'package:occasion/models/pending_chat_message.dart';
 import 'package:occasion/providers/chat_provider.dart';
 import 'package:occasion/services/chat_service.dart';
+import 'package:occasion/services/pending_message_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Simule la fermeture complète de l'application : chaque test qui a
@@ -19,6 +21,12 @@ class _FakeChatService extends ChatService {
   bool shouldFailSend = false;
   int _idCounter = 0;
   final List<String> sentClientMessageIds = [];
+
+  /// Si non-null, `sendChatMessage` reste en attente jusqu'à ce que ce
+  /// completer soit résolu — simule un appel réseau réellement en vol
+  /// (jamais résolu instantanément), pour tester la protection
+  /// `_inFlightDispatchIds` contre un double envoi du même message.
+  Completer<void>? sendGate;
 
   StreamController<List<Message>> _controllerFor(String chatId) =>
       _messagesControllers.putIfAbsent(
@@ -40,6 +48,10 @@ class _FakeChatService extends ChatService {
     required String content,
   }) async {
     sentClientMessageIds.add(clientMessageId);
+    final gate = sendGate;
+    if (gate != null) {
+      await gate.future;
+    }
     if (shouldFailSend) {
       throw Exception('erreur réseau simulée');
     }
@@ -207,6 +219,84 @@ void main() {
           reason:
               'l\'ordre chronologique des messages restaurés doit être conservé',
         );
+      },
+    );
+
+    test(
+      'application tuée EN PLEIN ENVOI (état sending, pas failed) : le message est automatiquement relancé à la réouverture, jamais bloqué indéfiniment',
+      () async {
+        // Simule l'état disque laissé par une session précédente tuée
+        // juste après que _dispatchSend ait écrit `sending` mais avant que
+        // l'appel réseau n'ait eu le temps de réussir ou d'échouer — donc
+        // AUCUNE trace d'un appel réseau réellement en cours dans cette
+        // nouvelle session (contrairement à un message activement envoyé
+        // maintenant, protégé par `_inFlightDispatchIds`).
+        final store = PendingMessageStore();
+        await store.upsert(
+          'buyer1',
+          PendingChatMessage(
+            clientMessageId: 'local-killed-mid-send',
+            chatId: 'chat1',
+            senderId: 'buyer1',
+            receiverId: 'seller1',
+            content: 'Message interrompu',
+            localCreatedAt: DateTime.now(),
+            state: PendingMessageState.sending,
+            attemptCount: 1,
+          ),
+        );
+
+        final service = _FakeChatService();
+        final notifier = ChatNotifier(service: service, pendingStore: store);
+        notifier.listenMessages('chat1', 'buyer1');
+        await Future<void>.delayed(Duration.zero);
+
+        // Restauré : affiché sending, mais rien n'est réellement en vol.
+        final restored = notifier.state.messagesByChatId['chat1'] ?? const [];
+        expect(restored.single.status, MessageStatus.sending);
+        expect(service.sentClientMessageIds, isEmpty);
+
+        // Réouverture de la conversation (ce que fait réellement
+        // chat_screen.dart à l'initState) : doit relancer ce message
+        // orphelin, avec le MÊME clientMessageId, jamais un nouveau.
+        await notifier.retryAllPending('chat1');
+
+        expect(service.sentClientMessageIds, ['local-killed-mid-send']);
+        final afterRetry = notifier.state.messagesByChatId['chat1'] ?? const [];
+        expect(afterRetry.single.status, MessageStatus.sending);
+      },
+    );
+
+    test(
+      'un message activement en cours d\'envoi DANS CETTE SESSION n\'est jamais relancé en double par retryAllPending',
+      () async {
+        final service = _FakeChatService()..sendGate = Completer<void>();
+        final notifier = ChatNotifier(service: service);
+        notifier.listenMessages('chat1', 'buyer1');
+
+        // Envoi lancé mais délibérément jamais résolu tant que le gate
+        // n'est pas libéré : simule un appel réseau lent, réellement en
+        // vol au moment où retryAllPending est appelé.
+        final sendFuture = notifier.sendMessage(
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: 'En cours',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(service.sentClientMessageIds, hasLength(1));
+
+        await notifier.retryAllPending('chat1');
+
+        expect(
+          service.sentClientMessageIds,
+          hasLength(1),
+          reason:
+              'un envoi réellement en vol dans cette session ne doit jamais être relancé en double',
+        );
+
+        service.sendGate!.complete();
+        await sendFuture;
       },
     );
   });
