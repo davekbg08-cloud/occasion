@@ -1,4 +1,13 @@
-enum MessageStatus { sent, delivered, read }
+/// `sending` et `failed` sont des états LOCAUX uniquement : le serveur
+/// (`sendChatMessage`) n'écrit jamais ces valeurs, et `firestore.rules`
+/// interdit toute modification client d'un message existant — ils ne
+/// peuvent donc jamais se retrouver dans un document Firestore. Cycle de
+/// vie réel : `sending` (local, en attente de confirmation) -> `sent`
+/// (écrit par `sendChatMessage`) -> `delivered` (écrit par
+/// `applyPushResult` si le push a réellement atteint un appareil) ->
+/// `read` (écrit par `markChatAsRead`) ; `failed` si l'appel échoue
+/// (local, retentable avec le même `clientMessageId`).
+enum MessageStatus { sending, sent, delivered, read, failed }
 
 class Message {
   const Message({

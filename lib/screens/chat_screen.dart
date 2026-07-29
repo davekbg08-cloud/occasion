@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +7,7 @@ import '../models/message.dart';
 import '../models/report.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -110,19 +110,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         leadingWidth: 30,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.grey[700],
-              backgroundImage: otherImage == null || otherImage.isEmpty
-                  ? null
-                  : CachedNetworkImageProvider(otherImage),
-              child: otherImage == null || otherImage.isEmpty
-                  ? Text(
+            (otherImage == null || otherImage.isEmpty)
+                ? CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.grey[700],
+                    child: Text(
                       initial,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
-                    )
-                  : null,
-            ),
+                    ),
+                  )
+                : ClipOval(
+                    child: OccasionImage.thumbnail(
+                      otherImage,
+                      width: 36,
+                      height: 36,
+                      cacheWidth: 72,
+                      cacheHeight: 72,
+                      semanticsLabel: 'Photo de profil de $otherName',
+                    ),
+                  ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -219,7 +225,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     return Column(
                       children: [
                         if (showDate) _DateDivider(date: message.sentAt),
-                        _Bubble(message: message, isMe: isMe),
+                        _Bubble(
+                          message: message,
+                          isMe: isMe,
+                          onRetry: message.status == MessageStatus.failed
+                              ? () => ref
+                                    .read(chatNotifierProvider.notifier)
+                                    .retryMessage(widget.chat.id, message.id)
+                              : null,
+                        ),
                       ],
                     );
                   },
@@ -239,66 +253,116 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.isMe});
+  const _Bubble({required this.message, required this.isMe, this.onRetry});
 
   final Message message;
   final bool isMe;
 
+  /// Non-null uniquement si [message.status] est `failed` — tapable pour
+  /// retenter l'envoi avec le même `clientMessageId` (voir
+  /// `ChatNotifier.retryMessage`), jamais de retry automatique.
+  final VoidCallback? onRetry;
+
   @override
   Widget build(BuildContext context) {
+    final failed = message.status == MessageStatus.failed;
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.72,
-        ),
-        decoration: BoxDecoration(
-          color: isMe ? Colors.blue[700] : Colors.grey[800],
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(isMe ? 18 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 18),
+      child: GestureDetector(
+        onTap: onRetry,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.72,
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              message.content,
-              style: const TextStyle(color: Colors.white, fontSize: 15),
+          decoration: BoxDecoration(
+            color: failed
+                ? Colors.red[900]
+                : isMe
+                ? Colors.blue[700]
+                : Colors.grey[800],
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(isMe ? 18 : 4),
+              bottomRight: Radius.circular(isMe ? 4 : 18),
             ),
-            const SizedBox(height: 3),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  DateFormat('HH:mm').format(message.sentAt),
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 10,
-                  ),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 3),
-                  Icon(
-                    message.status == MessageStatus.read
-                        ? Icons.done_all
-                        : Icons.done,
-                    size: 13,
-                    color: message.status == MessageStatus.read
-                        ? Colors.lightBlueAccent
-                        : Colors.white54,
-                  ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                message.content,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (failed) ...[
+                    const Text(
+                      'Échec de l\'envoi — Réessayer',
+                      style: TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                    const SizedBox(width: 3),
+                    const Icon(
+                      Icons.error_outline,
+                      size: 13,
+                      color: Colors.white,
+                    ),
+                  ] else ...[
+                    Text(
+                      DateFormat('HH:mm').format(message.sentAt),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 10,
+                      ),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: 3),
+                      _StatusIcon(status: message.status),
+                    ],
+                  ],
                 ],
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+/// Icône de statut d'un message envoyé par l'utilisateur courant :
+/// horloge (en cours d'envoi), coche simple (envoyé), coche double grise
+/// (livré à un appareil du destinataire), coche double bleue (lu).
+/// `failed` est géré séparément par `_Bubble` (bulle rouge + texte),
+/// jamais affiché ici.
+class _StatusIcon extends StatelessWidget {
+  const _StatusIcon({required this.status});
+
+  final MessageStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case MessageStatus.sending:
+        return const Icon(Icons.access_time, size: 12, color: Colors.white54);
+      case MessageStatus.sent:
+        return const Icon(Icons.done, size: 13, color: Colors.white54);
+      case MessageStatus.delivered:
+        return const Icon(Icons.done_all, size: 13, color: Colors.white54);
+      case MessageStatus.read:
+        return const Icon(
+          Icons.done_all,
+          size: 13,
+          color: Colors.lightBlueAccent,
+        );
+      case MessageStatus.failed:
+        return const Icon(Icons.error_outline, size: 13, color: Colors.white54);
+    }
   }
 }
 

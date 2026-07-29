@@ -41,6 +41,28 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!--
+    Nettoyage ponctuel : un visiteur ayant chargé un déploiement antérieur au
+    passage à `--pwa-strategy=none` (voir .github/workflows/deploy-pages.yml)
+    peut encore avoir l'ancien service worker Flutter actif dans son
+    navigateur. Ce service worker continuerait de servir indéfiniment sa
+    version en cache de main.dart.js, même après ce correctif — puisque rien
+    ne le désinscrit jamais de lui-même. Ce script le désinscrit et vide ses
+    caches une bonne fois pour toutes ; sans effet (donc sans risque) sur un
+    navigateur qui n'en a aucun.
+  -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => registration.unregister());
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then((keys) => {
+        keys.forEach((key) => caches.delete(key));
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

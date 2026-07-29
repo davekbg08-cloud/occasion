@@ -79,6 +79,13 @@ test("incrementChatUnread (via onNewMessage) : idempotent malgré une redélivra
   const chatSnap = await db.collection("chats").doc(chatId).get();
   assert.equal(chatSnap.data().sellerUnreadCount, 1);
   assert.equal(chatSnap.data().buyerUnreadCount, 0);
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data().unreadMessageCount,
+    1,
+    "le badge global du destinataire doit suivre le compteur par conversation, sans double incrément sur redélivrance"
+  );
 });
 
 test("sendToUser (via onNewMessage) : crée la notification avec isRead=false, createdAt, et aucun appareil -> pending_no_device", async () => {
@@ -203,6 +210,13 @@ test("markChatAsRead : un message compté puis lu ramène le compteur à 0", asy
   const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
   assert.equal(msgSnap.data().status, "read");
   assert.ok(msgSnap.data().readAt);
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data().unreadMessageCount,
+    0,
+    "le badge global doit revenir à 0 en miroir du compteur de conversation"
+  );
 });
 
 test("markChatAsRead : un appel répété alors qu'il n'y a plus rien à lire ne modifie rien (idempotent)", async () => {
@@ -249,6 +263,13 @@ test("markChatAsRead : un compteur historique incohérent est borné à 0, jamai
   const result = await functions.markChatAsRead.run({ data: { chatId }, auth: { uid: "seller1" } });
   assert.equal(result.messagesMarkedRead, 2);
   assert.equal(result.counterAfter, 0, "jamais négatif même si l'historique est incohérent");
+
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(
+    sellerSnap.data()?.unreadMessageCount ?? 0,
+    0,
+    "le badge global ne doit jamais non plus devenir négatif sur un historique incohérent"
+  );
 });
 
 test("markChatAsRead : reste cohérent si un nouveau message est incrémenté pendant l'appel (aucune écriture perdue)", async () => {
@@ -468,6 +489,24 @@ test("applyPushResult : au moins un succès marque la notification comme réelle
   assert.equal(deviceSnap.exists, false);
 });
 
+test("badgeCountForUser : lit unreadMessageCount, 0 si le champ ou le document est absent", async () => {
+  assert.equal(
+    await functions._testables.badgeCountForUser("utilisateur-inexistant"),
+    0,
+    "aucun document utilisateur : ne doit jamais planter, renvoie 0"
+  );
+
+  await db.collection("users").doc("buyer1").set({ name: "Acheteur" });
+  assert.equal(
+    await functions._testables.badgeCountForUser("buyer1"),
+    0,
+    "document existant mais champ absent : 0, pas d'exception"
+  );
+
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 5 }, { merge: true });
+  assert.equal(await functions._testables.badgeCountForUser("buyer1"), 5);
+});
+
 test("upsertNotificationContent : une redélivrance du trigger appelant ne réinitialise jamais isRead", async () => {
   const notifRef = db.collection("notifications").doc("notif-test-content");
   const baseArgs = {
@@ -593,6 +632,314 @@ test("applySettlement (via confirmManualPayment) : deux confirmations concurrent
 
   const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
   assert.equal(statsSnap.data().totalSales, 1);
+});
+
+test("sendChatMessage : crée le message avec senderId/receiverId/status déterminés côté serveur", async () => {
+  const chatId = "chat-send-basic";
+  await seedChat(chatId);
+
+  const result = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+  assert.equal(result.messageId, "client-msg-1");
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-1").get();
+  assert.equal(msgSnap.data().senderId, "buyer1");
+  assert.equal(msgSnap.data().receiverId, "seller1", "le destinataire doit être déterminé par le serveur, jamais par le client");
+  assert.equal(msgSnap.data().status, "sent");
+  assert.equal(msgSnap.data().content, "Bonjour");
+  assert.ok(typeof msgSnap.data().sentAt === "number");
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().lastMessage, "Bonjour");
+  assert.equal(chatSnap.data().lastSenderId, "buyer1");
+});
+
+test("sendChatMessage : le client ne peut jamais imposer senderId/receiverId/status (ignorés, dérivés du serveur)", async () => {
+  const chatId = "chat-send-spoof";
+  await seedChat(chatId);
+
+  await functions.sendChatMessage.run({
+    data: {
+      chatId,
+      clientMessageId: "client-msg-spoof",
+      content: "Tentative",
+      senderId: "seller1",
+      receiverId: "buyer1",
+      status: "read",
+    },
+    auth: { uid: "buyer1" },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-spoof").get();
+  assert.equal(msgSnap.data().senderId, "buyer1", "senderId vient de request.auth.uid, jamais du payload client");
+  assert.equal(msgSnap.data().receiverId, "seller1");
+  assert.equal(msgSnap.data().status, "sent");
+});
+
+test("sendChatMessage : un rejeu sur le même clientMessageId ne crée jamais de doublon ni ne régresse lastMessage", async () => {
+  const chatId = "chat-send-retry";
+  await seedChat(chatId);
+
+  const first = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-retry", content: "Premier envoi" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(first.alreadyExisted, false);
+
+  // Un message plus récent est envoyé entre-temps (simulateur d'un vrai
+  // scénario : le retry arrive après qu'un autre message a déjà été
+  // envoyé) — le rejeu ne doit jamais écraser lastMessage avec l'ancien
+  // contenu.
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-2", content: "Message suivant" },
+    auth: { uid: "buyer1" },
+  });
+
+  const retry = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-retry", content: "Premier envoi" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(retry.alreadyExisted, true, "un rejeu sur le même clientMessageId ne doit jamais recréer le message");
+
+  const messagesSnap = await db.collection("chats").doc(chatId).collection("messages").get();
+  assert.equal(messagesSnap.size, 2, "aucun doublon créé par le rejeu");
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(
+    chatSnap.data().lastMessage,
+    "Message suivant",
+    "le rejeu ne doit jamais régresser lastMessage vers un contenu plus ancien"
+  );
+});
+
+test("sendChatMessage : rejette un appel non authentifié, un non-participant, un contenu invalide et un chat introuvable", async () => {
+  const chatId = "chat-send-rejects";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.sendChatMessage.run({ data: { chatId, clientMessageId: "x", content: "Bonjour" }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "outsider" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "   " },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "x".repeat(4001) },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId: "chat-inexistant", clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "not-found");
+      return true;
+    }
+  );
+});
+
+test("sendChatMessage puis onNewMessage : le pipeline compteur non lu/badge s'applique aux messages créés via la nouvelle fonction", async () => {
+  const chatId = "chat-send-then-trigger";
+  await seedChat(chatId);
+
+  const { messageId } = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "client-msg-chain", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  // Simule le déclenchement du trigger onDocumentCreated sur le document
+  // réellement créé par sendChatMessage (même pattern que les autres tests
+  // onNewMessage de ce fichier).
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  await functions.onNewMessage.run({
+    data: { data: () => msgSnap.data() },
+    params: { chatId, messageId },
+  });
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().sellerUnreadCount, 1);
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(sellerSnap.data().unreadMessageCount, 1);
+});
+
+test("deleteChat : supprime le chat et décrémente le badge global des deux participants pour leurs messages non lus", async () => {
+  const chatId = "chat-delete-basic";
+  await seedChat(chatId, { buyerUnreadCount: 3, sellerUnreadCount: 2 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 5 });
+  await db.collection("users").doc("seller1").set({ unreadMessageCount: 2 });
+
+  const result = await functions.deleteChat.run({
+    data: { chatId },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.deleted, true);
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.exists, false);
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(buyerSnap.data().unreadMessageCount, 2, "5 - 3 messages non lus du chat supprimé");
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(sellerSnap.data().unreadMessageCount, 0, "2 - 2 messages non lus du chat supprimé");
+});
+
+test("deleteChat : ne fait jamais descendre le badge global sous 0, même avec un historique incohérent", async () => {
+  const chatId = "chat-delete-negative-guard";
+  await seedChat(chatId, { buyerUnreadCount: 10, sellerUnreadCount: 0 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 3 });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(buyerSnap.data().unreadMessageCount, 0);
+});
+
+test("deleteChat : supprime aussi la sous-collection messages (jamais supprimée en cascade par Firestore sinon)", async () => {
+  const chatId = "chat-delete-messages";
+  await seedChat(chatId);
+  await db.collection("chats").doc(chatId).collection("messages").doc("m1").set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+    sentAt: Date.now(),
+  });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("m1").get();
+  assert.equal(msgSnap.exists, false);
+});
+
+test("deleteChat : idempotent — un rejeu sur un chat déjà supprimé ne lève pas d'erreur", async () => {
+  const chatId = "chat-delete-idempotent";
+  await seedChat(chatId, { buyerUnreadCount: 1 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 1 });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+  const replay = await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+  assert.equal(replay.deleted, true);
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(
+    buyerSnap.data().unreadMessageCount,
+    0,
+    "le rejeu ne doit jamais décrémenter une seconde fois (le chat n'existe plus)"
+  );
+});
+
+test("deleteChat : rejette un appel non authentifié et un utilisateur qui ne participe pas à la conversation", async () => {
+  const chatId = "chat-delete-rejects";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.deleteChat.run({ data: { chatId }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => functions.deleteChat.run({ data: { chatId }, auth: { uid: "outsider" } }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.exists, true, "un appel rejeté ne doit rien supprimer");
+});
+
+test("applyPushResult : un succès FCM réel fait passer un message de sent à delivered", async () => {
+  const chatId = "chat-delivered-basic";
+  const messageId = "msg-delivered-1";
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+  });
+  const notifRef = db.collection("notifications").doc("notif-delivered-1");
+  await notifRef.set({ recipientId: "seller1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "seller1",
+    devices: [{ id: "device1", token: "tok1" }],
+    result: { successCount: 1, failureCount: 0, responses: [{ success: true }] },
+    type: "message",
+    data: { chatId, messageId },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().status, "delivered");
+  assert.ok(msgSnap.data().deliveredAt);
+});
+
+test("applyPushResult : ne régresse jamais un message déjà lu vers delivered (course avec markChatAsRead)", async () => {
+  const chatId = "chat-delivered-race-read";
+  const messageId = "msg-delivered-2";
+  await db.collection("chats").doc(chatId).collection("messages").doc(messageId).set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "read",
+    readAt: Timestamp.now(),
+  });
+  const notifRef = db.collection("notifications").doc("notif-delivered-2");
+  await notifRef.set({ recipientId: "seller1", isRead: false, pushState: "sending" });
+
+  await functions._testables.applyPushResult({
+    notifRef,
+    recipientId: "seller1",
+    devices: [{ id: "device1", token: "tok1" }],
+    result: { successCount: 1, failureCount: 0, responses: [{ success: true }] },
+    type: "message",
+    data: { chatId, messageId },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc(messageId).get();
+  assert.equal(msgSnap.data().status, "read", "un message déjà lu ne doit jamais redevenir delivered");
 });
 
 test("recordAnnonceView : refuse l'auto-vue du propriétaire et les annonces inactives", async () => {

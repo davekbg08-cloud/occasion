@@ -64,7 +64,13 @@ jobs:
         run: firebase emulators:exec --only firestore --project demo-occasion "npm --prefix firestore-tests test"
 
       - name: Build web release
-        run: flutter build web --release --base-href /occasion/
+        # --pwa-strategy=none : ne génère pas de service worker Flutter. Le
+        # service worker par défaut (offline-first) sert la version mise en
+        # cache tant qu'un rechargement ultérieur ne l'a pas remplacée, donc
+        # un déploiement pouvait rester invisible pour un visiteur déjà venu
+        # sur le site. GitHub Pages ne permet pas de configurer de
+        # Cache-Control personnalisé pour compenser autrement.
+        run: flutter build web --release --base-href /occasion/ --pwa-strategy=none
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

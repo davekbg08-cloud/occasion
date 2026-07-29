@@ -226,8 +226,15 @@ async function claimPushSlot(notifRef) {
  * Ne marque `pushState: sent` que si au moins un appareil a réellement reçu
  * le push (`successCount > 0`) — un envoi dont tous les jetons ont échoué
  * reste `failed` et retentable, jamais faussement marqué comme envoyé.
+ *
+ * Pour une notification de type `message` (`type`/`data.chatId`/
+ * `data.messageId` fournis), un succès FCM réel (`successCount > 0`) fait
+ * aussi passer le message correspondant de `sent` à `delivered` — "livré"
+ * signifie ici qu'au moins un appareil du destinataire a effectivement reçu
+ * le push, distinct de "lu" (`markChatAsRead`). Ne régresse jamais un
+ * message déjà `read` (lu avant que le push n'ait fini d'être traité).
  */
-async function applyPushResult({ notifRef, recipientId, devices, result }) {
+async function applyPushResult({ notifRef, recipientId, devices, result, type, data }) {
   const successCount = result.successCount ?? 0;
   const failureCount = result.failureCount ?? 0;
 
@@ -257,6 +264,22 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
       pushFailureCount: failureCount,
       pushLeaseUntil: FieldValue.delete(),
     });
+
+    if (type === "message" && data?.chatId && data?.messageId) {
+      const msgRef = db
+        .collection("chats")
+        .doc(data.chatId)
+        .collection("messages")
+        .doc(data.messageId);
+      await db
+        .runTransaction(async (tx) => {
+          const snap = await tx.get(msgRef);
+          if (!snap.exists) return;
+          if (snap.data()?.status !== "sent") return; // jamais régresser "read"
+          tx.update(msgRef, { status: "delivered", deliveredAt: FieldValue.serverTimestamp() });
+        })
+        .catch((err) => console.error(`Erreur marquage delivered ${data.chatId}/${data.messageId} :`, err));
+    }
   } else {
     await notifRef.update({
       pushState: "failed",
@@ -266,6 +289,19 @@ async function applyPushResult({ notifRef, recipientId, devices, result }) {
       pushLeaseUntil: FieldValue.delete(),
     });
   }
+}
+
+/**
+ * Nombre de messages de conversation non lus d'un utilisateur, source
+ * unique du badge natif (`users/{uid}.unreadMessageCount`, tenu à jour par
+ * `incrementChatUnread`/`markChatAsRead`, jamais modifiable côté client —
+ * voir `firestore.rules`). Extraite en fonction nommée (plutôt qu'inlinée
+ * dans `sendToUser`) pour être testée isolément sans dépendre d'un envoi
+ * FCM réel, même pattern que `claimPushSlot`/`applyPushResult`.
+ */
+async function badgeCountForUser(uid) {
+  const snap = await db.collection("users").doc(uid).get();
+  return snap.data()?.unreadMessageCount ?? 0;
 }
 
 /**
@@ -323,18 +359,12 @@ async function sendToUser({
   const claim = await claimPushSlot(notifRef);
   if (!claim.claimed) return;
 
-  // Badge natif de l'icône de l'app (iOS) : le vrai nombre de
-  // notifications non lues de ce destinataire, pas une valeur codée en dur
-  // — se met à jour via push même quand l'app n'est pas ouverte. Même
-  // définition de "non lu" que `unreadNotificationsCountProvider` côté
-  // client, calculée ici côté serveur.
-  const unreadCountSnap = await db
-    .collection(NOTIFICATIONS_COLLECTION)
-    .where("recipientId", "==", recipientId)
-    .where("isRead", "==", false)
-    .count()
-    .get();
-  const badge = unreadCountSnap.data().count;
+  // Badge natif de l'icône de l'app (iOS) : uniquement le nombre de
+  // MESSAGES de conversation non lus (`users/{uid}.unreadMessageCount`,
+  // tenu à jour par `incrementChatUnread`/`markChatAsRead`), pas toutes les
+  // notifications (publications, commandes, abonnements...) — se met à
+  // jour via push même quand l'app n'est pas ouverte.
+  const badge = await badgeCountForUser(recipientId);
 
   const pushData = {
     type,
@@ -355,7 +385,7 @@ async function sendToUser({
       },
       apns: { payload: { aps: { sound: "default", badge } } },
     });
-    await applyPushResult({ notifRef, recipientId, devices, result });
+    await applyPushResult({ notifRef, recipientId, devices, result, type, data });
   } catch (err) {
     console.error(`Erreur envoi notif -> ${recipientId} :`, err);
     // Échec global (pas un simple jeton invalide, déjà géré par
@@ -478,10 +508,16 @@ async function creditOrderLoyaltyPoints({ orderId, sellerId, buyerId, points }) 
  *   bas) : un message déjà marqué lu avant le passage d'`onNewMessage`
  *   (course avec `markChatAsRead`) ne doit jamais incrémenter le compteur,
  *   donc `markChatAsRead` ne doit pas non plus le décompter à la lecture.
+ *
+ * Incrémente aussi, dans la même transaction, `users/{receiverId}.
+ * unreadMessageCount` — le compteur global qui alimente le badge natif de
+ * l'icône (voir `sendToUser`/`badgeCountForUser`), tenu à jour par les
+ * mêmes marqueurs que le compteur par conversation.
  */
 async function incrementChatUnread({ chatId, messageId, receiverId }) {
   const chatRef = db.collection("chats").doc(chatId);
   const msgRef = chatRef.collection("messages").doc(messageId);
+  const receiverUserRef = db.collection("users").doc(receiverId);
 
   await db.runTransaction(async (tx) => {
     const msgSnap = await tx.get(msgRef);
@@ -515,6 +551,7 @@ async function incrementChatUnread({ chatId, messageId, receiverId }) {
       unreadProcessedAt: FieldValue.serverTimestamp(),
     });
     tx.update(chatRef, { [unreadField]: FieldValue.increment(1) });
+    tx.set(receiverUserRef, { unreadMessageCount: FieldValue.increment(1) }, { merge: true });
   });
 }
 
@@ -547,7 +584,7 @@ exports.onNewMessage = onDocumentCreated(
       title: `💬 ${senderName}`,
       body,
       route: `/chat/${chatId}`,
-      data: { chatId },
+      data: { chatId, messageId },
     });
 
     if (receiverDoc.data()?.role === "seller") {
@@ -559,6 +596,86 @@ exports.onNewMessage = onDocumentCreated(
     return null;
   }
 );
+
+/**
+ * Cloud Function callable qui remplace l'écriture directe côté client de
+ * `ChatService.sendMessage` (ancien `chat_service.dart`) : le client ne
+ * choisit plus jamais `senderId`/`receiverId`/`status`, et
+ * `clientMessageId` — généré localement une seule fois par l'appelant,
+ * jamais régénéré sur retry — sert directement d'id de document Firestore.
+ * Un rejeu (retry réseau, double appel) sur le même `clientMessageId` ne
+ * crée donc jamais de doublon : la transaction détecte le document déjà
+ * existant et retourne `alreadyExisted: true` sans rien réécrire (en
+ * particulier sans jamais régresser `lastMessage`/`lastMessageAt` si un
+ * message plus récent a été envoyé entre-temps).
+ *
+ * Le document créé sous `chats/{chatId}/messages/{clientMessageId}` reste
+ * strictement identique à ce que le trigger `onNewMessage` attend (même
+ * collection, mêmes champs) : aucune duplication de logique, le pipeline
+ * d'incrément du compteur non lu et de notification s'applique tel quel.
+ */
+exports.sendChatMessage = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+  const clientMessageId = request.data?.clientMessageId;
+  if (
+    !clientMessageId ||
+    typeof clientMessageId !== "string" ||
+    clientMessageId.length === 0 ||
+    clientMessageId.length > 128
+  ) {
+    throw new HttpsError("invalid-argument", "clientMessageId requis.");
+  }
+  const rawContent = request.data?.content;
+  const content = typeof rawContent === "string" ? rawContent.trim() : "";
+  if (!content || content.length > 4000) {
+    throw new HttpsError("invalid-argument", "content requis (max 4000 caractères).");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const msgRef = chatRef.collection("messages").doc(clientMessageId);
+
+  return db.runTransaction(async (tx) => {
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) {
+      throw new HttpsError("not-found", "Conversation introuvable.");
+    }
+    const chatData = chatSnap.data();
+    if (uid !== chatData.buyerId && uid !== chatData.sellerId) {
+      throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+    }
+    // Le serveur détermine seul le destinataire à partir des participants
+    // réels du chat — jamais une valeur envoyée par le client.
+    const receiverId = uid === chatData.buyerId ? chatData.sellerId : chatData.buyerId;
+
+    const msgSnap = await tx.get(msgRef);
+    if (msgSnap.exists) {
+      return { chatId, messageId: clientMessageId, alreadyExisted: true };
+    }
+
+    const sentAt = Date.now();
+    tx.set(msgRef, {
+      senderId: uid,
+      receiverId,
+      content,
+      status: "sent",
+      clientMessageId,
+      sentAt,
+    });
+    tx.update(chatRef, {
+      lastMessage: content,
+      lastMessageAt: sentAt,
+      lastSenderId: uid,
+    });
+    return { chatId, messageId: clientMessageId, alreadyExisted: false };
+  });
+});
 
 /** Taille de page pour `markChatAsRead` (marge sous la limite Firestore de
  * 500 écritures/lectures par transaction : 200 messages + 1 chat). */
@@ -610,6 +727,7 @@ exports.markChatAsRead = onCall(async (request) => {
 
   let messagesMarkedRead = 0;
   const messagesRef = chatRef.collection("messages");
+  const readerUserRef = db.collection("users").doc(uid);
 
   for (;;) {
     const pageSnap = await messagesRef
@@ -623,6 +741,8 @@ exports.markChatAsRead = onCall(async (request) => {
       const msgSnaps = await Promise.all(pageSnap.docs.map((doc) => tx.get(doc.ref)));
       const freshChatSnap = await tx.get(chatRef);
       const freshCurrent = freshChatSnap.data()?.[unreadField] ?? 0;
+      const freshUserSnap = await tx.get(readerUserRef);
+      const freshUserCount = freshUserSnap.data()?.unreadMessageCount ?? 0;
 
       let marked = 0;
       let incrementAppliedCount = 0;
@@ -638,6 +758,17 @@ exports.markChatAsRead = onCall(async (request) => {
       if (incrementAppliedCount > 0 || marked > 0) {
         tx.update(chatRef, { [unreadField]: Math.max(0, freshCurrent - incrementAppliedCount) });
       }
+      if (incrementAppliedCount > 0) {
+        // Même principe que le compteur par conversation ci-dessus : jamais
+        // un increment négatif non borné, toujours max(0, ...) — le badge
+        // global (`users/{uid}.unreadMessageCount`) ne peut jamais devenir
+        // négatif même si l'historique était incohérent.
+        tx.set(
+          readerUserRef,
+          { unreadMessageCount: Math.max(0, freshUserCount - incrementAppliedCount) },
+          { merge: true }
+        );
+      }
       return marked;
     });
 
@@ -649,6 +780,75 @@ exports.markChatAsRead = onCall(async (request) => {
   const counterAfter = finalChatSnap.data()?.[unreadField] ?? 0;
 
   return { messagesMarkedRead, counterBefore, counterAfter };
+});
+
+/**
+ * Supprime une conversation. Remplace l'ancienne suppression client directe
+ * (`ChatService.deleteChat` écrivait `chats/{chatId}.delete()` elle-même) :
+ * une fois le chat supprimé, plus aucun mécanisme (`markChatAsRead`) ne peut
+ * jamais décompter les messages non lus qu'il contenait du badge global
+ * `users/{uid}.unreadMessageCount` — celui-ci resterait gonflé pour
+ * toujours. Cette fonction décrémente donc d'abord les deux participants
+ * (même principe `max(0, ...)` que `markChatAsRead`/`incrementChatUnread`,
+ * jamais négatif) dans la même transaction que la suppression du document
+ * `chats/{chatId}`, puis nettoie la sous-collection `messages` — jamais
+ * supprimée en cascade par Firestore — via `recursiveDelete`, hors
+ * transaction (incompatible avec le BulkWriter qu'il utilise en interne).
+ *
+ * Idempotent : un rejeu sur un chat déjà supprimé renvoie simplement
+ * `{ deleted: true }` sans rien modifier de plus.
+ */
+exports.deleteChat = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+
+  await db.runTransaction(async (tx) => {
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) return;
+
+    const chatData = chatSnap.data();
+    if (chatData.buyerId !== uid && chatData.sellerId !== uid) {
+      throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+    }
+
+    const buyerRef = db.collection("users").doc(chatData.buyerId);
+    const sellerRef = db.collection("users").doc(chatData.sellerId);
+    const [buyerSnap, sellerSnap] = await Promise.all([tx.get(buyerRef), tx.get(sellerRef)]);
+
+    const buyerUnread = chatData.buyerUnreadCount ?? 0;
+    const sellerUnread = chatData.sellerUnreadCount ?? 0;
+
+    if (buyerUnread > 0) {
+      const freshBuyerCount = buyerSnap.data()?.unreadMessageCount ?? 0;
+      tx.set(
+        buyerRef,
+        { unreadMessageCount: Math.max(0, freshBuyerCount - buyerUnread) },
+        { merge: true }
+      );
+    }
+    if (sellerUnread > 0) {
+      const freshSellerCount = sellerSnap.data()?.unreadMessageCount ?? 0;
+      tx.set(
+        sellerRef,
+        { unreadMessageCount: Math.max(0, freshSellerCount - sellerUnread) },
+        { merge: true }
+      );
+    }
+
+    tx.delete(chatRef);
+  });
+
+  await db.recursiveDelete(chatRef.collection("messages"));
+
+  return { deleted: true };
 });
 
 /**
@@ -1592,4 +1792,5 @@ exports._testables = {
   applyPushResult,
   upsertNotificationContent,
   PUSH_LEASE_MS,
+  badgeCountForUser,
 };
