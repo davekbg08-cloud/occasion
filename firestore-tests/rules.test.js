@@ -295,6 +295,19 @@ test("un participant ne peut plus modifier lastMessage/lastMessageAt/lastSenderI
   );
 });
 
+test("un participant ne peut plus supprimer directement un chat (passe par la Cloud Function deleteChat)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(buyer.collection("chats").doc("chat1").delete());
+});
+
 test("un acheteur ne peut plus créer directement un message (passe par sendChatMessage)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({

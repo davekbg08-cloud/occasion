@@ -783,6 +783,75 @@ exports.markChatAsRead = onCall(async (request) => {
 });
 
 /**
+ * Supprime une conversation. Remplace l'ancienne suppression client directe
+ * (`ChatService.deleteChat` écrivait `chats/{chatId}.delete()` elle-même) :
+ * une fois le chat supprimé, plus aucun mécanisme (`markChatAsRead`) ne peut
+ * jamais décompter les messages non lus qu'il contenait du badge global
+ * `users/{uid}.unreadMessageCount` — celui-ci resterait gonflé pour
+ * toujours. Cette fonction décrémente donc d'abord les deux participants
+ * (même principe `max(0, ...)` que `markChatAsRead`/`incrementChatUnread`,
+ * jamais négatif) dans la même transaction que la suppression du document
+ * `chats/{chatId}`, puis nettoie la sous-collection `messages` — jamais
+ * supprimée en cascade par Firestore — via `recursiveDelete`, hors
+ * transaction (incompatible avec le BulkWriter qu'il utilise en interne).
+ *
+ * Idempotent : un rejeu sur un chat déjà supprimé renvoie simplement
+ * `{ deleted: true }` sans rien modifier de plus.
+ */
+exports.deleteChat = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+
+  await db.runTransaction(async (tx) => {
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) return;
+
+    const chatData = chatSnap.data();
+    if (chatData.buyerId !== uid && chatData.sellerId !== uid) {
+      throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+    }
+
+    const buyerRef = db.collection("users").doc(chatData.buyerId);
+    const sellerRef = db.collection("users").doc(chatData.sellerId);
+    const [buyerSnap, sellerSnap] = await Promise.all([tx.get(buyerRef), tx.get(sellerRef)]);
+
+    const buyerUnread = chatData.buyerUnreadCount ?? 0;
+    const sellerUnread = chatData.sellerUnreadCount ?? 0;
+
+    if (buyerUnread > 0) {
+      const freshBuyerCount = buyerSnap.data()?.unreadMessageCount ?? 0;
+      tx.set(
+        buyerRef,
+        { unreadMessageCount: Math.max(0, freshBuyerCount - buyerUnread) },
+        { merge: true }
+      );
+    }
+    if (sellerUnread > 0) {
+      const freshSellerCount = sellerSnap.data()?.unreadMessageCount ?? 0;
+      tx.set(
+        sellerRef,
+        { unreadMessageCount: Math.max(0, freshSellerCount - sellerUnread) },
+        { merge: true }
+      );
+    }
+
+    tx.delete(chatRef);
+  });
+
+  await db.recursiveDelete(chatRef.collection("messages"));
+
+  return { deleted: true };
+});
+
+/**
  * Annonce un nouveau statut à tous les acheteurs abonnés au topic FCM
  * `new_status` (topic global, décision produit : pas de préférence par
  * catégorie/vendeur dans cette passe). Un seul appel `fcm.send({topic})` —

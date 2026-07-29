@@ -443,11 +443,13 @@ service cloud.firestore {
         && request.resource.data.get('lastMessage', null) == resource.data.get('lastMessage', null)
         && request.resource.data.get('lastMessageAt', null) == resource.data.get('lastMessageAt', null)
         && request.resource.data.get('lastSenderId', null) == resource.data.get('lastSenderId', null);
-      allow delete: if signedIn()
-        && (
-          resource.data.buyerId == request.auth.uid
-          || resource.data.sellerId == request.auth.uid
-        );
+      // Suppression exclusivement via la Cloud Function callable
+      // `deleteChat` (Admin SDK, contourne ces règles) : elle décrémente
+      // d'abord le badge global des deux participants pour les messages non
+      // lus du chat, ce qu'une suppression client directe ne pouvait jamais
+      // faire (le badge restait gonflé pour toujours une fois le chat
+      // supprimé, voir functions/index.js::deleteChat).
+      allow delete: if false;
 
       match /messages/{messageId} {
         allow read: if isChatParticipant(chatId);

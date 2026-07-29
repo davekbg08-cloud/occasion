@@ -209,7 +209,14 @@ class ChatService {
     return future;
   }
 
+  /// Délègue entièrement à la Cloud Function callable `deleteChat` (Admin
+  /// SDK) : une suppression client directe ne pouvait jamais décompter le
+  /// badge global `unreadMessageCount` des deux participants pour les
+  /// messages non lus du chat supprimé (voir `functions/index.js::deleteChat`),
+  /// qui restait alors gonflé pour toujours.
   Future<void> deleteChat(String chatId) async {
-    await _chats.doc(chatId).delete();
+    await _functions.httpsCallable('deleteChat').call(<String, dynamic>{
+      'chatId': chatId,
+    });
   }
 }

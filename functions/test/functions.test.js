@@ -800,6 +800,96 @@ test("sendChatMessage puis onNewMessage : le pipeline compteur non lu/badge s'ap
   assert.equal(sellerSnap.data().unreadMessageCount, 1);
 });
 
+test("deleteChat : supprime le chat et décrémente le badge global des deux participants pour leurs messages non lus", async () => {
+  const chatId = "chat-delete-basic";
+  await seedChat(chatId, { buyerUnreadCount: 3, sellerUnreadCount: 2 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 5 });
+  await db.collection("users").doc("seller1").set({ unreadMessageCount: 2 });
+
+  const result = await functions.deleteChat.run({
+    data: { chatId },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.deleted, true);
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.exists, false);
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(buyerSnap.data().unreadMessageCount, 2, "5 - 3 messages non lus du chat supprimé");
+  const sellerSnap = await db.collection("users").doc("seller1").get();
+  assert.equal(sellerSnap.data().unreadMessageCount, 0, "2 - 2 messages non lus du chat supprimé");
+});
+
+test("deleteChat : ne fait jamais descendre le badge global sous 0, même avec un historique incohérent", async () => {
+  const chatId = "chat-delete-negative-guard";
+  await seedChat(chatId, { buyerUnreadCount: 10, sellerUnreadCount: 0 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 3 });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(buyerSnap.data().unreadMessageCount, 0);
+});
+
+test("deleteChat : supprime aussi la sous-collection messages (jamais supprimée en cascade par Firestore sinon)", async () => {
+  const chatId = "chat-delete-messages";
+  await seedChat(chatId);
+  await db.collection("chats").doc(chatId).collection("messages").doc("m1").set({
+    senderId: "buyer1",
+    receiverId: "seller1",
+    content: "Bonjour",
+    status: "sent",
+    sentAt: Date.now(),
+  });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("m1").get();
+  assert.equal(msgSnap.exists, false);
+});
+
+test("deleteChat : idempotent — un rejeu sur un chat déjà supprimé ne lève pas d'erreur", async () => {
+  const chatId = "chat-delete-idempotent";
+  await seedChat(chatId, { buyerUnreadCount: 1 });
+  await db.collection("users").doc("buyer1").set({ unreadMessageCount: 1 });
+
+  await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+  const replay = await functions.deleteChat.run({ data: { chatId }, auth: { uid: "buyer1" } });
+  assert.equal(replay.deleted, true);
+
+  const buyerSnap = await db.collection("users").doc("buyer1").get();
+  assert.equal(
+    buyerSnap.data().unreadMessageCount,
+    0,
+    "le rejeu ne doit jamais décrémenter une seconde fois (le chat n'existe plus)"
+  );
+});
+
+test("deleteChat : rejette un appel non authentifié et un utilisateur qui ne participe pas à la conversation", async () => {
+  const chatId = "chat-delete-rejects";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.deleteChat.run({ data: { chatId }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => functions.deleteChat.run({ data: { chatId }, auth: { uid: "outsider" } }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.exists, true, "un appel rejeté ne doit rien supprimer");
+});
+
 test("applyPushResult : un succès FCM réel fait passer un message de sent à delivered", async () => {
   const chatId = "chat-delivered-basic";
   const messageId = "msg-delivered-1";
