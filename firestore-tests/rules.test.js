@@ -308,6 +308,162 @@ test("un participant ne peut plus supprimer directement un chat (passe par la Cl
   await assertFails(buyer.collection("chats").doc("chat1").delete());
 });
 
+test("un acheteur peut créer un chat valide (participants cohérents, compteurs à 0)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("chats")
+      .doc("chat-valid")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "seller1",
+        buyerName: "Acheteur",
+        sellerName: "Vendeur",
+        participants: ["buyer1", "seller1"],
+        buyerUnreadCount: 0,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("un chat avec le même acheteur et vendeur est refusé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat-same")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "buyer1",
+        participants: ["buyer1"],
+        buyerUnreadCount: 0,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("un chat avec un participant vide est refusé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat-empty-participant")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "",
+        participants: ["buyer1", ""],
+        buyerUnreadCount: 0,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("un chat avec une liste participants incohérente (ne correspond pas à buyerId/sellerId) est refusé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat-bad-participants")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "seller1",
+        participants: ["buyer1", "quelqu-un-d-autre"],
+        buyerUnreadCount: 0,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("un chat avec un compteur initial non nul est refusé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat-nonzero-counter")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "seller1",
+        participants: ["buyer1", "seller1"],
+        buyerUnreadCount: 5,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("un tiers non participant ne peut pas créer un chat entre deux autres utilisateurs", async () => {
+  const outsider = testEnv.authenticatedContext("outsider1").firestore();
+  await assertFails(
+    outsider
+      .collection("chats")
+      .doc("chat-outsider")
+      .set({
+        buyerId: "buyer1",
+        sellerId: "seller1",
+        participants: ["buyer1", "seller1"],
+        buyerUnreadCount: 0,
+        sellerUnreadCount: 0,
+      })
+  );
+});
+
+test("buyerId/sellerId sont immuables après création d'un chat", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      participants: ["buyer1", "seller1"],
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ sellerId: "seller2" })
+  );
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ buyerId: "buyer2" })
+  );
+});
+
+test("participants ne peut pas être modifié vers une valeur incohérente", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      participants: ["buyer1", "seller1"],
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .update({ participants: ["buyer1", "quelqu-un-d-autre"] })
+  );
+});
+
+test("un très ancien chat sans champ participants peut se le voir corriger à la bonne valeur (backfill), jamais à une valeur fausse", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat-legacy").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+      // Pas de champ `participants` du tout — simulate un chat créé avant
+      // l'existence de ce champ.
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer
+      .collection("chats")
+      .doc("chat-legacy")
+      .update({ participants: ["buyer1", "seller1"] })
+  );
+});
+
 test("un acheteur ne peut plus créer directement un message (passe par sendChatMessage)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({

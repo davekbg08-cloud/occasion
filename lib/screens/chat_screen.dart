@@ -19,7 +19,8 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with WidgetsBindingObserver {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   String? _lastMessageId;
@@ -28,13 +29,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final uid = ref.read(authNotifierProvider).currentUser?.id ?? '';
       ref
           .read(chatNotifierProvider.notifier)
           .listenMessages(widget.chat.id, uid);
+      // Réouverture de la conversation : retente automatiquement, de façon
+      // bornée, les messages restés `failed`/en attente depuis une session
+      // précédente (voir `retryAllPending`) — jamais de nouvel id généré.
+      ref.read(chatNotifierProvider.notifier).retryAllPending(widget.chat.id);
     });
     _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Retour au premier plan : retente les messages en échec/en attente de
+    // cette conversation, toujours borné (voir `retryAllPending`) — le
+    // résultat réel de l'appel serveur reste la seule preuve de succès, pas
+    // la simple présence d'une connexion.
+    if (state == AppLifecycleState.resumed) {
+      ref.read(chatNotifierProvider.notifier).retryAllPending(widget.chat.id);
+    }
   }
 
   void _onScroll() {
@@ -46,6 +63,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
@@ -65,12 +83,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _send() async {
+    // 1. Connexion vérifiée AVANT toute lecture/nettoyage du texte : le
+    // champ ne doit jamais être vidé si l'utilisateur n'est plus connecté.
+    final me = ref.read(authNotifierProvider).currentUser;
+    if (me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vous devez être connecté pour envoyer un message.'),
+        ),
+      );
+      return;
+    }
+
     final text = _inputController.text.trim();
     if (text.isEmpty) return;
-
-    _inputController.clear();
-    final me = ref.read(authNotifierProvider).currentUser;
-    if (me == null) return;
 
     await ref
         .read(chatNotifierProvider.notifier)
@@ -79,8 +105,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           senderId: me.id,
           receiverId: widget.chat.otherUserId(me.id),
           content: text,
+          // Ne vider le champ qu'une fois la persistance locale confirmée
+          // et la bulle optimiste affichée — jamais avant, jamais si la
+          // sauvegarde locale échoue (voir ChatNotifier.sendMessage).
+          onQueued: () {
+            _inputController.clear();
+            _scrollToBottom();
+          },
         );
-    _scrollToBottom();
   }
 
   @override

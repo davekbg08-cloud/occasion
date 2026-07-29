@@ -411,11 +411,29 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
+      // Un chat corrompu (participant vide, acheteur == vendeur, liste
+      // participants incohérente) ou un compteur initial arbitraire ne
+      // doivent jamais être acceptés à la création — la conversation entière
+      // repose ensuite sur ces invariants (voir sendChatMessage côté
+      // serveur, qui suppose buyerId/sellerId non vides et distincts).
       allow create: if signedIn()
+        && request.resource.data.buyerId is string
+        && request.resource.data.buyerId.size() > 0
+        && request.resource.data.sellerId is string
+        && request.resource.data.sellerId.size() > 0
+        && request.resource.data.buyerId != request.resource.data.sellerId
         && (
-          request.resource.data.buyerId == request.auth.uid
-          || request.resource.data.sellerId == request.auth.uid
-        );
+          request.auth.uid == request.resource.data.buyerId
+          || request.auth.uid == request.resource.data.sellerId
+        )
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.participants.hasAll([
+          request.resource.data.buyerId,
+          request.resource.data.sellerId,
+        ])
+        && request.resource.data.get('buyerUnreadCount', 0) == 0
+        && request.resource.data.get('sellerUnreadCount', 0) == 0;
       // 'read' autorise aussi un document inexistant (le client fait un
       // get-then-create dans getOrCreateChat) : sans cette garde,
       // resource.data serait null et Firestore refuserait systématiquement
@@ -431,18 +449,37 @@ service cloud.firestore {
       // client : l'incrément (onNewMessage), la remise à jour lors de la
       // lecture (markChatAsRead) et l'écriture du dernier message
       // (sendChatMessage) passent exclusivement par l'Admin SDK, qui
-      // contourne ces règles. Un participant peut toujours modifier les
-      // autres métadonnées du chat (listingId, listingTitle, ...).
+      // contourne ces règles. buyerId/sellerId sont immuables après
+      // création. `participants` ne peut être modifié que pour être
+      // ramené à sa valeur correcte (les deux participants réels) — jamais
+      // à autre chose ; ceci (plutôt qu'une immutabilité stricte)
+      // permet de corriger a posteriori un très ancien chat créé avant
+      // l'existence de ce champ, sans jamais autoriser une valeur fausse.
+      // Un participant peut toujours modifier les autres métadonnées du
+      // chat (listingId, listingTitle, ...).
       allow update: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
           || resource.data.sellerId == request.auth.uid
         )
+        && request.resource.data.buyerId == resource.data.buyerId
+        && request.resource.data.sellerId == resource.data.sellerId
         && request.resource.data.get('buyerUnreadCount', 0) == resource.data.get('buyerUnreadCount', 0)
         && request.resource.data.get('sellerUnreadCount', 0) == resource.data.get('sellerUnreadCount', 0)
         && request.resource.data.get('lastMessage', null) == resource.data.get('lastMessage', null)
         && request.resource.data.get('lastMessageAt', null) == resource.data.get('lastMessageAt', null)
-        && request.resource.data.get('lastSenderId', null) == resource.data.get('lastSenderId', null);
+        && request.resource.data.get('lastSenderId', null) == resource.data.get('lastSenderId', null)
+        && (
+          request.resource.data.get('participants', null) == resource.data.get('participants', null)
+          || (
+            request.resource.data.participants is list
+            && request.resource.data.participants.size() == 2
+            && request.resource.data.participants.hasAll([
+              resource.data.buyerId,
+              resource.data.sellerId,
+            ])
+          )
+        );
       // Suppression exclusivement via la Cloud Function callable
       // `deleteChat` (Admin SDK, contourne ces règles) : elle décrémente
       // d'abord le badge global des deux participants pour les messages non

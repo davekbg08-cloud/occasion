@@ -389,6 +389,23 @@ class _AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Un changement d'utilisateur authentifié (déconnexion, ou reconnexion
+    // avec un compte différent) doit vider entièrement l'état messagerie en
+    // mémoire de l'ancien compte — sinon ses chats/messages resteraient
+    // visibles au suivant tant que les nouveaux flux Firestore n'ont pas
+    // émis (voir `ChatNotifier.resetForUserChange`). `previous == null`
+    // correspond au tout premier rendu (rien à réinitialiser, pas un
+    // changement de compte réel). La boîte d'envoi locale persistante
+    // n'est volontairement PAS effacée ici : elle reste isolée par
+    // utilisateur (clé de stockage), un message encore non confirmé doit
+    // pouvoir être retenté si ce même compte se reconnecte plus tard.
+    ref.listen<AuthState>(authNotifierProvider, (previous, next) {
+      if (previous == null) return;
+      if (previous.currentUser?.id != next.currentUser?.id) {
+        ref.read(chatNotifierProvider.notifier).resetForUserChange();
+      }
+    });
+
     final authState = ref.watch(authNotifierProvider);
     final currentUser = authState.currentUser;
 
