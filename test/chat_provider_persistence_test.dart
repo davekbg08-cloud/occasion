@@ -120,13 +120,27 @@ void main() {
         secondSession.listenMessages('chat1', 'buyer1');
         await Future<void>.delayed(Duration.zero);
 
+        // _loadPendingForChat déclenche désormais lui-même un retry
+        // automatique borné dès la réouverture (voir le test dédié
+        // ci-dessus) : le réseau échoue encore ici (shouldFailSend est
+        // encore true à ce stade), donc cette tentative automatique
+        // échoue aussi et compte comme un deuxième envoi avec le MÊME id
+        // — c'est le comportement attendu, pas une régression.
+        expect(service.sentClientMessageIds, [originalId, originalId]);
+
         service.shouldFailSend = false;
         final restoredId =
             secondSession.state.messagesByChatId['chat1']!.single.id;
         expect(restoredId, originalId);
         await secondSession.retryMessage('chat1', restoredId);
 
-        expect(service.sentClientMessageIds, [originalId, originalId]);
+        expect(
+          service.sentClientMessageIds,
+          [originalId, originalId, originalId],
+          reason:
+              'le retry manuel réutilise toujours le même id, même après un '
+              'retry automatique préalable ayant échoué',
+        );
       },
     );
 
@@ -223,7 +237,7 @@ void main() {
     );
 
     test(
-      'application tuée EN PLEIN ENVOI (état sending, pas failed) : le message est automatiquement relancé à la réouverture, jamais bloqué indéfiniment',
+      'application tuée EN PLEIN ENVOI (état sending, pas failed) : le message est automatiquement relancé à la réouverture, jamais bloqué indéfiniment, MÊME sans attendre entre listenMessages et retryAllPending',
       () async {
         // Simule l'état disque laissé par une session précédente tuée
         // juste après que _dispatchSend ait écrit `sending` mais avant que
@@ -248,22 +262,74 @@ void main() {
 
         final service = _FakeChatService();
         final notifier = ChatNotifier(service: service, pendingStore: store);
+
+        // Reproduit EXACTEMENT l'ordre réel de chat_screen.dart::initState :
+        // listenMessages (qui déclenche _loadPendingForChat en
+        // `unawaited`, donc non terminé à ce point) immédiatement suivi de
+        // retryAllPending, SANS aucun délai entre les deux appels — un
+        // délai artificiel ici masquerait la course que ce test doit
+        // détecter (voir _loadPendingForChat, qui doit désormais relancer
+        // lui-même retryAllPending une fois la restauration terminée).
         notifier.listenMessages('chat1', 'buyer1');
-        await Future<void>.delayed(Duration.zero);
-
-        // Restauré : affiché sending, mais rien n'est réellement en vol.
-        final restored = notifier.state.messagesByChatId['chat1'] ?? const [];
-        expect(restored.single.status, MessageStatus.sending);
-        expect(service.sentClientMessageIds, isEmpty);
-
-        // Réouverture de la conversation (ce que fait réellement
-        // chat_screen.dart à l'initState) : doit relancer ce message
-        // orphelin, avec le MÊME clientMessageId, jamais un nouveau.
         await notifier.retryAllPending('chat1');
 
-        expect(service.sentClientMessageIds, ['local-killed-mid-send']);
+        // Stabilisation APRÈS les deux appels seulement (légitime : laisse
+        // le temps aux chaînes `unawaited` internes de se terminer avant
+        // d'affirmer l'état final), jamais entre les deux appels testés.
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          service.sentClientMessageIds,
+          contains('local-killed-mid-send'),
+          reason:
+              'le message restauré doit être relancé avec le MÊME clientMessageId, '
+              'même quand retryAllPending est appelé sans attendre _loadPendingForChat',
+        );
         final afterRetry = notifier.state.messagesByChatId['chat1'] ?? const [];
         expect(afterRetry.single.status, MessageStatus.sending);
+      },
+    );
+
+    test(
+      'un message sending qui atteint le plafond de retry auto bascule en failed (bouton Réessayer redevient disponible)',
+      () async {
+        final store = PendingMessageStore();
+        await store.upsert(
+          'buyer1',
+          PendingChatMessage(
+            clientMessageId: 'local-capped',
+            chatId: 'chat1',
+            senderId: 'buyer1',
+            receiverId: 'seller1',
+            content: 'Message bloqué',
+            localCreatedAt: DateTime.now(),
+            state: PendingMessageState.sending,
+            attemptCount: ChatNotifier.maxAutoRetryAttempts,
+          ),
+        );
+
+        final service = _FakeChatService();
+        final notifier = ChatNotifier(service: service, pendingStore: store);
+
+        notifier.listenMessages('chat1', 'buyer1');
+        await notifier.retryAllPending('chat1');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          service.sentClientMessageIds,
+          isEmpty,
+          reason: 'le plafond doit bloquer tout nouvel envoi automatique',
+        );
+        final afterCap = notifier.state.messagesByChatId['chat1'] ?? const [];
+        expect(
+          afterCap.single.status,
+          MessageStatus.failed,
+          reason:
+              'sans cette bascule, le message resterait sending indéfiniment, '
+              'sans jamais afficher le bouton Réessayer',
+        );
+        final persisted = await store.load('buyer1');
+        expect(persisted.single.state, PendingMessageState.failed);
       },
     );
 

@@ -219,6 +219,13 @@ class ChatNotifier extends StateNotifier<ChatState> {
         chatId: [...current, ...restored],
       },
     );
+
+    // Ne jamais dépendre de l'ordre d'appel de `chat_screen.dart` (qui
+    // appelle `retryAllPending` immédiatement après `listenMessages`, sans
+    // attendre ce chargement asynchrone `unawaited` de plus haut) : cette
+    // méthode déclenche elle-même le retry dès que des bulles restaurées
+    // existent, pour que la garantie tienne quel que soit l'appelant.
+    await retryAllPending(chatId);
   }
 
   /// Retire de la boîte d'envoi locale toute entrée dont le
@@ -449,7 +456,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
       final pendingList = await _pendingStore.load(target.senderId);
       final entry = _findPending(pendingList, chatId, target.id);
       if (entry != null && entry.attemptCount >= maxAutoRetryAttempts) {
-        continue; // plafond atteint : reste visible avec Réessayer manuel.
+        // Plafond atteint : un message encore affiché `sending` (restauré
+        // du disque, jamais un appel en vol dans cette session — voir le
+        // filtre `_inFlightDispatchIds` ci-dessus) n'a alors plus AUCUN
+        // moyen d'être relancé, ni bouton (réservé à `failed`) ni retry
+        // auto (bloqué par ce même plafond) : bascule explicitement vers
+        // `failed` pour rendre le bouton "Réessayer" manuel disponible.
+        if (target.status != MessageStatus.failed) {
+          _replaceLocalMessage(
+            chatId,
+            target.copyWith(status: MessageStatus.failed),
+          );
+          await _pendingStore.upsert(
+            target.senderId,
+            entry.copyWith(state: PendingMessageState.failed),
+          );
+        }
+        continue;
       }
       if (target.status == MessageStatus.failed) {
         await retryMessage(chatId, target.id);
