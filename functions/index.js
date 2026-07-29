@@ -614,23 +614,33 @@ exports.onNewMessage = onDocumentCreated(
  * collection, mêmes champs) : aucune duplication de logique, le pipeline
  * d'incrément du compteur non lu et de notification s'applique tel quel.
  */
+// Identifiant compatible avec un id de document Firestore : non vide,
+// longueur bornée, jamais de '/' (séparateur de chemin), jamais '.'/'..'
+// (nom réservé). Utilisé pour valider `chatId` et `clientMessageId` reçus
+// du client avant de les utiliser dans un chemin Firestore.
+function isValidDocId(value, maxLength) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maxLength &&
+    !value.includes("/") &&
+    value !== "." &&
+    value !== ".."
+  );
+}
+
 exports.sendChatMessage = onCall(async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "Authentification requise.");
   }
   const chatId = request.data?.chatId;
-  if (!chatId || typeof chatId !== "string") {
-    throw new HttpsError("invalid-argument", "chatId requis.");
+  if (!isValidDocId(chatId, 200)) {
+    throw new HttpsError("invalid-argument", "chatId invalide.");
   }
   const clientMessageId = request.data?.clientMessageId;
-  if (
-    !clientMessageId ||
-    typeof clientMessageId !== "string" ||
-    clientMessageId.length === 0 ||
-    clientMessageId.length > 128
-  ) {
-    throw new HttpsError("invalid-argument", "clientMessageId requis.");
+  if (!isValidDocId(clientMessageId, 128)) {
+    throw new HttpsError("invalid-argument", "clientMessageId invalide.");
   }
   const rawContent = request.data?.content;
   const content = typeof rawContent === "string" ? rawContent.trim() : "";
@@ -647,16 +657,58 @@ exports.sendChatMessage = onCall(async (request) => {
       throw new HttpsError("not-found", "Conversation introuvable.");
     }
     const chatData = chatSnap.data();
-    if (uid !== chatData.buyerId && uid !== chatData.sellerId) {
+
+    // Une conversation corrompue (participants manquants/identiques) ne
+    // doit jamais permettre l'envoi d'un message : mieux vaut refuser que
+    // de dériver un receiverId incohérent.
+    const buyerId = chatData.buyerId;
+    const sellerId = chatData.sellerId;
+    if (
+      typeof buyerId !== "string" ||
+      buyerId.length === 0 ||
+      typeof sellerId !== "string" ||
+      sellerId.length === 0 ||
+      buyerId === sellerId
+    ) {
+      throw new HttpsError("failed-precondition", "Conversation invalide.");
+    }
+    if (uid !== buyerId && uid !== sellerId) {
       throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
     }
     // Le serveur détermine seul le destinataire à partir des participants
     // réels du chat — jamais une valeur envoyée par le client.
-    const receiverId = uid === chatData.buyerId ? chatData.sellerId : chatData.buyerId;
+    const receiverId = uid === buyerId ? sellerId : buyerId;
+    if (!receiverId || receiverId === uid) {
+      throw new HttpsError("failed-precondition", "Conversation invalide.");
+    }
 
     const msgSnap = await tx.get(msgRef);
     if (msgSnap.exists) {
-      return { chatId, messageId: clientMessageId, alreadyExisted: true };
+      const existing = msgSnap.data();
+      // Rejeu légitime (retry, double-tap, réponse callable perdue) :
+      // même expéditeur, même contenu, même id — ne rien réécrire.
+      if (
+        existing.senderId === uid &&
+        existing.clientMessageId === clientMessageId &&
+        existing.content === content
+      ) {
+        return { chatId, messageId: clientMessageId, alreadyExisted: true };
+      }
+      // Collision hostile : quelqu'un d'autre a déjà utilisé cet id (jamais
+      // le même expéditeur) — refuser sans rien modifier.
+      if (existing.senderId !== uid) {
+        throw new HttpsError(
+          "permission-denied",
+          "Ce clientMessageId appartient déjà à un autre expéditeur."
+        );
+      }
+      // Même expéditeur mais contenu différent : un vrai rejeu ne doit
+      // jamais différer, refuser plutôt que de silencieusement écraser ou
+      // ignorer un contenu différent.
+      throw new HttpsError(
+        "already-exists",
+        "Un message différent existe déjà avec cet identifiant."
+      );
     }
 
     const sentAt = Date.now();
@@ -667,6 +719,8 @@ exports.sendChatMessage = onCall(async (request) => {
       status: "sent",
       clientMessageId,
       sentAt,
+      createdAt: FieldValue.serverTimestamp(),
+      unreadProcessed: false,
     });
     tx.update(chatRef, {
       lastMessage: content,
