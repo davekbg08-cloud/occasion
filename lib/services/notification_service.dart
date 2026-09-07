@@ -27,7 +27,21 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
     // Firebase may already be initialized by the platform isolate.
   }
   final title = message.notification?.title ?? message.data['title'];
-  debugPrint('Notification arrière-plan : $title');
+  debugPrint('Notification arrière-plan reçue : $title');
+
+  // Filet de sécurité : un message avec un bloc `notification` (cas actuel
+  // de tous les envois serveur : sendToUser/onNewStatus) est déjà affiché
+  // automatiquement par le système à ce stade — ne RIEN afficher ici pour
+  // ne jamais créer de doublon.
+  //
+  // Un message purement `data` (aucun envoi actuel n'en produit, mais nous
+  // protège d'un futur oubli côté Cloud Functions) ne serait sinon jamais
+  // visible en arrière-plan/app fermée : ce handler ne faisait que logger.
+  // On l'affiche donc nous-mêmes dans ce seul cas.
+  if (message.notification == null) {
+    debugPrint('Message data-only en arrière-plan : affichage manuel de secours');
+    await NotificationService._showBackgroundFallbackNotification(message);
+  }
 }
 
 class NotificationService {
@@ -139,7 +153,7 @@ class NotificationService {
   static Future<void> _setupLocalNotifications(
     GlobalKey<NavigatorState> navigatorKey,
   ) async {
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@drawable/ic_stat_notification');
     const ios = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -187,7 +201,7 @@ class NotificationService {
           channelDescription: channel.description,
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_stat_notification',
           enableVibration: true,
           vibrationPattern: channel.vibrationPattern,
         ),
@@ -195,6 +209,54 @@ class NotificationService {
           presentAlert: true,
           presentBadge: true,
           presentSound: true,
+        ),
+      ),
+      payload: _buildPayload(message.data),
+    );
+  }
+
+  /// Filet de sécurité pour l'isolate d'arrière-plan (voir
+  /// [firebaseBackgroundHandler]) : n'affiche que les messages `data`-only
+  /// qui n'auraient sinon jamais été affichés par le système. Utilise sa
+  /// propre instance du plugin car cet isolate ne partage pas l'état de
+  /// [_local]/[init] de l'isolate principal — (re)créer les canaux ici est
+  /// sans effet si déjà créés (idempotent côté Android).
+  static Future<void> _showBackgroundFallbackNotification(
+    RemoteMessage message,
+  ) async {
+    final title = message.data['title'] as String?;
+    final body = message.data['body'] as String?;
+    if ((title == null || title.isEmpty) && (body == null || body.isEmpty)) {
+      return;
+    }
+
+    final channel = _channelForType(message.data['type'] as String?);
+    final local = FlutterLocalNotificationsPlugin();
+
+    const android = AndroidInitializationSettings('@drawable/ic_stat_notification');
+    await local.initialize(
+      settings: const InitializationSettings(android: android),
+    );
+    final androidImpl = local
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    await androidImpl?.createNotificationChannel(channel);
+
+    await local.show(
+      id: message.hashCode,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@drawable/ic_stat_notification',
+          enableVibration: true,
+          vibrationPattern: channel.vibrationPattern,
         ),
       ),
       payload: _buildPayload(message.data),

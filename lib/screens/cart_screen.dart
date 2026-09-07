@@ -12,6 +12,9 @@ class CartScreen extends ConsumerWidget {
     final cartItems = ref.watch(cartNotifierProvider);
     final cartNotifier = ref.read(cartNotifierProvider.notifier);
     final total = cartItems.fold(0.0, (sum, item) => sum + item.totalPrice);
+    // Une seule devise par panier est garantie par CartNotifier.addToCart —
+    // sûr de lire cartItems.first ici.
+    final cartCurrency = cartItems.isEmpty ? '' : cartItems.first.product.currency;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mon Panier')),
@@ -32,7 +35,7 @@ class CartScreen extends ConsumerWidget {
                 return ListTile(
                   title: Text(item.product.name),
                   subtitle: Text(
-                    '${item.product.price.toInt()} FCFA × ${item.quantity}',
+                    '${item.product.price.toInt()} ${item.product.currency} × ${item.quantity}',
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -89,7 +92,7 @@ class CartScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          '${total.toInt()} FCFA',
+                          '${total.toInt()} $cartCurrency',
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
