@@ -39,7 +39,7 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   // visible en arrière-plan/app fermée : ce handler ne faisait que logger.
   // On l'affiche donc nous-mêmes dans ce seul cas.
   if (message.notification == null) {
-    debugPrint('Message data-only en arrière-plan : affichage manuel de secours');
+    debugPrint('Message data-only en arrière-plan : secours manuel');
     await NotificationService._showBackgroundFallbackNotification(message);
   }
 }
@@ -153,7 +153,9 @@ class NotificationService {
   static Future<void> _setupLocalNotifications(
     GlobalKey<NavigatorState> navigatorKey,
   ) async {
-    const android = AndroidInitializationSettings('@drawable/ic_stat_notification');
+    const android = AndroidInitializationSettings(
+      '@drawable/ic_stat_notification',
+    );
     const ios = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -233,7 +235,9 @@ class NotificationService {
     final channel = _channelForType(message.data['type'] as String?);
     final local = FlutterLocalNotificationsPlugin();
 
-    const android = AndroidInitializationSettings('@drawable/ic_stat_notification');
+    const android = AndroidInitializationSettings(
+      '@drawable/ic_stat_notification',
+    );
     await local.initialize(
       settings: const InitializationSettings(android: android),
     );
