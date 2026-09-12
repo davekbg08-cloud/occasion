@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import '../utils/loyalty_points_estimate.dart';
 import 'photo_carousel.dart';
 import 'report_block_sheet.dart';
 
@@ -80,6 +81,10 @@ class ProductCard extends ConsumerWidget {
         currentUserId != null &&
         product.sellerId != null &&
         currentUserId != product.sellerId;
+    final loyaltyPoints = estimateLoyaltyPoints(
+      product.price,
+      product.currency,
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -196,6 +201,11 @@ class ProductCard extends ConsumerWidget {
                       icon: Icons.shield_outlined,
                       label: 'Payez après vérification',
                     ),
+                    if (showBuyerActions && loyaltyPoints > 0)
+                      _TrustChip(
+                        icon: Icons.card_giftcard,
+                        label: '+$loyaltyPoints points',
+                      ),
                   ],
                 ),
                 if (product.category != null) ...[

@@ -9,6 +9,7 @@ import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
+import '../utils/loyalty_points_estimate.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -105,6 +106,10 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
           final showBuyerActions = currentUser == null || currentUser.isBuyer;
           final canModerate =
               currentUser != null && currentUser.id != annonce.userId;
+          final loyaltyPoints = estimateLoyaltyPoints(
+            annonce.price,
+            annonce.currency,
+          );
 
           return SingleChildScrollView(
             child: Column(
@@ -153,6 +158,26 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                           color: Colors.blue,
                         ),
                       ),
+                      if (showBuyerActions && loyaltyPoints > 0) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.card_giftcard,
+                              size: 16,
+                              color: Colors.green,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Gagnez $loyaltyPoints points en achetant',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Text(annonce.description),
                       const SizedBox(height: 12),
