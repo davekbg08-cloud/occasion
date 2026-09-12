@@ -629,25 +629,54 @@ function isValidDocId(value, maxLength) {
   );
 }
 
-exports.sendChatMessage = onCall(async (request) => {
-  const uid = request.auth?.uid;
-  if (!uid) {
-    throw new HttpsError("unauthenticated", "Authentification requise.");
-  }
-  const chatId = request.data?.chatId;
-  if (!isValidDocId(chatId, 200)) {
-    throw new HttpsError("invalid-argument", "chatId invalide.");
-  }
-  const clientMessageId = request.data?.clientMessageId;
-  if (!isValidDocId(clientMessageId, 128)) {
-    throw new HttpsError("invalid-argument", "clientMessageId invalide.");
-  }
-  const rawContent = request.data?.content;
-  const content = typeof rawContent === "string" ? rawContent.trim() : "";
-  if (!content || content.length > 4000) {
-    throw new HttpsError("invalid-argument", "content requis (max 4000 caractères).");
-  }
+const CHAT_MEDIA_TYPES = new Set(["image", "video"]);
 
+/**
+ * Une URL de média n'est acceptée dans un message que si elle pointe
+ * réellement vers le dossier Storage de CE chat (`chatMedia/{chatId}/...`,
+ * voir `storage.rules`) : l'upload lui-même est déjà verrouillé à ce même
+ * chatId côté Storage (l'appelant doit être participant pour écrire sous ce
+ * chemin), cette vérification est une double protection bon marché côté
+ * écriture du message — empêche qu'un participant réutilise ici l'URL d'un
+ * média appartenant à une AUTRE conversation.
+ */
+function isValidChatMediaUrl(url, chatId) {
+  if (typeof url !== "string" || url.length === 0 || url.length > 2000) {
+    return false;
+  }
+  try {
+    const pathname = decodeURIComponent(new URL(url).pathname);
+    return pathname.includes(`/chatMedia/${chatId}/`);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cœur transactionnel partagé par `sendChatMessage` et
+ * `forwardChatMessage` : valide la conversation cible, dérive le
+ * destinataire, applique l'idempotence sur `clientMessageId` (rejeu
+ * légitime vs collision hostile), écrit le document et met à jour les
+ * métadonnées du chat (`lastMessage`/`lastMessageAt`/`lastSenderId`).
+ * Jamais appelé directement par un client — chaque callable a déjà validé
+ * ses propres paramètres avant d'entrer ici (voir `isValidChatMediaUrl`
+ * pour `sendChatMessage`, qui n'est volontairement PAS réappliquée ici :
+ * `forwardChatMessage` réutilise l'URL déjà validée du message source, qui
+ * pointe légitimement vers le dossier Storage du chat D'ORIGINE, pas la
+ * cible).
+ */
+async function writeChatMessage({
+  uid,
+  chatId,
+  clientMessageId,
+  content,
+  mediaUrl,
+  mediaType,
+  mediaWidth,
+  mediaHeight,
+  forwardedFromChatId,
+  forwardedFromMessageId,
+}) {
   const chatRef = db.collection("chats").doc(chatId);
   const msgRef = chatRef.collection("messages").doc(clientMessageId);
 
@@ -686,11 +715,13 @@ exports.sendChatMessage = onCall(async (request) => {
     if (msgSnap.exists) {
       const existing = msgSnap.data();
       // Rejeu légitime (retry, double-tap, réponse callable perdue) :
-      // même expéditeur, même contenu, même id — ne rien réécrire.
+      // même expéditeur, même contenu, même média, même id — ne rien
+      // réécrire.
       if (
         existing.senderId === uid &&
         existing.clientMessageId === clientMessageId &&
-        existing.content === content
+        existing.content === content &&
+        (existing.mediaUrl ?? null) === (mediaUrl ?? null)
       ) {
         return { chatId, messageId: clientMessageId, alreadyExisted: true };
       }
@@ -712,7 +743,7 @@ exports.sendChatMessage = onCall(async (request) => {
     }
 
     const sentAt = Date.now();
-    tx.set(msgRef, {
+    const doc = {
       senderId: uid,
       receiverId,
       content,
@@ -721,13 +752,158 @@ exports.sendChatMessage = onCall(async (request) => {
       sentAt,
       createdAt: FieldValue.serverTimestamp(),
       unreadProcessed: false,
-    });
+    };
+    if (mediaUrl) {
+      doc.mediaUrl = mediaUrl;
+      doc.mediaType = mediaType;
+      if (mediaWidth) doc.mediaWidth = mediaWidth;
+      if (mediaHeight) doc.mediaHeight = mediaHeight;
+    }
+    if (forwardedFromChatId && forwardedFromMessageId) {
+      doc.forwardedFromChatId = forwardedFromChatId;
+      doc.forwardedFromMessageId = forwardedFromMessageId;
+    }
+    tx.set(msgRef, doc);
+
+    const lastMessagePreview =
+      content || (mediaType === "video" ? "📹 Vidéo" : "📷 Photo");
     tx.update(chatRef, {
-      lastMessage: content,
+      lastMessage: lastMessagePreview,
       lastMessageAt: sentAt,
       lastSenderId: uid,
     });
     return { chatId, messageId: clientMessageId, alreadyExisted: false };
+  });
+}
+
+exports.sendChatMessage = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!isValidDocId(chatId, 200)) {
+    throw new HttpsError("invalid-argument", "chatId invalide.");
+  }
+  const clientMessageId = request.data?.clientMessageId;
+  if (!isValidDocId(clientMessageId, 128)) {
+    throw new HttpsError("invalid-argument", "clientMessageId invalide.");
+  }
+  const rawContent = request.data?.content;
+  const content = typeof rawContent === "string" ? rawContent.trim() : "";
+
+  // Média optionnel : un message peut être une simple légende sans texte
+  // tant qu'une photo/vidéo l'accompagne, mais jamais un message totalement
+  // vide (ni texte ni média).
+  const rawMediaUrl = request.data?.mediaUrl;
+  let mediaUrl;
+  let mediaType;
+  if (rawMediaUrl !== undefined && rawMediaUrl !== null) {
+    const rawMediaType = request.data?.mediaType;
+    if (!CHAT_MEDIA_TYPES.has(rawMediaType)) {
+      throw new HttpsError("invalid-argument", "mediaType invalide.");
+    }
+    if (!isValidChatMediaUrl(rawMediaUrl, chatId)) {
+      throw new HttpsError("invalid-argument", "mediaUrl invalide.");
+    }
+    mediaUrl = rawMediaUrl;
+    mediaType = rawMediaType;
+  }
+
+  if (content.length > 4000) {
+    throw new HttpsError("invalid-argument", "content trop long (max 4000 caractères).");
+  }
+  if (!mediaUrl && !content) {
+    throw new HttpsError("invalid-argument", "content requis (max 4000 caractères).");
+  }
+
+  const rawWidth = request.data?.mediaWidth;
+  const rawHeight = request.data?.mediaHeight;
+  const mediaWidth =
+    typeof rawWidth === "number" && rawWidth > 0 ? Math.floor(rawWidth) : undefined;
+  const mediaHeight =
+    typeof rawHeight === "number" && rawHeight > 0 ? Math.floor(rawHeight) : undefined;
+
+  return writeChatMessage({
+    uid,
+    chatId,
+    clientMessageId,
+    content,
+    mediaUrl,
+    mediaType,
+    mediaWidth,
+    mediaHeight,
+  });
+});
+
+/**
+ * Transfère un message existant (texte et/ou média) vers une AUTRE
+ * conversation dont l'appelant est participant. Ne duplique jamais le
+ * fichier Storage sous-jacent : seul un nouveau document message est créé
+ * dans la conversation cible, référençant la même `mediaUrl` que
+ * l'original, avec `forwardedFromChatId`/`forwardedFromMessageId` pour
+ * l'étiquette "Transféré" côté client. L'appelant doit être participant
+ * des DEUX conversations (celle d'origine, pour avoir légitimement pu lire
+ * ce message ; celle de destination, pour pouvoir y écrire) — jamais
+ * uniquement l'une des deux. Réutilise l'idempotence de `writeChatMessage`
+ * sur `clientMessageId` : un retry ne crée jamais de doublon.
+ */
+exports.forwardChatMessage = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const sourceChatId = request.data?.sourceChatId;
+  if (!isValidDocId(sourceChatId, 200)) {
+    throw new HttpsError("invalid-argument", "sourceChatId invalide.");
+  }
+  const sourceMessageId = request.data?.sourceMessageId;
+  if (!isValidDocId(sourceMessageId, 128)) {
+    throw new HttpsError("invalid-argument", "sourceMessageId invalide.");
+  }
+  const targetChatId = request.data?.targetChatId;
+  if (!isValidDocId(targetChatId, 200)) {
+    throw new HttpsError("invalid-argument", "targetChatId invalide.");
+  }
+  const clientMessageId = request.data?.clientMessageId;
+  if (!isValidDocId(clientMessageId, 128)) {
+    throw new HttpsError("invalid-argument", "clientMessageId invalide.");
+  }
+
+  const sourceChatSnap = await db.collection("chats").doc(sourceChatId).get();
+  if (!sourceChatSnap.exists) {
+    throw new HttpsError("not-found", "Conversation d'origine introuvable.");
+  }
+  const sourceChatData = sourceChatSnap.data();
+  if (uid !== sourceChatData.buyerId && uid !== sourceChatData.sellerId) {
+    throw new HttpsError(
+      "permission-denied",
+      "Vous ne participez pas à la conversation d'origine."
+    );
+  }
+
+  const sourceMsgSnap = await db
+    .collection("chats")
+    .doc(sourceChatId)
+    .collection("messages")
+    .doc(sourceMessageId)
+    .get();
+  if (!sourceMsgSnap.exists) {
+    throw new HttpsError("not-found", "Message introuvable.");
+  }
+  const sourceMsg = sourceMsgSnap.data();
+
+  return writeChatMessage({
+    uid,
+    chatId: targetChatId,
+    clientMessageId,
+    content: sourceMsg.content ?? "",
+    mediaUrl: sourceMsg.mediaUrl,
+    mediaType: sourceMsg.mediaType,
+    mediaWidth: sourceMsg.mediaWidth,
+    mediaHeight: sourceMsg.mediaHeight,
+    forwardedFromChatId: sourceChatId,
+    forwardedFromMessageId: sourceMessageId,
   });
 });
 

@@ -79,7 +79,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
     final title = _isRegistration ? 'Créer un compte $roleLabel' : 'Connexion';
     final subtitle = _isRegistration
         ? 'Utilise une adresse e-mail, un mot de passe et un numero international valide.'
-        : 'Connecte-toi avec ton compte Firebase Occasion.';
+        : 'Connecte-toi avec ton adresse e-mail et ton mot de passe Occasion.';
 
     return Scaffold(
       appBar: AppBar(title: Text(title)),

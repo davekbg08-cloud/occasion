@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/pending_chat_message.dart';
+import '../models/status.dart' show StatusType;
+import '../services/chat_media_upload_service.dart';
 import '../services/chat_service.dart';
 import '../services/pending_message_store.dart';
 
@@ -59,13 +62,18 @@ class ChatState {
 }
 
 class ChatNotifier extends StateNotifier<ChatState> {
-  ChatNotifier({ChatService? service, PendingMessageStore? pendingStore})
-    : _service = service ?? ChatService(),
-      _pendingStore = pendingStore ?? PendingMessageStore(),
-      super(const ChatState());
+  ChatNotifier({
+    ChatService? service,
+    PendingMessageStore? pendingStore,
+    ChatMediaUploadService? mediaUploadService,
+  }) : _service = service ?? ChatService(),
+       _pendingStore = pendingStore ?? PendingMessageStore(),
+       _mediaUploadService = mediaUploadService ?? ChatMediaUploadService(),
+       super(const ChatState());
 
   final ChatService _service;
   final PendingMessageStore _pendingStore;
+  final ChatMediaUploadService _mediaUploadService;
   StreamSubscription<List<Chat>>? _chatsSubscription;
   StreamSubscription<List<Message>>? _messagesSubscription;
   String? _listeningUserId;
@@ -209,6 +217,16 @@ class ChatNotifier extends StateNotifier<ChatState> {
                 ? MessageStatus.failed
                 : MessageStatus.sending,
             sentAt: p.localCreatedAt,
+            mediaUrl: p.mediaUrl,
+            mediaType: p.mediaType == 'video'
+                ? StatusType.video
+                : p.mediaType == 'image'
+                ? StatusType.image
+                : null,
+            mediaWidth: p.mediaWidth,
+            mediaHeight: p.mediaHeight,
+            forwardedFromChatId: p.forwardedFromChatId,
+            forwardedFromMessageId: p.forwardedFromMessageId,
           ),
     ];
     if (restored.isEmpty) return;
@@ -397,6 +415,155 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
   }
 
+  /// Envoi d'une photo/vidéo, avec légende optionnelle. Contrairement à
+  /// [sendMessage], l'upload Storage (potentiellement long, jamais garanti)
+  /// se déroule AVANT toute persistance locale : tant qu'il n'a pas abouti,
+  /// aucune entrée n'existe dans la boîte d'envoi ni bulle affichée — rien
+  /// n'a encore été promis, donc rien à perdre si l'app est tuée pendant
+  /// l'upload (voir le commentaire de `PendingChatMessage`). Une fois
+  /// l'upload terminé (on a une URL), le reste suit EXACTEMENT le même
+  /// ordre sûr que [sendMessage] : persiste → bulle optimiste → dispatch.
+  ///
+  /// Une erreur d'upload est propagée à l'appelant (`chat_screen.dart`,
+  /// pour afficher une erreur inline) plutôt que silencieusement absorbée.
+  Future<void> sendMediaMessage({
+    required String chatId,
+    required String senderId,
+    required String receiverId,
+    required XFile mediaFile,
+    required StatusType mediaKind,
+    String caption = '',
+    void Function(double progress)? onUploadProgress,
+  }) async {
+    if (senderId.isEmpty) return;
+
+    final clientMessageId = _service.newClientMessageId(chatId);
+    final uploaded = await _mediaUploadService.upload(
+      chatId: chatId,
+      clientMessageId: clientMessageId,
+      mediaFile: mediaFile,
+      type: mediaKind,
+      onProgress: onUploadProgress,
+    );
+
+    final trimmedCaption = caption.trim();
+    final now = DateTime.now();
+    final pending = PendingChatMessage(
+      clientMessageId: clientMessageId,
+      chatId: chatId,
+      senderId: senderId,
+      receiverId: receiverId,
+      content: trimmedCaption,
+      localCreatedAt: now,
+      state: PendingMessageState.queued,
+      mediaUrl: uploaded.url,
+      mediaType: uploaded.type.name,
+      mediaWidth: uploaded.width,
+      mediaHeight: uploaded.height,
+    );
+
+    try {
+      await _pendingStore.upsert(senderId, pending);
+    } catch (error) {
+      state = state.copyWith(error: error.toString());
+      return;
+    }
+
+    _appendLocalMessage(
+      chatId,
+      Message(
+        id: clientMessageId,
+        chatId: chatId,
+        senderId: senderId,
+        receiverId: receiverId,
+        content: trimmedCaption,
+        status: MessageStatus.sending,
+        sentAt: now,
+        mediaUrl: uploaded.url,
+        mediaType: uploaded.type,
+        mediaWidth: uploaded.width,
+        mediaHeight: uploaded.height,
+      ),
+    );
+
+    await _dispatchSend(
+      userId: senderId,
+      chatId: chatId,
+      clientMessageId: clientMessageId,
+      content: trimmedCaption,
+      basePending: pending,
+    );
+  }
+
+  /// Transfère [source] (texte et/ou média) vers [targetChatId]. Réutilise
+  /// intégralement la boîte d'envoi/le dispatch/le retry de [sendMessage] —
+  /// un transfert qui échoue est retentable, survit à un redémarrage,
+  /// jamais dupliqué (voir `_dispatchSend`, qui bascule vers
+  /// `ChatService.forwardMessage` dès que `forwardedFromChatId`/
+  /// `forwardedFromMessageId` sont renseignés sur l'entrée en attente).
+  /// Ne copie jamais le fichier média sous-jacent : `forwardChatMessage`
+  /// (Cloud Function) réutilise la même `mediaUrl`.
+  Future<void> forwardMessage({
+    required Message source,
+    required String targetChatId,
+    required String senderId,
+    required String receiverId,
+  }) async {
+    if (senderId.isEmpty) return;
+
+    final clientMessageId = _service.newClientMessageId(targetChatId);
+    final now = DateTime.now();
+    final pending = PendingChatMessage(
+      clientMessageId: clientMessageId,
+      chatId: targetChatId,
+      senderId: senderId,
+      receiverId: receiverId,
+      content: source.content,
+      localCreatedAt: now,
+      state: PendingMessageState.queued,
+      mediaUrl: source.mediaUrl,
+      mediaType: source.mediaType?.name,
+      mediaWidth: source.mediaWidth,
+      mediaHeight: source.mediaHeight,
+      forwardedFromChatId: source.chatId,
+      forwardedFromMessageId: source.id,
+    );
+
+    try {
+      await _pendingStore.upsert(senderId, pending);
+    } catch (error) {
+      state = state.copyWith(error: error.toString());
+      return;
+    }
+
+    _appendLocalMessage(
+      targetChatId,
+      Message(
+        id: clientMessageId,
+        chatId: targetChatId,
+        senderId: senderId,
+        receiverId: receiverId,
+        content: source.content,
+        status: MessageStatus.sending,
+        sentAt: now,
+        mediaUrl: source.mediaUrl,
+        mediaType: source.mediaType,
+        mediaWidth: source.mediaWidth,
+        mediaHeight: source.mediaHeight,
+        forwardedFromChatId: source.chatId,
+        forwardedFromMessageId: source.id,
+      ),
+    );
+
+    await _dispatchSend(
+      userId: senderId,
+      chatId: targetChatId,
+      clientMessageId: clientMessageId,
+      content: source.content,
+      basePending: pending,
+    );
+  }
+
   /// Retente l'envoi d'une bulle en échec (`MessageStatus.failed`) en
   /// réutilisant EXACTEMENT le même `clientMessageId` — un nouveau clic sur
   /// Réessayer, ou un retry automatique borné (voir `retryAllPending`), ne
@@ -423,6 +590,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
         content: target.content,
         localCreatedAt: target.sentAt,
         state: PendingMessageState.failed,
+        mediaUrl: target.mediaUrl,
+        mediaType: target.mediaType?.name,
+        mediaWidth: target.mediaWidth,
+        mediaHeight: target.mediaHeight,
+        forwardedFromChatId: target.forwardedFromChatId,
+        forwardedFromMessageId: target.forwardedFromMessageId,
       ),
     );
   }
@@ -495,6 +668,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
               content: target.content,
               localCreatedAt: target.sentAt,
               state: PendingMessageState.sending,
+              mediaUrl: target.mediaUrl,
+              mediaType: target.mediaType?.name,
+              mediaWidth: target.mediaWidth,
+              mediaHeight: target.mediaHeight,
+              forwardedFromChatId: target.forwardedFromChatId,
+              forwardedFromMessageId: target.forwardedFromMessageId,
             ),
       );
     }
@@ -542,11 +721,29 @@ class ChatNotifier extends StateNotifier<ChatState> {
     // dans cet ensemble, donc jamais bloqué indéfiniment).
     _inFlightDispatchIds.add(clientMessageId);
     try {
-      await _service.sendChatMessage(
-        chatId: chatId,
-        clientMessageId: clientMessageId,
-        content: content,
-      );
+      final forwardedFromChatId = basePending.forwardedFromChatId;
+      final forwardedFromMessageId = basePending.forwardedFromMessageId;
+      if (forwardedFromChatId != null && forwardedFromMessageId != null) {
+        // Transfert : ne référence jamais un nouvel upload, réutilise tel
+        // quel le média de `forwardedFromMessageId` (voir
+        // `ChatService.forwardMessage`/`functions/index.js::forwardChatMessage`).
+        await _service.forwardMessage(
+          sourceChatId: forwardedFromChatId,
+          sourceMessageId: forwardedFromMessageId,
+          targetChatId: chatId,
+          clientMessageId: clientMessageId,
+        );
+      } else {
+        await _service.sendChatMessage(
+          chatId: chatId,
+          clientMessageId: clientMessageId,
+          content: content,
+          mediaUrl: basePending.mediaUrl,
+          mediaType: basePending.mediaType,
+          mediaWidth: basePending.mediaWidth,
+          mediaHeight: basePending.mediaHeight,
+        );
+      }
       await _pendingStore.remove(userId, chatId, clientMessageId);
     } catch (error) {
       // Erreur réseau/serveur : jamais silencieuse, jamais dans l'état

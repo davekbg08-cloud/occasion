@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:occasion/models/message.dart';
+import 'package:occasion/models/status.dart';
 
 Message _message({MessageStatus status = MessageStatus.sent}) {
   return Message(
@@ -80,6 +81,117 @@ void main() {
           reason: '$status ne doit jamais être considéré comme lu',
         );
       }
+    });
+  });
+
+  group('Message — média et transfert', () {
+    test(
+      'un message sans média a hasMedia=false et toMap() n\'expose aucun champ media*',
+      () {
+        final message = _message();
+        expect(message.hasMedia, isFalse);
+        expect(message.isForwarded, isFalse);
+        final map = message.toMap();
+        expect(map.containsKey('mediaUrl'), isFalse);
+        expect(map.containsKey('mediaType'), isFalse);
+        expect(map.containsKey('mediaWidth'), isFalse);
+        expect(map.containsKey('mediaHeight'), isFalse);
+        expect(map.containsKey('forwardedFromChatId'), isFalse);
+        expect(map.containsKey('forwardedFromMessageId'), isFalse);
+      },
+    );
+
+    test(
+      'une photo fait un aller-retour identique via toMap/fromMap (URL, dimensions)',
+      () {
+        final message = Message(
+          id: 'msg1',
+          chatId: 'chat1',
+          senderId: 'buyer1',
+          receiverId: 'seller1',
+          content: 'Regarde ça',
+          sentAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          mediaUrl:
+              'https://firebasestorage.googleapis.com/v0/b/x/o/chatMedia%2Fchat1%2Fmsg1.jpg?alt=media',
+          mediaType: StatusType.image,
+          mediaWidth: 800,
+          mediaHeight: 600,
+        );
+
+        expect(message.hasMedia, isTrue);
+        final restored = Message.fromMap({...message.toMap(), 'id': 'msg1'});
+        expect(restored.mediaUrl, message.mediaUrl);
+        expect(restored.mediaType, StatusType.image);
+        expect(restored.mediaWidth, 800);
+        expect(restored.mediaHeight, 600);
+      },
+    );
+
+    test('une vidéo fait un aller-retour identique (mediaType video)', () {
+      final message = Message(
+        id: 'msg1',
+        chatId: 'chat1',
+        senderId: 'buyer1',
+        receiverId: 'seller1',
+        content: '',
+        sentAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        mediaUrl:
+            'https://firebasestorage.googleapis.com/v0/b/x/o/chatMedia%2Fchat1%2Fmsg1.mp4?alt=media',
+        mediaType: StatusType.video,
+      );
+
+      final restored = Message.fromMap({...message.toMap(), 'id': 'msg1'});
+      expect(restored.mediaType, StatusType.video);
+      expect(restored.hasMedia, isTrue);
+    });
+
+    test(
+      'un message transféré fait un aller-retour identique et isForwarded=true',
+      () {
+        final message = Message(
+          id: 'msg2',
+          chatId: 'chat2',
+          senderId: 'buyer1',
+          receiverId: 'seller2',
+          content: 'Bonjour',
+          sentAt: DateTime.fromMillisecondsSinceEpoch(2000),
+          forwardedFromChatId: 'chat1',
+          forwardedFromMessageId: 'msg1',
+        );
+
+        expect(message.isForwarded, isTrue);
+        final restored = Message.fromMap({...message.toMap(), 'id': 'msg2'});
+        expect(restored.forwardedFromChatId, 'chat1');
+        expect(restored.forwardedFromMessageId, 'msg1');
+        expect(restored.isForwarded, isTrue);
+      },
+    );
+
+    test('copyWith préserve tous les champs média/transfert', () {
+      final message = Message(
+        id: 'msg1',
+        chatId: 'chat1',
+        senderId: 'buyer1',
+        receiverId: 'seller1',
+        content: 'Photo',
+        status: MessageStatus.sending,
+        sentAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        mediaUrl: 'https://example.com/photo.jpg',
+        mediaType: StatusType.image,
+        mediaWidth: 100,
+        mediaHeight: 200,
+        forwardedFromChatId: 'chatX',
+        forwardedFromMessageId: 'msgX',
+      );
+
+      final updated = message.copyWith(status: MessageStatus.sent);
+
+      expect(updated.mediaUrl, message.mediaUrl);
+      expect(updated.mediaType, message.mediaType);
+      expect(updated.mediaWidth, message.mediaWidth);
+      expect(updated.mediaHeight, message.mediaHeight);
+      expect(updated.forwardedFromChatId, message.forwardedFromChatId);
+      expect(updated.forwardedFromMessageId, message.forwardedFromMessageId);
     });
   });
 }

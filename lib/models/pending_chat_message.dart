@@ -22,6 +22,16 @@ enum PendingMessageState {
 /// par la clé de stockage dans [PendingMessageStore], pas répété ici).
 ///
 /// Ne journalise jamais [content] — voir les appelants.
+///
+/// [mediaUrl] n'est renseigné qu'une fois l'upload Storage terminé (voir
+/// `ChatNotifier.sendMediaMessage`) : tant que l'upload est en cours,
+/// aucune entrée n'existe encore dans la boîte d'envoi — seules les
+/// métadonnées (URL déjà obtenue, jamais les octets bruts de l'image/vidéo)
+/// ont besoin de survivre à un redémarrage, exactement comme [content].
+///
+/// [forwardedFromChatId]/[forwardedFromMessageId] non-nuls indiquent que
+/// cette entrée doit être envoyée via `sendChatMessage` puis `forwardMessage`
+/// — voir `ChatNotifier._dispatchSend`.
 class PendingChatMessage {
   const PendingChatMessage({
     required this.clientMessageId,
@@ -34,6 +44,12 @@ class PendingChatMessage {
     this.attemptCount = 0,
     this.lastAttemptAt,
     this.lastErrorCode,
+    this.mediaUrl,
+    this.mediaType,
+    this.mediaWidth,
+    this.mediaHeight,
+    this.forwardedFromChatId,
+    this.forwardedFromMessageId,
   });
 
   final String clientMessageId;
@@ -46,6 +62,12 @@ class PendingChatMessage {
   final int attemptCount;
   final DateTime? lastAttemptAt;
   final String? lastErrorCode;
+  final String? mediaUrl;
+  final String? mediaType;
+  final int? mediaWidth;
+  final int? mediaHeight;
+  final String? forwardedFromChatId;
+  final String? forwardedFromMessageId;
 
   PendingChatMessage copyWith({
     PendingMessageState? state,
@@ -67,6 +89,12 @@ class PendingChatMessage {
       lastErrorCode: clearLastErrorCode
           ? null
           : (lastErrorCode ?? this.lastErrorCode),
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
+      mediaWidth: mediaWidth,
+      mediaHeight: mediaHeight,
+      forwardedFromChatId: forwardedFromChatId,
+      forwardedFromMessageId: forwardedFromMessageId,
     );
   }
 
@@ -82,6 +110,13 @@ class PendingChatMessage {
     if (lastAttemptAt != null)
       'lastAttemptAt': lastAttemptAt!.millisecondsSinceEpoch,
     if (lastErrorCode != null) 'lastErrorCode': lastErrorCode,
+    if (mediaUrl != null) 'mediaUrl': mediaUrl,
+    if (mediaType != null) 'mediaType': mediaType,
+    if (mediaWidth != null) 'mediaWidth': mediaWidth,
+    if (mediaHeight != null) 'mediaHeight': mediaHeight,
+    if (forwardedFromChatId != null) 'forwardedFromChatId': forwardedFromChatId,
+    if (forwardedFromMessageId != null)
+      'forwardedFromMessageId': forwardedFromMessageId,
   };
 
   factory PendingChatMessage.fromJson(Map<String, dynamic> json) {
@@ -100,6 +135,12 @@ class PendingChatMessage {
           ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt'] as int)
           : null,
       lastErrorCode: json['lastErrorCode'] as String?,
+      mediaUrl: json['mediaUrl'] as String?,
+      mediaType: json['mediaType'] as String?,
+      mediaWidth: (json['mediaWidth'] as num?)?.toInt(),
+      mediaHeight: (json['mediaHeight'] as num?)?.toInt(),
+      forwardedFromChatId: json['forwardedFromChatId'] as String?,
+      forwardedFromMessageId: json['forwardedFromMessageId'] as String?,
     );
   }
 }

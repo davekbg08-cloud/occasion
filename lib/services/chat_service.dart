@@ -159,15 +159,49 @@ class ChatService {
   /// chat), et `clientMessageId` sert directement d'id de document — un
   /// retry sur le même id ne crée jamais de doublon (voir
   /// `functions/index.js::sendChatMessage`).
+  ///
+  /// [mediaUrl]/[mediaType] sont optionnels : quand présents, [content]
+  /// devient une simple légende (peut être vide). L'upload Storage
+  /// lui-même (voir `ChatMediaUploadService`) doit déjà avoir réussi avant
+  /// cet appel — le serveur ne fait que référencer l'URL déjà obtenue,
+  /// jamais d'upload côté fonction.
   Future<void> sendChatMessage({
     required String chatId,
     required String clientMessageId,
     required String content,
+    String? mediaUrl,
+    String? mediaType,
+    int? mediaWidth,
+    int? mediaHeight,
   }) async {
     await _functions.httpsCallable('sendChatMessage').call(<String, dynamic>{
       'chatId': chatId,
       'clientMessageId': clientMessageId,
       'content': content,
+      'mediaUrl': ?mediaUrl,
+      'mediaType': ?mediaType,
+      'mediaWidth': ?mediaWidth,
+      'mediaHeight': ?mediaHeight,
+    });
+  }
+
+  /// Délègue entièrement à la Cloud Function callable `forwardChatMessage` :
+  /// recrée, dans [targetChatId], un message identique à
+  /// `chats/{sourceChatId}/messages/{sourceMessageId}` (texte et/ou média),
+  /// sans jamais dupliquer le fichier Storage sous-jacent. Le serveur
+  /// vérifie que l'appelant participe aux DEUX conversations. Même
+  /// idempotence que [sendChatMessage] sur [clientMessageId].
+  Future<void> forwardMessage({
+    required String sourceChatId,
+    required String sourceMessageId,
+    required String targetChatId,
+    required String clientMessageId,
+  }) async {
+    await _functions.httpsCallable('forwardChatMessage').call(<String, dynamic>{
+      'sourceChatId': sourceChatId,
+      'sourceMessageId': sourceMessageId,
+      'targetChatId': targetChatId,
+      'clientMessageId': clientMessageId,
     });
   }
 

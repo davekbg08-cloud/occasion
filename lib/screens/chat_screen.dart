@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/report.dart';
+import '../models/status.dart' show StatusType;
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/forward_message_sheet.dart';
+import '../widgets/fullscreen_image_viewer.dart';
+import '../widgets/fullscreen_video_viewer.dart';
 import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -23,8 +28,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     with WidgetsBindingObserver {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  final _picker = ImagePicker();
   String? _lastMessageId;
   bool _didInitialScroll = false;
+  bool _isUploadingMedia = false;
+  double _uploadProgress = 0;
 
   @override
   void initState() {
@@ -113,6 +121,148 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             _scrollToBottom();
           },
         );
+  }
+
+  Future<void> _pickAndSendMedia(StatusType kind, ImageSource source) async {
+    final me = ref.read(authNotifierProvider).currentUser;
+    if (me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vous devez être connecté pour envoyer un message.'),
+        ),
+      );
+      return;
+    }
+
+    final XFile? picked = kind == StatusType.video
+        ? await _picker.pickVideo(
+            source: source,
+            maxDuration: const Duration(seconds: 30),
+          )
+        : await _picker.pickImage(source: source, imageQuality: 90);
+    if (picked == null) return;
+    if (!mounted) return;
+
+    setState(() {
+      _isUploadingMedia = true;
+      _uploadProgress = 0;
+    });
+
+    // La légende reprend le texte déjà saisi (le cas échéant), vidé
+    // seulement une fois la bulle optimiste affichée — même principe que
+    // `_send()` pour le texte pur.
+    final caption = _inputController.text;
+
+    try {
+      await ref
+          .read(chatNotifierProvider.notifier)
+          .sendMediaMessage(
+            chatId: widget.chat.id,
+            senderId: me.id,
+            receiverId: widget.chat.otherUserId(me.id),
+            mediaFile: picked,
+            mediaKind: kind,
+            caption: caption,
+            onUploadProgress: (progress) {
+              if (!mounted) return;
+              setState(() => _uploadProgress = progress);
+            },
+          );
+      if (!mounted) return;
+      _inputController.clear();
+      _scrollToBottom();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Échec de l'envoi : ${kind == StatusType.video ? 'vidéo' : 'photo'} non envoyée. Réessaie.",
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploadingMedia = false);
+    }
+  }
+
+  void _showAttachmentSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_outlined, color: Colors.white),
+                title: const Text(
+                  'Photo depuis la galerie',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(StatusType.image, ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.camera_alt_outlined,
+                  color: Colors.white,
+                ),
+                title: const Text(
+                  'Prendre une photo',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(StatusType.image, ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.videocam_outlined,
+                  color: Colors.white,
+                ),
+                title: const Text(
+                  'Vidéo depuis la galerie',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(StatusType.video, ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showForwardSheet(Message message) async {
+    final me = ref.read(authNotifierProvider).currentUser;
+    if (me == null) return;
+
+    final target = await showForwardMessageSheet(
+      context,
+      ref,
+      excludeChatId: widget.chat.id,
+    );
+    if (target == null || !mounted) return;
+
+    await ref
+        .read(chatNotifierProvider.notifier)
+        .forwardMessage(
+          source: message,
+          targetChatId: target.id,
+          senderId: me.id,
+          receiverId: target.otherUserId(me.id),
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Transféré à ${target.otherUserName(me.id)}.')),
+    );
   }
 
   @override
@@ -265,6 +415,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     .read(chatNotifierProvider.notifier)
                                     .retryMessage(widget.chat.id, message.id)
                               : null,
+                          // Transférer un message pas encore confirmé par
+                          // le serveur échouerait (`forwardChatMessage` ne
+                          // trouverait pas encore le document source) —
+                          // uniquement disponible une fois envoyé/livré/lu.
+                          onForward:
+                              message.status != MessageStatus.sending &&
+                                  message.status != MessageStatus.failed
+                              ? () => _showForwardSheet(message)
+                              : null,
                         ),
                       ],
                     );
@@ -273,7 +432,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               },
             ),
           ),
-          _InputBar(controller: _inputController, onSend: _send),
+          _InputBar(
+            controller: _inputController,
+            onSend: _send,
+            onAttach: _isUploadingMedia ? null : _showAttachmentSheet,
+            isUploading: _isUploadingMedia,
+            uploadProgress: _uploadProgress,
+          ),
         ],
       ),
     );
@@ -285,7 +450,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.isMe, this.onRetry});
+  const _Bubble({
+    required this.message,
+    required this.isMe,
+    this.onRetry,
+    this.onForward,
+  });
 
   final Message message;
   final bool isMe;
@@ -295,6 +465,11 @@ class _Bubble extends StatelessWidget {
   /// `ChatNotifier.retryMessage`), jamais de retry automatique.
   final VoidCallback? onRetry;
 
+  /// Non-null uniquement pour un message déjà confirmé par le serveur
+  /// (jamais `sending`/`failed`, voir `chat_screen.dart::build`) — appui
+  /// long pour ouvrir le choix de conversation cible.
+  final VoidCallback? onForward;
+
   @override
   Widget build(BuildContext context) {
     final failed = message.status == MessageStatus.failed;
@@ -303,6 +478,7 @@ class _Bubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onTap: onRetry,
+        onLongPress: onForward,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
@@ -325,10 +501,38 @@ class _Bubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                message.content,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-              ),
+              if (message.isForwarded)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.shortcut,
+                        size: 12,
+                        color: Colors.white.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Transféré',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (message.hasMedia) _MediaContent(message: message),
+              if (message.content.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.only(top: message.hasMedia ? 6 : 0),
+                  child: Text(
+                    message.content,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                  ),
+                ),
               const SizedBox(height: 3),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -361,6 +565,61 @@ class _Bubble extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Photo/vidéo d'une bulle : image tapable (plein écran, zoom) ou aperçu
+/// vidéo tapable (lecture plein écran) — jamais de retry ici, réservé au
+/// tap sur la bulle entière (voir `_Bubble.onTap`, `null` sauf `failed`).
+class _MediaContent extends StatelessWidget {
+  const _MediaContent({required this.message});
+
+  final Message message;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = message.mediaUrl;
+    if (url == null) return const SizedBox.shrink();
+
+    final ratio =
+        (message.mediaWidth != null &&
+            message.mediaHeight != null &&
+            message.mediaHeight! > 0)
+        ? message.mediaWidth! / message.mediaHeight!
+        : 4 / 3;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: GestureDetector(
+        onTap: () {
+          if (message.mediaType == StatusType.video) {
+            FullscreenVideoViewer.open(context, videoUrl: url);
+          } else {
+            FullscreenImageViewer.open(context, imageUrls: [url]);
+          }
+        },
+        child: AspectRatio(
+          aspectRatio: ratio.clamp(0.5, 2.0),
+          child: message.mediaType == StatusType.video
+              ? Container(
+                  color: Colors.black,
+                  child: const Center(
+                    child: Icon(
+                      Icons.play_circle_fill,
+                      color: Colors.white70,
+                      size: 42,
+                    ),
+                  ),
+                )
+              : OccasionImage.thumbnail(
+                  url,
+                  width: double.infinity,
+                  height: double.infinity,
+                  cacheWidth: 600,
+                ),
         ),
       ),
     );
@@ -432,10 +691,22 @@ class _DateDivider extends StatelessWidget {
 }
 
 class _InputBar extends StatelessWidget {
-  const _InputBar({required this.controller, required this.onSend});
+  const _InputBar({
+    required this.controller,
+    required this.onSend,
+    this.onAttach,
+    this.isUploading = false,
+    this.uploadProgress = 0,
+  });
 
   final TextEditingController controller;
   final VoidCallback onSend;
+
+  /// `null` pendant un upload déjà en cours (voir `_ChatScreenState`) —
+  /// jamais deux uploads simultanés depuis le même écran.
+  final VoidCallback? onAttach;
+  final bool isUploading;
+  final double uploadProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -444,41 +715,70 @@ class _InputBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: SafeArea(
         top: false,
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                style: const TextStyle(color: Colors.white),
-                maxLines: null,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: 'Écrire un message...',
-                  hintStyle: TextStyle(color: Colors.grey[600]),
-                  filled: true,
-                  fillColor: Colors.grey[800],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+            if (isUploading)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: uploadProgress > 0 ? uploadProgress : null,
+                    minHeight: 3,
+                    backgroundColor: Colors.grey[800],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onSend,
-              child: Container(
-                padding: const EdgeInsets.all(11),
-                decoration: const BoxDecoration(
-                  color: Colors.blue,
-                  shape: BoxShape.circle,
+            Row(
+              children: [
+                IconButton(
+                  onPressed: onAttach,
+                  tooltip: 'Envoyer une photo ou une vidéo',
+                  icon: Icon(
+                    Icons.attach_file,
+                    color: onAttach == null ? Colors.grey[600] : Colors.white,
+                  ),
                 ),
-                child: const Icon(Icons.send, color: Colors.white, size: 20),
-              ),
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    style: const TextStyle(color: Colors.white),
+                    maxLines: null,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Écrire un message...',
+                      hintStyle: TextStyle(color: Colors.grey[600]),
+                      filled: true,
+                      fillColor: Colors.grey[800],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: onSend,
+                  child: Container(
+                    padding: const EdgeInsets.all(11),
+                    decoration: const BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.send,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

@@ -46,6 +46,31 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    // Photos/vidéos envoyées dans une conversation : privées aux deux
+    // participants (jamais publiques, contrairement à `annonces`/`profiles`).
+    // `isChatParticipant` interroge Firestore pour vérifier que l'appelant
+    // est bien acheteur ou vendeur de CE chat — même principe que la
+    // fonction homonyme de `firestore.rules`. Immuable une fois envoyé
+    // (aucun `update`), comme les messages eux-mêmes.
+    function isChatParticipant(chatId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/chats/$(chatId))
+        && (
+          firestore.get(/databases/(default)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
+          || firestore.get(/databases/(default)/documents/chats/$(chatId)).data.sellerId == request.auth.uid
+        );
+    }
+
+    match /chatMedia/{chatId}/{fileName} {
+      allow read: if isChatParticipant(chatId);
+      allow create: if isChatParticipant(chatId)
+        && (
+          (isImage() && request.resource.size <= 5 * 1024 * 1024)
+          || (isVideo() && request.resource.size <= 25 * 1024 * 1024)
+        );
+      allow update, delete: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

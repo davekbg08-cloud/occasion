@@ -42,6 +42,10 @@ class _FakeChatService extends ChatService {
     required String chatId,
     required String clientMessageId,
     required String content,
+    String? mediaUrl,
+    String? mediaType,
+    int? mediaWidth,
+    int? mediaHeight,
   }) async {
     if (shouldFailSendOverride) {
       throw Exception('erreur réseau simulée');

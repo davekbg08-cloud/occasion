@@ -994,6 +994,255 @@ test("sendChatMessage : rejette un chatId/clientMessageId contenant '/' ou un ch
   );
 });
 
+function chatMediaUrl(chatId, fileName) {
+  return `https://firebasestorage.googleapis.com/v0/b/test-bucket.appspot.com/o/chatMedia%2F${chatId}%2F${fileName}?alt=media&token=fake-token`;
+}
+
+test("sendChatMessage : accepte un média (mediaUrl du dossier Storage de CE chat), content devient une légende optionnelle", async () => {
+  const chatId = "chat-send-media";
+  await seedChat(chatId);
+  const mediaUrl = chatMediaUrl(chatId, "client-msg-media.jpg");
+
+  const result = await functions.sendChatMessage.run({
+    data: {
+      chatId,
+      clientMessageId: "client-msg-media",
+      content: "",
+      mediaUrl,
+      mediaType: "image",
+      mediaWidth: 800,
+      mediaHeight: 600,
+    },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("client-msg-media").get();
+  assert.equal(msgSnap.data().mediaUrl, mediaUrl);
+  assert.equal(msgSnap.data().mediaType, "image");
+  assert.equal(msgSnap.data().mediaWidth, 800);
+  assert.equal(msgSnap.data().mediaHeight, 600);
+  assert.equal(msgSnap.data().content, "", "content vide est autorisé quand un média est présent");
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().lastMessage, "📷 Photo", "aperçu de conversation par défaut pour une photo sans légende");
+});
+
+test("sendChatMessage : refuse une mediaUrl pointant vers le dossier Storage d'UN AUTRE chat", async () => {
+  const chatId = "chat-send-media-wrong-folder";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: {
+          chatId,
+          clientMessageId: "client-msg-1",
+          content: "",
+          mediaUrl: chatMediaUrl("un-autre-chat", "vol.jpg"),
+          mediaType: "image",
+        },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+});
+
+test("sendChatMessage : refuse un message sans texte NI média, et un mediaType invalide", async () => {
+  const chatId = "chat-send-empty-and-badtype";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "client-msg-1", content: "" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: {
+          chatId,
+          clientMessageId: "client-msg-2",
+          content: "",
+          mediaUrl: chatMediaUrl(chatId, "x.jpg"),
+          mediaType: "audio",
+        },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+});
+
+test("forwardChatMessage : transfère texte+média vers une autre conversation sans dupliquer le fichier Storage", async () => {
+  const sourceChatId = "chat-fwd-source";
+  const targetChatId = "chat-fwd-target";
+  await seedChat(sourceChatId);
+  await db.collection("chats").doc(targetChatId).set({
+    buyerId: "buyer1",
+    sellerId: "seller2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+
+  const mediaUrl = chatMediaUrl(sourceChatId, "src-msg.jpg");
+  await functions.sendChatMessage.run({
+    data: {
+      chatId: sourceChatId,
+      clientMessageId: "src-msg",
+      content: "Regarde ça",
+      mediaUrl,
+      mediaType: "image",
+      mediaWidth: 100,
+      mediaHeight: 200,
+    },
+    auth: { uid: "buyer1" },
+  });
+
+  const result = await functions.forwardChatMessage.run({
+    data: {
+      sourceChatId,
+      sourceMessageId: "src-msg",
+      targetChatId,
+      clientMessageId: "fwd-msg-1",
+    },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+
+  const fwdSnap = await db.collection("chats").doc(targetChatId).collection("messages").doc("fwd-msg-1").get();
+  assert.equal(fwdSnap.data().content, "Regarde ça");
+  assert.equal(fwdSnap.data().mediaUrl, mediaUrl, "réutilise la MÊME URL, jamais un nouveau fichier Storage");
+  assert.equal(fwdSnap.data().mediaType, "image");
+  assert.equal(fwdSnap.data().forwardedFromChatId, sourceChatId);
+  assert.equal(fwdSnap.data().forwardedFromMessageId, "src-msg");
+  assert.equal(fwdSnap.data().senderId, "buyer1");
+  assert.equal(fwdSnap.data().receiverId, "seller2", "receiverId dérivé des participants de la conversation CIBLE");
+});
+
+test("forwardChatMessage : refuse un appelant qui ne participe pas à la conversation SOURCE", async () => {
+  const sourceChatId = "chat-fwd-source-outsider";
+  const targetChatId = "chat-fwd-target-outsider";
+  await seedChat(sourceChatId);
+  await db.collection("chats").doc(targetChatId).set({
+    buyerId: "outsider",
+    sellerId: "seller2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await functions.sendChatMessage.run({
+    data: { chatId: sourceChatId, clientMessageId: "src-msg", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await assert.rejects(
+    () =>
+      functions.forwardChatMessage.run({
+        data: { sourceChatId, sourceMessageId: "src-msg", targetChatId, clientMessageId: "fwd-1" },
+        auth: { uid: "outsider" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("forwardChatMessage : refuse un appelant qui ne participe pas à la conversation CIBLE", async () => {
+  const sourceChatId = "chat-fwd-source-2";
+  const targetChatId = "chat-fwd-target-not-participant";
+  await seedChat(sourceChatId);
+  await db.collection("chats").doc(targetChatId).set({
+    buyerId: "seller1",
+    sellerId: "seller2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await functions.sendChatMessage.run({
+    data: { chatId: sourceChatId, clientMessageId: "src-msg", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await assert.rejects(
+    () =>
+      functions.forwardChatMessage.run({
+        data: { sourceChatId, sourceMessageId: "src-msg", targetChatId, clientMessageId: "fwd-1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("forwardChatMessage : refuse un message source introuvable", async () => {
+  const sourceChatId = "chat-fwd-source-3";
+  const targetChatId = "chat-fwd-target-3";
+  await seedChat(sourceChatId);
+  await db.collection("chats").doc(targetChatId).set({
+    buyerId: "buyer1",
+    sellerId: "seller2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+
+  await assert.rejects(
+    () =>
+      functions.forwardChatMessage.run({
+        data: { sourceChatId, sourceMessageId: "inexistant", targetChatId, clientMessageId: "fwd-1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "not-found");
+      return true;
+    }
+  );
+});
+
+test("forwardChatMessage : un rejeu sur le même clientMessageId ne crée jamais de doublon (idempotence partagée avec sendChatMessage)", async () => {
+  const sourceChatId = "chat-fwd-source-4";
+  const targetChatId = "chat-fwd-target-4";
+  await seedChat(sourceChatId);
+  await db.collection("chats").doc(targetChatId).set({
+    buyerId: "buyer1",
+    sellerId: "seller2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await functions.sendChatMessage.run({
+    data: { chatId: sourceChatId, clientMessageId: "src-msg", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  const first = await functions.forwardChatMessage.run({
+    data: { sourceChatId, sourceMessageId: "src-msg", targetChatId, clientMessageId: "fwd-retry" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(first.alreadyExisted, false);
+
+  const retry = await functions.forwardChatMessage.run({
+    data: { sourceChatId, sourceMessageId: "src-msg", targetChatId, clientMessageId: "fwd-retry" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(retry.alreadyExisted, true);
+
+  const messagesSnap = await db.collection("chats").doc(targetChatId).collection("messages").get();
+  assert.equal(messagesSnap.size, 1, "aucun doublon créé par le rejeu du transfert");
+});
+
 test("deleteChat : supprime le chat et décrémente le badge global des deux participants pour leurs messages non lus", async () => {
   const chatId = "chat-delete-basic";
   await seedChat(chatId, { buyerUnreadCount: 3, sellerUnreadCount: 2 });

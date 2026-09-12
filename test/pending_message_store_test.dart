@@ -182,5 +182,60 @@ void main() {
         expect(restored.lastErrorCode, 'unavailable');
       },
     );
+
+    test('toJson/fromJson préserve les champs média (URL, type, dimensions) — '
+        'nécessaire pour qu\'une photo/vidéo en attente survive à un '
+        'redémarrage complet de l\'application', () {
+      final entry = PendingChatMessage(
+        clientMessageId: 'local-1',
+        chatId: 'chat1',
+        senderId: 'buyer1',
+        receiverId: 'seller1',
+        content: 'Regarde',
+        localCreatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        state: PendingMessageState.sending,
+        mediaUrl: 'https://example.com/photo.jpg',
+        mediaType: 'image',
+        mediaWidth: 800,
+        mediaHeight: 600,
+      );
+      final restored = PendingChatMessage.fromJson(entry.toJson());
+      expect(restored.mediaUrl, 'https://example.com/photo.jpg');
+      expect(restored.mediaType, 'image');
+      expect(restored.mediaWidth, 800);
+      expect(restored.mediaHeight, 600);
+    });
+
+    test('toJson/fromJson préserve les champs de transfert '
+        '(forwardedFromChatId/forwardedFromMessageId)', () {
+      final entry = PendingChatMessage(
+        clientMessageId: 'local-2',
+        chatId: 'chat2',
+        senderId: 'buyer1',
+        receiverId: 'seller2',
+        content: 'Bonjour',
+        localCreatedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        state: PendingMessageState.queued,
+        forwardedFromChatId: 'chat1',
+        forwardedFromMessageId: 'msg1',
+      );
+      final restored = PendingChatMessage.fromJson(entry.toJson());
+      expect(restored.forwardedFromChatId, 'chat1');
+      expect(restored.forwardedFromMessageId, 'msg1');
+    });
+
+    test(
+      'un message sans média ni transfert n\'inclut pas ces clés dans toJson()',
+      () {
+        final entry = _entry();
+        final json = entry.toJson();
+        expect(json.containsKey('mediaUrl'), isFalse);
+        expect(json.containsKey('mediaType'), isFalse);
+        expect(json.containsKey('mediaWidth'), isFalse);
+        expect(json.containsKey('mediaHeight'), isFalse);
+        expect(json.containsKey('forwardedFromChatId'), isFalse);
+        expect(json.containsKey('forwardedFromMessageId'), isFalse);
+      },
+    );
   });
 }
