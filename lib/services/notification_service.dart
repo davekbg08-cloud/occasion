@@ -14,6 +14,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
+import 'web_push_display.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
@@ -117,15 +118,18 @@ class NotificationService {
       debugPrint('Permission notifications non accordée : $error');
     }
 
-    try {
-      await _setupLocalNotifications(navigatorKey);
-    } catch (error) {
-      // Sur le web, l'implémentation locale de flutter_local_notifications
-      // dépend du navigateur et peut ne pas être disponible — ça ne doit
-      // pas empêcher l'inscription aux flux FCM ci-dessous : la bannière
-      // d'arrière-plan web est gérée par web/firebase-messaging-sw.js,
-      // indépendamment de cette étape.
-      debugPrint('Notifications locales non initialisées : $error');
+    // `flutter_local_notifications` n'a aucune implémentation web (aucun
+    // dossier `web/` dans le package) : ne pas tenter de l'initialiser sur
+    // cette plateforme, ça ne fait qu'échouer sans effet utile. Le premier
+    // plan web passe par `web_push_display.dart` (API Notification du
+    // navigateur), l'arrière-plan par `web/firebase-messaging-sw.js` —
+    // aucun des deux ne dépend de cette étape.
+    if (!kIsWeb) {
+      try {
+        await _setupLocalNotifications(navigatorKey);
+      } catch (error) {
+        debugPrint('Notifications locales non initialisées : $error');
+      }
     }
 
     try {
@@ -205,6 +209,19 @@ class NotificationService {
     }
 
     final channel = _channelForType(message.data['type'] as String?);
+
+    // `flutter_local_notifications` n'a aucune implémentation web (voir
+    // `web_push_display.dart`) : sans cette branche, un message reçu pendant
+    // que l'onglet PWA est au premier plan ne s'affichait nulle part.
+    if (kIsWeb) {
+      showWebPushNotification(
+        title: title ?? '',
+        body: body ?? '',
+        route: message.data['route'] as String?,
+        vibrationPatternMs: channel.vibrationPattern?.toList(),
+      );
+      return;
+    }
 
     await _local.show(
       id: message.hashCode,
@@ -358,10 +375,9 @@ class NotificationService {
   /// Clé "Web Push certificate" (VAPID) — Firebase Console > Paramètres du
   /// projet > Cloud Messaging > Configuration Web > Certificats Web Push.
   /// Obligatoire pour que `getToken()` fonctionne sur le web ; ignorée sans
-  /// effet sur Android/iOS. Tant que ce placeholder n'est pas remplacé, la
-  /// sauvegarde du token échoue silencieusement (voir catch ci-dessous) —
-  /// aucune notification web ne peut être envoyée à cet appareil.
-  static const _webVapidKey = 'REMPLACE_PAR_TA_CLE_VAPID_FIREBASE';
+  /// effet sur Android/iOS.
+  static const _webVapidKey =
+      'BHs5B8E1mpFZVYGxsWJG4yneRFBBpGAtpoMkch9fZ6aGZokOtXJ2EXtc8bW6Jhel4hydD2Q5o_sGA0rHba-U-M4';
 
   static Future<void> saveToken(String userId, {bool isBuyer = false}) async {
     if (userId.isEmpty) return;

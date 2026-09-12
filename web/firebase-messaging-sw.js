@@ -41,31 +41,30 @@ messaging.onBackgroundMessage((payload) => {
 
   const title = notif.title || data.title || 'Occasion';
   const body = notif.body || data.body || '';
+  // Route déjà résolue côté serveur (voir sendToUser -> pushData.route dans
+  // functions/index.js, ex. "/chat/abc123") — jamais reconstruite ici à
+  // partir d'un type/id, pour rester la seule source de vérité (même
+  // principe que _buildPayload côté Dart, notification_service.dart).
+  const route = data.route || '/notifications';
 
   self.registration.showNotification(title, {
     body: body,
     icon: '/occasion/icons/Icon-192.png',
     badge: '/occasion/icons/Icon-192.png',
     vibrate: [200, 100, 200, 100, 200],
-    tag: data.id || undefined,
-    data: {
-      type: data.type || '',
-      target_id: data.target_id || '',
-    },
+    tag: data.chatId || data.orderId || data.id || undefined,
+    data: { route: route },
   });
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const { type, target_id: targetId } = event.notification.data || {};
-  let path = '#/notifications';
-  if (type === 'message' && targetId) {
-    path = `#/chat/${targetId}`;
-  } else if (targetId) {
-    path = `#/annonce/${targetId}`;
-  }
-  const targetUrl = new URL(APP_BASE_PATH + path, self.location.origin).href;
+  const route = (event.notification.data && event.notification.data.route) || '/notifications';
+  // Stratégie d'URL par défaut de Flutter web (hash) — l'app ne surcharge
+  // jamais usePathUrlStrategy() (vérifié dans lib/main.dart), donc les URLs
+  // réelles sont toujours de la forme .../occasion/#/chat/xyz.
+  const targetUrl = new URL(`${APP_BASE_PATH}#${route}`, self.location.origin).href;
 
   event.waitUntil(
     clients
