@@ -289,6 +289,11 @@ class _BuyerOptions extends StatelessWidget {
           onTap: () => context.push('/loyalty-points'),
         ),
         _ProfileTile(
+          icon: Icons.card_giftcard,
+          title: 'Parrainage',
+          onTap: () => context.push('/referral'),
+        ),
+        _ProfileTile(
           icon: Icons.chat_bubble_outline,
           title: 'Messages',
           onTap: () => context.push('/buyer-messages'),
@@ -370,6 +375,11 @@ class _SellerOptions extends StatelessWidget {
           title: 'Abonnement vendeur',
           subtitle: subscriptionSubtitle,
           onTap: () => context.push('/subscription'),
+        ),
+        _ProfileTile(
+          icon: Icons.card_giftcard,
+          title: 'Parrainage',
+          onTap: () => context.push('/referral'),
         ),
         _ProfileTile(
           icon: Icons.chat_bubble_outline,

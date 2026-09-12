@@ -35,6 +35,7 @@ import 'screens/payment_screen.dart';
 import 'screens/phone_auth_screen.dart';
 import 'screens/product_list_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/referral_screen.dart';
 import 'screens/role_selection_screen.dart';
 import 'screens/seller_dashboard_screen.dart';
 import 'screens/seller_gift_catalog_screen.dart';
@@ -250,6 +251,10 @@ class OccasionApp extends StatelessWidget {
           role: UserRole.seller,
           child: SellerGiftRedemptionsScreen(),
         ),
+      ),
+      GoRoute(
+        path: '/referral',
+        builder: (context, state) => const _AuthGuard(child: ReferralScreen()),
       ),
       GoRoute(
         path: '/search',

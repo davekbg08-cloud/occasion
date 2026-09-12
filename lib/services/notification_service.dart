@@ -367,9 +367,7 @@ class NotificationService {
     if (userId.isEmpty) return;
 
     try {
-      final token = await _fcm.getToken(
-        vapidKey: kIsWeb ? _webVapidKey : null,
-      );
+      final token = await _fcm.getToken(vapidKey: kIsWeb ? _webVapidKey : null);
       if (token == null) return;
 
       await _updateToken(userId, token);

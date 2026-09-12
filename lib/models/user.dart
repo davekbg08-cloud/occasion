@@ -52,6 +52,10 @@ class UserModel {
     this.phoneVerified = false,
     this.selfieUrl,
     this.idDocumentUrl,
+    this.referralCode,
+    this.referredBy,
+    this.referralCount = 0,
+    this.referralRewardPoints = 0,
   });
 
   final String id;
@@ -64,6 +68,15 @@ class UserModel {
   final bool phoneVerified;
   final String? selfieUrl;
   final String? idDocumentUrl;
+
+  /// Champs de parrainage — exclusivement écrits par les Cloud Functions
+  /// `onUserCreated`/`onReferredUserFirstOrder` (voir `functions/index.js`
+  /// et `firestore.rules`), jamais par le client : volontairement absents
+  /// de [toMap] pour qu'une mise à jour de profil ne les écrase jamais.
+  final String? referralCode;
+  final String? referredBy;
+  final int referralCount;
+  final int referralRewardPoints;
 
   bool get isSeller => role == UserRole.seller;
   bool get isBuyer => role == UserRole.buyer;
@@ -94,6 +107,10 @@ class UserModel {
       phoneVerified: phoneVerified,
       selfieUrl: map['selfieUrl'] as String?,
       idDocumentUrl: map['idDocumentUrl'] as String?,
+      referralCode: map['referralCode'] as String?,
+      referredBy: map['referredBy'] as String?,
+      referralCount: (map['referralCount'] as num?)?.toInt() ?? 0,
+      referralRewardPoints: (map['referralRewardPoints'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -122,6 +139,10 @@ class UserModel {
     bool? phoneVerified,
     String? selfieUrl,
     String? idDocumentUrl,
+    String? referralCode,
+    String? referredBy,
+    int? referralCount,
+    int? referralRewardPoints,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -134,6 +155,10 @@ class UserModel {
       phoneVerified: phoneVerified ?? this.phoneVerified,
       selfieUrl: selfieUrl ?? this.selfieUrl,
       idDocumentUrl: idDocumentUrl ?? this.idDocumentUrl,
+      referralCode: referralCode ?? this.referralCode,
+      referredBy: referredBy ?? this.referredBy,
+      referralCount: referralCount ?? this.referralCount,
+      referralRewardPoints: referralRewardPoints ?? this.referralRewardPoints,
     );
   }
 
