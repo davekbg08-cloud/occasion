@@ -48,19 +48,27 @@
     navigateur. Ce service worker continuerait de servir indéfiniment sa
     version en cache de main.dart.js, même après ce correctif — puisque rien
     ne le désinscrit jamais de lui-même. Ce script le désinscrit et vide ses
-    caches une bonne fois pour toutes ; sans effet (donc sans risque) sur un
-    navigateur qui n'en a aucun.
+    caches une bonne fois pour toutes.
+
+    IMPORTANT : gardé derrière un drapeau localStorage pour ne s'exécuter
+    qu'UNE SEULE fois par navigateur. Sans ce garde-fou, ce nettoyage
+    tournerait à chaque chargement de page et désinscrirait aussi
+    firebase-messaging-sw.js (voir lib/services/notification_service.dart) —
+    rendant les notifications push web impossibles à chaque nouvelle visite.
   -->
   <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        registrations.forEach((registration) => registration.unregister());
-      });
-    }
-    if ('caches' in window) {
-      caches.keys().then((keys) => {
-        keys.forEach((key) => caches.delete(key));
-      });
+    if (!localStorage.getItem('sw_cleanup_v1_done')) {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => registration.unregister());
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => caches.delete(key));
+        });
+      }
+      localStorage.setItem('sw_cleanup_v1_done', '1');
     }
   </script>
   <script src="flutter_bootstrap.js" async></script>

@@ -113,8 +113,22 @@ class NotificationService {
 
     try {
       await _requestPermission();
-      await _setupLocalNotifications(navigatorKey);
+    } catch (error) {
+      debugPrint('Permission notifications non accordée : $error');
+    }
 
+    try {
+      await _setupLocalNotifications(navigatorKey);
+    } catch (error) {
+      // Sur le web, l'implémentation locale de flutter_local_notifications
+      // dépend du navigateur et peut ne pas être disponible — ça ne doit
+      // pas empêcher l'inscription aux flux FCM ci-dessous : la bannière
+      // d'arrière-plan web est gérée par web/firebase-messaging-sw.js,
+      // indépendamment de cette étape.
+      debugPrint('Notifications locales non initialisées : $error');
+    }
+
+    try {
       FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
       FirebaseMessaging.onMessage.listen(_showLocalNotification);
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -128,7 +142,7 @@ class NotificationService {
         });
       }
     } catch (error) {
-      debugPrint('Notifications non initialisées : $error');
+      debugPrint('Écoute FCM non initialisée : $error');
     }
   }
 
@@ -341,11 +355,21 @@ class NotificationService {
   /// tout acheteur y est abonné automatiquement, pas d'écran de préférence.
   static const _newStatusTopic = 'new_status';
 
+  /// Clé "Web Push certificate" (VAPID) — Firebase Console > Paramètres du
+  /// projet > Cloud Messaging > Configuration Web > Certificats Web Push.
+  /// Obligatoire pour que `getToken()` fonctionne sur le web ; ignorée sans
+  /// effet sur Android/iOS. Tant que ce placeholder n'est pas remplacé, la
+  /// sauvegarde du token échoue silencieusement (voir catch ci-dessous) —
+  /// aucune notification web ne peut être envoyée à cet appareil.
+  static const _webVapidKey = 'REMPLACE_PAR_TA_CLE_VAPID_FIREBASE';
+
   static Future<void> saveToken(String userId, {bool isBuyer = false}) async {
     if (userId.isEmpty) return;
 
     try {
-      final token = await _fcm.getToken();
+      final token = await _fcm.getToken(
+        vapidKey: kIsWeb ? _webVapidKey : null,
+      );
       if (token == null) return;
 
       await _updateToken(userId, token);
