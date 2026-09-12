@@ -598,6 +598,88 @@ exports.onNewMessage = onDocumentCreated(
 );
 
 /**
+ * Historise chaque changement de prix d'une annonce (sous-collection
+ * `annonces/{annonceId}/priceHistory`, lecture publique — voir
+ * `firestore.rules`) et alerte les utilisateurs ayant mis l'annonce en
+ * favori quand le prix baisse (jamais à la hausse, jamais le vendeur
+ * lui-même). `notificationId` inclut `event.id` (identifiant CloudEvent
+ * stable pour une redélivrance du même évènement) : une redélivrance "au
+ * moins une fois" du trigger ne renvoie donc jamais deux fois la même
+ * alerte, tout en laissant chaque baisse de prix réelle créer sa propre
+ * notification (`sendToUser` gère déjà la dédoublonnage par id de
+ * document).
+ */
+exports.onAnnonceUpdated = onDocumentUpdated(
+  "annonces/{annonceId}",
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const annonceId = event.params.annonceId;
+
+    const oldPrice = before.price;
+    const newPrice = after.price;
+    if (typeof newPrice !== "number" || typeof oldPrice !== "number" || oldPrice === newPrice) {
+      return null;
+    }
+
+    const currency = after.currency ?? after.devise ?? "FC";
+
+    // Id déterministe (event.id, stable pour une redélivrance du même
+    // évènement) plutôt que .add() : une redélivrance "au moins une fois"
+    // du trigger écrase donc la même entrée au lieu d'en dupliquer une.
+    await db
+      .collection("annonces")
+      .doc(annonceId)
+      .collection("priceHistory")
+      .doc(event.id)
+      .set({
+        oldPrice,
+        newPrice,
+        currency,
+        changedAt: FieldValue.serverTimestamp(),
+      });
+
+    if (newPrice >= oldPrice) {
+      return null;
+    }
+
+    const sellerId = after.sellerId ?? after.vendeurId ?? after.userId ?? null;
+    const title = after.title ?? after.titre ?? "Une annonce";
+
+    const favorisSnap = await db
+      .collection("favoris")
+      .where("annonceId", "==", annonceId)
+      .get();
+
+    const recipientIds = [
+      ...new Set(
+        favorisSnap.docs
+          .map((doc) => doc.data().utilisateurId)
+          .filter((uid) => uid && uid !== sellerId)
+      ),
+    ];
+
+    await Promise.all(
+      recipientIds.map((recipientId) =>
+        sendToUser({
+          recipientId,
+          notificationId: `priceDropped_${annonceId}_${recipientId}_${event.id}`,
+          type: "price_drop",
+          title: "📉 Baisse de prix",
+          body: `${title} : le prix vient de baisser.`,
+          route: `/annonce/${annonceId}`,
+          data: { annonceId, listingId: annonceId },
+        }).catch((err) =>
+          console.error(`Erreur sendToUser priceDropped ${annonceId} -> ${recipientId} :`, err)
+        )
+      )
+    );
+
+    return null;
+  }
+);
+
+/**
  * Cloud Function callable qui remplace l'écriture directe côté client de
  * `ChatService.sendMessage` (ancien `chat_service.dart`) : le client ne
  * choisit plus jamais `senderId`/`receiverId`/`status`, et

@@ -253,6 +253,15 @@ service cloud.firestore {
       match /viewers/{viewerId} {
         allow read, write: if false;
       }
+
+      // Historique des changements de prix, écrit uniquement par la Cloud
+      // Function onAnnonceUpdated — lecture publique (même transparence que
+      // l'annonce elle-même une fois publiée), jamais modifiable par un
+      // client.
+      match /priceHistory/{entryId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     match /admins/{adminId} {

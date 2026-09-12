@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../annonce/providers/annonce_provider.dart';
 import '../models/report.dart';
@@ -176,6 +177,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                         ),
                         child: Text(annonce.category),
                       ),
+                      _PriceHistorySection(annonceId: annonce.id),
                       if (showBuyerActions) ...[
                         const SizedBox(height: 20),
                         productAsync.maybeWhen(
@@ -216,6 +218,53 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+class _PriceHistorySection extends ConsumerWidget {
+  const _PriceHistorySection({required this.annonceId});
+
+  final String annonceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final historyAsync = ref.watch(priceHistoryProvider(annonceId));
+
+    return historyAsync.maybeWhen(
+      data: (entries) {
+        if (entries.length < 2) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Historique des prix'),
+            children: entries
+                .map(
+                  (entry) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      entry.isDecrease
+                          ? Icons.trending_down
+                          : Icons.trending_up,
+                      color: entry.isDecrease ? Colors.green : Colors.red,
+                    ),
+                    title: Text(
+                      '${entry.oldPrice.toInt()} → ${entry.newPrice.toInt()} ${entry.currency}',
+                    ),
+                    subtitle: entry.changedAt == null
+                        ? null
+                        : Text(
+                            DateFormat('dd/MM/yyyy').format(entry.changedAt!),
+                          ),
+                  ),
+                )
+                .toList(),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
     );
   }
 }

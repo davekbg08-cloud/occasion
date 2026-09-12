@@ -885,6 +885,51 @@ test("un acheteur ne peut pas modifier le saleState de l'annonce d'un autre", as
   );
 });
 
+test("l'historique de prix d'une annonce est lisible par tous, même sans être connecté", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .collection("priceHistory")
+      .doc("entry1")
+      .set({ oldPrice: 1000, newPrice: 800, currency: "FC" });
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(
+    anonymous
+      .collection("annonces")
+      .doc("annonce1")
+      .collection("priceHistory")
+      .doc("entry1")
+      .get()
+  );
+});
+
+test("un client ne peut jamais écrire dans l'historique de prix d'une annonce", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller
+      .collection("annonces")
+      .doc("annonce1")
+      .collection("priceHistory")
+      .doc("entry1")
+      .set({ oldPrice: 1000, newPrice: 800, currency: "FC" })
+  );
+});
+
 test("un client ne peut pas écrire dans la sous-collection viewers d'une annonce", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(

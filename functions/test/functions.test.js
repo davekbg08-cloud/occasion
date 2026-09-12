@@ -37,6 +37,7 @@ test.beforeEach(async () => {
     "sellerStatistics",
     "annonces",
     "admins",
+    "favoris",
   ]);
 });
 
@@ -1417,4 +1418,140 @@ test("recordAnnonceView : refuse l'auto-vue du propriétaire et les annonces ina
   });
   snap = await db.collection("annonces").doc("annonce1").get();
   assert.equal(snap.data().vues, 1, "une vraie vue d'un tiers doit compter");
+});
+
+test("onAnnonceUpdated : une baisse de prix historise l'entrée et notifie les favoris (pas le vendeur)", async () => {
+  await db.collection("annonces").doc("annonce-price-drop-1").set({
+    sellerId: "seller1",
+    price: 1000,
+    currency: "FC",
+    title: "Chaise",
+  });
+  await db.collection("favoris").add({ utilisateurId: "buyer1", annonceId: "annonce-price-drop-1" });
+  await db.collection("favoris").add({ utilisateurId: "buyer2", annonceId: "annonce-price-drop-1" });
+  // Favori défensif du vendeur lui-même : ne doit jamais recevoir sa propre alerte.
+  await db.collection("favoris").add({ utilisateurId: "seller1", annonceId: "annonce-price-drop-1" });
+  // Favori sur une AUTRE annonce : ne doit jamais être notifié.
+  await db.collection("favoris").add({ utilisateurId: "buyer3", annonceId: "annonce-autre" });
+
+  const event = {
+    id: "event-price-drop-1",
+    data: {
+      before: { data: () => ({ sellerId: "seller1", price: 1000, currency: "FC", title: "Chaise" }) },
+      after: { data: () => ({ sellerId: "seller1", price: 800, currency: "FC", title: "Chaise" }) },
+    },
+    params: { annonceId: "annonce-price-drop-1" },
+  };
+
+  await functions.onAnnonceUpdated.run(event);
+
+  const historySnap = await db
+    .collection("annonces")
+    .doc("annonce-price-drop-1")
+    .collection("priceHistory")
+    .get();
+  assert.equal(historySnap.docs.length, 1);
+  assert.equal(historySnap.docs[0].data().oldPrice, 1000);
+  assert.equal(historySnap.docs[0].data().newPrice, 800);
+
+  const notifBuyer1 = await db
+    .collection("notifications")
+    .doc(`priceDropped_annonce-price-drop-1_buyer1_event-price-drop-1`)
+    .get();
+  const notifBuyer2 = await db
+    .collection("notifications")
+    .doc(`priceDropped_annonce-price-drop-1_buyer2_event-price-drop-1`)
+    .get();
+  const notifSeller = await db
+    .collection("notifications")
+    .doc(`priceDropped_annonce-price-drop-1_seller1_event-price-drop-1`)
+    .get();
+  const notifBuyer3 = await db
+    .collection("notifications")
+    .doc(`priceDropped_annonce-autre_buyer3_event-price-drop-1`)
+    .get();
+
+  assert.ok(notifBuyer1.exists, "buyer1 a mis l'annonce en favori : doit être notifié");
+  assert.ok(notifBuyer2.exists, "buyer2 a mis l'annonce en favori : doit être notifié");
+  assert.equal(notifSeller.exists, false, "le vendeur ne doit jamais être notifié de sa propre baisse");
+  assert.equal(notifBuyer3.exists, false, "un favori sur une autre annonce ne doit jamais être notifié");
+});
+
+test("onAnnonceUpdated : une hausse de prix historise l'entrée mais ne notifie personne", async () => {
+  await db.collection("annonces").doc("annonce-price-up-1").set({
+    sellerId: "seller1",
+    price: 800,
+    currency: "FC",
+  });
+  await db.collection("favoris").add({ utilisateurId: "buyer1", annonceId: "annonce-price-up-1" });
+
+  const event = {
+    id: "event-price-up-1",
+    data: {
+      before: { data: () => ({ sellerId: "seller1", price: 800, currency: "FC" }) },
+      after: { data: () => ({ sellerId: "seller1", price: 1200, currency: "FC" }) },
+    },
+    params: { annonceId: "annonce-price-up-1" },
+  };
+
+  await functions.onAnnonceUpdated.run(event);
+
+  const historySnap = await db
+    .collection("annonces")
+    .doc("annonce-price-up-1")
+    .collection("priceHistory")
+    .get();
+  assert.equal(historySnap.docs.length, 1, "une hausse doit quand même être historisée");
+  assert.equal(historySnap.docs[0].data().newPrice, 1200);
+
+  const notifBuyer1 = await db
+    .collection("notifications")
+    .doc(`priceDropped_annonce-price-up-1_buyer1_event-price-up-1`)
+    .get();
+  assert.equal(notifBuyer1.exists, false, "une hausse de prix ne doit jamais notifier");
+});
+
+test("onAnnonceUpdated : aucun changement de prix -> aucune entrée d'historique", async () => {
+  await db.collection("annonces").doc("annonce-no-change-1").set({ sellerId: "seller1", price: 500 });
+
+  const event = {
+    id: "event-no-change-1",
+    data: {
+      before: { data: () => ({ sellerId: "seller1", price: 500, title: "Ancien titre" }) },
+      after: { data: () => ({ sellerId: "seller1", price: 500, title: "Nouveau titre" }) },
+    },
+    params: { annonceId: "annonce-no-change-1" },
+  };
+
+  await functions.onAnnonceUpdated.run(event);
+
+  const historySnap = await db
+    .collection("annonces")
+    .doc("annonce-no-change-1")
+    .collection("priceHistory")
+    .get();
+  assert.equal(historySnap.docs.length, 0);
+});
+
+test("onAnnonceUpdated : une redélivrance du même évènement n'écrit jamais deux entrées d'historique", async () => {
+  await db.collection("annonces").doc("annonce-redelivered-1").set({ sellerId: "seller1", price: 1000 });
+
+  const event = {
+    id: "event-redelivered-1",
+    data: {
+      before: { data: () => ({ sellerId: "seller1", price: 1000 }) },
+      after: { data: () => ({ sellerId: "seller1", price: 900 }) },
+    },
+    params: { annonceId: "annonce-redelivered-1" },
+  };
+
+  await functions.onAnnonceUpdated.run(event);
+  await functions.onAnnonceUpdated.run(event);
+
+  const historySnap = await db
+    .collection("annonces")
+    .doc("annonce-redelivered-1")
+    .collection("priceHistory")
+    .get();
+  assert.equal(historySnap.docs.length, 1, "même event.id : une seule entrée, jamais un doublon");
 });

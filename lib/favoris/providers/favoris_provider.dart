@@ -14,17 +14,21 @@ final favorisProvider =
     });
 
 class FavorisNotifier extends StateNotifier<List<Favori>> {
-  FavorisNotifier({required this.userId}) : super(const []);
+  FavorisNotifier({required this.userId, FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      super(const []);
 
   final String userId;
-  final _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore;
 
   CollectionReference<Map<String, dynamic>> get _favorisRef =>
       _firestore.collection('favoris');
 
   Future<void> loadFavoris() async {
     if (userId.trim().isEmpty) return;
-    final snapshot = await _favorisRef.where('userId', isEqualTo: userId).get();
+    final snapshot = await _favorisRef
+        .where('utilisateurId', isEqualTo: userId)
+        .get();
     state = snapshot.docs
         .map((doc) => Favori.fromJson({...doc.data(), 'id': doc.id}))
         .toList();

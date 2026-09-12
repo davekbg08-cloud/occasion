@@ -1,7 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../data/annonce_repository.dart';
+import '../../models/price_history_entry.dart';
 import '../../shared/models/annonce.dart';
 
 final annonceRepositoryProvider = Provider<AnnonceRepository>((ref) {
@@ -32,6 +34,24 @@ final annonceByIdProvider = FutureProvider.autoDispose.family<Annonce?, String>(
     return repo.getAnnonceById(id);
   },
 );
+
+/// Historique des changements de prix d'une annonce (sous-collection
+/// `annonces/{id}/priceHistory`, écrite uniquement par la Cloud Function
+/// `onAnnonceUpdated`), triée du plus récent au plus ancien.
+final priceHistoryProvider = StreamProvider.autoDispose
+    .family<List<PriceHistoryEntry>, String>((ref, annonceId) {
+      return FirebaseFirestore.instance
+          .collection('annonces')
+          .doc(annonceId)
+          .collection('priceHistory')
+          .orderBy('changedAt', descending: true)
+          .snapshots()
+          .map(
+            (snapshot) => snapshot.docs
+                .map((doc) => PriceHistoryEntry.fromJson(doc.data()))
+                .toList(),
+          );
+    });
 
 final createAnnonceProvider =
     StateNotifierProvider<CreateAnnonceNotifier, AsyncValue<Annonce?>>((ref) {
