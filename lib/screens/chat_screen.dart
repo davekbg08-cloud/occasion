@@ -267,6 +267,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Une erreur de persistance locale (ChatState.error, ex. l'écriture
+    // SharedPreferences de la boîte d'envoi échoue) faisait échouer
+    // silencieusement l'envoi : le texte restait dans le champ, aucune
+    // bulle n'apparaissait, et rien n'indiquait pourquoi — l'utilisateur
+    // devait retaper Envoyer sans savoir que le premier appui avait
+    // réellement échoué. `ref.listen` ne se déclenche que sur un vrai
+    // changement d'état (jamais à chaque rebuild), donc jamais de
+    // SnackBar répétée pour la même erreur.
+    ref.listen<ChatState>(chatNotifierProvider, (previous, next) {
+      if (next.error != null && next.error != previous?.error) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Échec de l'envoi : ${next.error}. Réessaie."),
+          ),
+        );
+      }
+    });
+
     final me = ref.watch(authNotifierProvider).currentUser;
     final myId = me?.id ?? '';
     final chat = ref.watch(
