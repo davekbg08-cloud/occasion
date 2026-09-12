@@ -1838,6 +1838,180 @@ exports.adminResetLoyaltyPoints = onCall(async (request) => {
   return { status: "ok" };
 });
 
+// ---------------------------------------------------------------------
+// Parrainage
+//
+// Programme indépendant du système de fidélité par vendeur ci-dessus
+// (`LOYALTY_POINTS_RATE`, `loyaltyPoints/{buyerId_sellerId}`) : le
+// parrainage est une récompense plateforme, pas liée à un vendeur
+// particulier, donc une nouvelle devise dédiée (`referralRewardPoints`)
+// plutôt que de mélanger les deux mécanismes.
+//
+// Champs sur users/{uid} (voir firestore.rules — écriture exclusivement
+// serveur, sauf `referredByCode` que le client peut renseigner à
+// l'inscription) :
+//   - referralCode           : code unique généré ici, à partager.
+//   - referredByCode         : code saisi par le client à l'inscription
+//                              (chaîne brute, non résolue).
+//   - referredBy             : uid du parrain, résolu par onUserCreated.
+//   - referralCount          : nombre de filleuls inscrits avec ce code.
+//   - referralRewardGranted  : empêche tout double crédit (idempotence).
+//   - referralRewardPoints   : solde de récompense, parrain et filleul.
+// ---------------------------------------------------------------------
+
+const REFERRAL_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const REFERRAL_CODE_LENGTH = 6;
+const REFERRAL_REWARD_POINTS = 5;
+
+function randomReferralCode() {
+  let code = "";
+  for (let i = 0; i < REFERRAL_CODE_LENGTH; i++) {
+    const index = Math.floor(Math.random() * REFERRAL_CODE_ALPHABET.length);
+    code += REFERRAL_CODE_ALPHABET[index];
+  }
+  return code;
+}
+
+/**
+ * Génère un code de parrainage garanti unique (quelques tentatives avec
+ * vérification en base — l'espace de codes (32^6 ≈ 1 milliard) rend une
+ * collision quasi impossible, la boucle est une garantie, pas l'attendu).
+ */
+async function generateUniqueReferralCode() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = randomReferralCode();
+    const existing = await db
+      .collection("users")
+      .where("referralCode", "==", candidate)
+      .limit(1)
+      .get();
+    if (existing.empty) return candidate;
+  }
+  // Extrêmement improbable : on retombe sur un code plus long plutôt que
+  // d'échouer l'inscription pour ça.
+  return `${randomReferralCode()}${randomReferralCode()}`;
+}
+
+/**
+ * À la création de tout compte : attribue son propre code de parrainage,
+ * et si un code de parrain a été saisi (`referredByCode`), le résout en
+ * uid et incrémente le compteur du parrain. Ne bloque jamais la création
+ * du compte elle-même (déjà faite avant que ce trigger s'exécute) : un
+ * code invalide ou introuvable est simplement ignoré.
+ */
+exports.onUserCreated = onDocumentCreated(
+  "users/{userId}",
+  async (event) => {
+    const userId = event.params.userId;
+    const data = event.data.data() ?? {};
+
+    const referralCode = await generateUniqueReferralCode();
+    const updates = { referralCode };
+
+    const enteredCode = (data.referredByCode ?? "").trim().toUpperCase();
+    if (enteredCode) {
+      try {
+        const match = await db
+          .collection("users")
+          .where("referralCode", "==", enteredCode)
+          .limit(1)
+          .get();
+        const referrerDoc = match.docs[0];
+        if (referrerDoc && referrerDoc.id !== userId) {
+          updates.referredBy = referrerDoc.id;
+          await referrerDoc.ref.update({
+            referralCount: FieldValue.increment(1),
+          });
+        }
+      } catch (err) {
+        console.error(`Erreur résolution code parrainage ${userId} :`, err);
+      }
+    }
+
+    await db.collection("users").doc(userId).update(updates);
+  }
+);
+
+/**
+ * Crédite parrain et filleul une seule fois, au premier achat complété du
+ * filleul. Transaction Firestore sur le document du filleul : lit
+ * `referredBy`/`referralRewardGranted` et écrit atomiquement pour exclure
+ * tout double crédit en cas de rejeu de l'évènement (garantie "au moins
+ * une fois" des triggers Cloud Functions — même précaution que
+ * `creditOrderLoyaltyPoints` plus haut).
+ */
+async function grantReferralRewardOnce(referredId) {
+  const referredRef = db.collection("users").doc(referredId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(referredRef);
+    if (!snap.exists) return null;
+
+    const referredData = snap.data();
+    const referrerId = referredData.referredBy;
+    if (!referrerId || referredData.referralRewardGranted) return null;
+
+    const referrerRef = db.collection("users").doc(referrerId);
+    const referrerSnap = await tx.get(referrerRef);
+    if (!referrerSnap.exists) return null;
+
+    tx.update(referredRef, {
+      referralRewardGranted: true,
+      referralRewardPoints: FieldValue.increment(REFERRAL_REWARD_POINTS),
+    });
+    tx.update(referrerRef, {
+      referralRewardPoints: FieldValue.increment(REFERRAL_REWARD_POINTS),
+    });
+    return { referrerId };
+  });
+}
+
+/**
+ * Fonction indépendante de `onOrderCompleted` ci-dessus, sur le même
+ * déclencheur (Firestore autorise plusieurs fonctions sur le même
+ * chemin) — ne modifie donc rien à la logique de fidélité par vendeur
+ * déjà en place.
+ */
+exports.onReferredUserFirstOrder = onDocumentUpdated(
+  "orders/{orderId}",
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    if (before.status === "completed" || after.status !== "completed") {
+      return null;
+    }
+
+    const buyerId = after.buyerId;
+    if (!buyerId) return null;
+
+    try {
+      const granted = await grantReferralRewardOnce(buyerId);
+      if (!granted) return null;
+
+      await sendToUser({
+        recipientId: granted.referrerId,
+        notificationId: `referral_reward_${buyerId}`,
+        type: "referral",
+        title: "🎉 Récompense de parrainage",
+        body: "La personne que vous avez invitée a fait son 1er achat !",
+        route: "/referral",
+        data: { referredUserId: buyerId },
+      });
+      await sendToUser({
+        recipientId: buyerId,
+        notificationId: `referral_bonus_${buyerId}`,
+        type: "referral",
+        title: "🎉 Bonus de bienvenue débloqué",
+        body: "Merci pour votre premier achat, votre bonus est crédité.",
+        route: "/referral",
+        data: {},
+      });
+    } catch (err) {
+      console.error(`Erreur récompense parrainage ${buyerId} :`, err);
+    }
+    return null;
+  }
+);
+
 // Exports internes réservés aux tests (functions/test/), jamais utilisés en
 // production ni déployés comme fonctions (objet brut, pas un CloudFunction
 // reconnu par le CLI Firebase).

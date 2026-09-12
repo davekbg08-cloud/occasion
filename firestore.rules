@@ -263,14 +263,24 @@ service cloud.firestore {
 
       // Création du compte (inscription) : le client choisit son rôle et
       // son statut d'identité initial, mais ne peut jamais se créer déjà
-      // "vérifié", ni s'attribuer un abonnement vendeur.
+      // "vérifié", ni s'attribuer un abonnement vendeur. Le parrainage suit
+      // le même principe : le client peut indiquer le CODE qu'on lui a
+      // donné (`referredByCode`, une simple chaîne non résolue), mais ne
+      // peut jamais s'attribuer directement un parrain, un code, ou une
+      // récompense — seule la Cloud Function `onUserCreated` (Admin SDK)
+      // résout le code et écrit ces champs.
       allow create: if isOwner(userId)
         && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller'])
         && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
         && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
         && !('sellerSubscriptionActive' in request.resource.data)
         && !('sellerSubscriptionExpiresAt' in request.resource.data)
-        && !('unreadMessageCount' in request.resource.data);
+        && !('unreadMessageCount' in request.resource.data)
+        && !('referralCode' in request.resource.data)
+        && !('referredBy' in request.resource.data)
+        && !('referralCount' in request.resource.data)
+        && !('referralRewardGranted' in request.resource.data)
+        && !('referralRewardPoints' in request.resource.data);
 
       // Mise à jour : le rôle et l'abonnement vendeur ne sont plus jamais
       // modifiables par le client une fois le compte créé (uniquement par
@@ -279,10 +289,16 @@ service cloud.firestore {
       // "soumission" (jamais 'verified'/'rejected', décision admin).
       // `unreadMessageCount` (source du badge natif) suit le même principe
       // que les compteurs par conversation : exclusivement serveur
-      // (`incrementChatUnread`/`markChatAsRead`).
+      // (`incrementChatUnread`/`markChatAsRead`). Les champs de parrainage
+      // (code, parrain résolu, compteur, récompense) sont exclusivement
+      // serveur pour les mêmes raisons anti-fraude qu'à la création.
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(
-            ['role', 'sellerSubscriptionActive', 'sellerSubscriptionExpiresAt', 'unreadMessageCount']
+            [
+              'role', 'sellerSubscriptionActive', 'sellerSubscriptionExpiresAt',
+              'unreadMessageCount', 'referralCode', 'referredBy', 'referralCount',
+              'referralRewardGranted', 'referralRewardPoints',
+            ]
           )
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['identityStatus', 'sellerStatus'])

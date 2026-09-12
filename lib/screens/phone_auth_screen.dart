@@ -22,6 +22,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _referralCodeController = TextEditingController();
   String _phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   bool _obscurePassword = true;
 
@@ -33,6 +34,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
     _phoneController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _referralCodeController.dispose();
     super.dispose();
   }
 
@@ -49,6 +51,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
           phoneCountryIso: _phoneCountryIso,
           email: _emailController.text,
           password: _passwordController.text,
+          referralCode: _referralCodeController.text,
         );
       } else {
         await notifier.signIn(
@@ -165,6 +168,17 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     },
                   ),
                   const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _referralCodeController,
+                    enabled: !auth.isLoading,
+                    textCapitalization: TextCapitalization.characters,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Code de parrainage (optionnel)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.card_giftcard_outlined),
+                    ),
+                  ),
                 ],
                 TextFormField(
                   controller: _emailController,

@@ -101,6 +101,69 @@ test("un client ne peut jamais modifier son propre unreadMessageCount (source un
   );
 });
 
+test("un client peut renseigner un code de parrainage saisi à l'inscription", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("users").doc("buyer1").set({
+      id: "buyer1",
+      role: "buyer",
+      referredByCode: "ABC123",
+    })
+  );
+});
+
+test("un client ne peut pas s'attribuer directement un parrain (referredBy) à la création", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("users").doc("buyer1").set({
+      id: "buyer1",
+      role: "buyer",
+      referredBy: "parrain1",
+    })
+  );
+});
+
+test("un client ne peut pas s'attribuer son propre code de parrainage à la création", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("users").doc("buyer1").set({
+      id: "buyer1",
+      role: "buyer",
+      referralCode: "TRICHE1",
+    })
+  );
+});
+
+test("un client ne peut jamais s'auto-créditer de points de récompense parrainage", async () => {
+  await seed("buyer1", { id: "buyer1", role: "buyer", referralRewardPoints: 0 });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("users")
+      .doc("buyer1")
+      .update({ referralRewardPoints: 9999, referralRewardGranted: true })
+  );
+});
+
+test("un client ne peut pas gonfler son propre referralCount", async () => {
+  await seed("buyer1", { id: "buyer1", role: "buyer", referralCount: 0 });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("users").doc("buyer1").update({ referralCount: 50 })
+  );
+});
+
+test("un client peut toujours lire son propre solde de récompense parrainage", async () => {
+  await seed("buyer1", {
+    id: "buyer1",
+    role: "buyer",
+    referralCode: "XYZ789",
+    referralRewardPoints: 5,
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("users").doc("buyer1").get());
+});
+
 test("un client ne peut pas passer une commande à 'paid' directement", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertSucceeds(

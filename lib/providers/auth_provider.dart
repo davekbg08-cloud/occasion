@@ -126,6 +126,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     String phoneCountryIso = PhoneNumberValidator.defaultCountryIso,
     required String email,
     required String password,
+    String? referralCode,
   }) async {
     final name = displayName.trim();
     final phoneValidation = PhoneNumberValidator.validate(
@@ -175,11 +176,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         identityStatus: SellerIdentityStatus.unverified,
       );
 
+      final trimmedReferralCode = referralCode?.trim() ?? '';
+
       await _users.doc(firebaseUser.uid).set({
         ...user.toMap(),
         'email': email.trim(),
         'phoneCountry': phoneValidation.country?.isoCode ?? phoneCountryIso,
         'updatedAt': FieldValue.serverTimestamp(),
+        if (trimmedReferralCode.isNotEmpty)
+          'referredByCode': trimmedReferralCode,
       }, SetOptions(merge: true));
       await _firestore.collection('publicProfiles').doc(firebaseUser.uid).set({
         'id': firebaseUser.uid,
