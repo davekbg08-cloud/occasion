@@ -849,6 +849,27 @@ async function writeChatMessage({
       throw new HttpsError("failed-precondition", "Conversation invalide.");
     }
 
+    // Un blocage (dans un sens ou l'autre) empêche tout nouveau message :
+    // le client ne filtre aujourd'hui que sa PROPRE liste de conversations
+    // (voir chat_list_screen.dart) — sans cette vérification serveur,
+    // "cette personne ne pourra plus vous contacter" (promesse affichée à
+    // l'écran de blocage) serait fausse, un utilisateur bloqué pouvant
+    // toujours techniquement écrire dans la conversation existante.
+    const [blockedByReceiver, blockedBySender] = await Promise.all([
+      tx.get(
+        db.collection("users").doc(receiverId).collection("blockedUsers").doc(uid)
+      ),
+      tx.get(
+        db.collection("users").doc(uid).collection("blockedUsers").doc(receiverId)
+      ),
+    ]);
+    if (blockedByReceiver.exists || blockedBySender.exists) {
+      throw new HttpsError(
+        "permission-denied",
+        "Message bloqué : contact impossible entre ces deux utilisateurs."
+      );
+    }
+
     const msgSnap = await tx.get(msgRef);
     if (msgSnap.exists) {
       const existing = msgSnap.data();

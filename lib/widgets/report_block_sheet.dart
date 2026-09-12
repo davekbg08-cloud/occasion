@@ -206,7 +206,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
         title: Text('Bloquer $targetUserName ?'),
         content: const Text(
           'Vous ne verrez plus son contenu et cette personne ne pourra plus '
-          'vous contacter. Vous pourrez debloquer a tout moment depuis votre profil.',
+          'vous contacter. Vous pourrez débloquer à tout moment depuis votre profil.',
         ),
         actions: [
           TextButton(
@@ -226,7 +226,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
               if (dialogContext.mounted) Navigator.pop(dialogContext);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$targetUserName a ete bloque(e).')),
+                  SnackBar(content: Text('$targetUserName a été bloqué(e).')),
                 );
               }
             },

@@ -780,6 +780,87 @@ test("sendChatMessage : rejette un appel non authentifié, un non-participant, u
   );
 });
 
+test("sendChatMessage : refuse un message si le destinataire a bloqué l'expéditeur", async () => {
+  const chatId = "chat-blocked-by-receiver";
+  await db.collection("chats").doc(chatId).set({
+    buyerId: "buyer-block-1",
+    sellerId: "seller-block-1",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  await db
+    .collection("users")
+    .doc("seller-block-1")
+    .collection("blockedUsers")
+    .doc("buyer-block-1")
+    .set({ userId: "buyer-block-1", userName: "Buyer" });
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "buyer-block-1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  const msgSnap = await db
+    .collection("chats")
+    .doc(chatId)
+    .collection("messages")
+    .doc("x")
+    .get();
+  assert.equal(msgSnap.exists, false, "aucun message ne doit être créé");
+});
+
+test("sendChatMessage : refuse un message si l'expéditeur a lui-même bloqué le destinataire", async () => {
+  const chatId = "chat-blocked-by-sender";
+  await db.collection("chats").doc(chatId).set({
+    buyerId: "buyer-block-2",
+    sellerId: "seller-block-2",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+  // Ici c'est le VENDEUR qui envoie, après avoir lui-même bloqué l'acheteur.
+  await db
+    .collection("users")
+    .doc("seller-block-2")
+    .collection("blockedUsers")
+    .doc("buyer-block-2")
+    .set({ userId: "buyer-block-2", userName: "Buyer" });
+
+  await assert.rejects(
+    () =>
+      functions.sendChatMessage.run({
+        data: { chatId, clientMessageId: "x", content: "Bonjour" },
+        auth: { uid: "seller-block-2" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("sendChatMessage : fonctionne normalement en l'absence de tout blocage", async () => {
+  const chatId = "chat-not-blocked";
+  await db.collection("chats").doc(chatId).set({
+    buyerId: "buyer-noblock",
+    sellerId: "seller-noblock",
+    buyerUnreadCount: 0,
+    sellerUnreadCount: 0,
+  });
+
+  const result = await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "x", content: "Bonjour" },
+    auth: { uid: "buyer-noblock" },
+  });
+  assert.equal(result.alreadyExisted, false);
+});
+
 test("sendChatMessage puis onNewMessage : le pipeline compteur non lu/badge s'applique aux messages créés via la nouvelle fonction", async () => {
   const chatId = "chat-send-then-trigger";
   await seedChat(chatId);
