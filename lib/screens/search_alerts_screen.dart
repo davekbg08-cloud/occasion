@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,11 +26,12 @@ class SearchAlertsScreen extends ConsumerWidget {
       ),
       body: alertsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const Center(
+        error: (error, stackTrace) => Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Text(
-              'Impossible de charger tes alertes pour le moment.',
+              'Impossible de charger tes alertes pour le moment '
+              '(${_describeError(error)}).',
               textAlign: TextAlign.center,
             ),
           ),
@@ -72,4 +74,18 @@ class SearchAlertsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Détail court de l'erreur à afficher — sans ça, tout échec (règles
+/// Firestore non déployées, authentification, réseau...) affichait le
+/// même message générique, sans aucun moyen de savoir laquelle de ces
+/// causes est réellement en jeu (même correctif que sur l'envoi de
+/// média dans le chat, voir `chat_screen.dart::_describeUploadError`).
+String _describeError(Object error) {
+  if (error is FirebaseException) {
+    return error.message == null
+        ? error.code
+        : '${error.code} : ${error.message}';
+  }
+  return error.toString();
 }

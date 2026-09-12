@@ -13,7 +13,7 @@ class BlockedUsersScreen extends ConsumerWidget {
     final blockedAsync = ref.watch(blockedUsersDetailedProvider(currentUserId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Utilisateurs bloques')),
+      appBar: AppBar(title: const Text('Utilisateurs bloqués')),
       body: currentUserId.isEmpty
           ? const Center(child: Text('Connectez-vous pour voir cette liste.'))
           : blockedAsync.when(
@@ -22,7 +22,7 @@ class BlockedUsersScreen extends ConsumerWidget {
               data: (blocked) {
                 if (blocked.isEmpty) {
                   return const Center(
-                    child: Text("Vous n'avez bloque personne pour le moment."),
+                    child: Text("Vous n'avez bloqué personne pour le moment."),
                   );
                 }
 
@@ -50,12 +50,12 @@ class BlockedUsersScreen extends ConsumerWidget {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Utilisateur debloque'),
+                                content: Text('Utilisateur débloqué'),
                               ),
                             );
                           }
                         },
-                        child: const Text('Debloquer'),
+                        child: const Text('Débloquer'),
                       ),
                     );
                   },

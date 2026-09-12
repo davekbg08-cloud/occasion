@@ -44,10 +44,10 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         await showDialog<void>(
           context: context,
           builder: (_) => AlertDialog(
-            title: const Text('Reconnexion necessaire'),
+            title: const Text('Reconnexion nécessaire'),
             content: const Text(
-              'Pour des raisons de securite, veuillez vous reconnecter '
-              'avant de supprimer definitivement votre compte.',
+              'Pour des raisons de sécurité, veuillez vous reconnecter '
+              'avant de supprimer définitivement votre compte.',
             ),
             actions: [
               TextButton(
@@ -84,19 +84,19 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Cette action est irreversible',
+              'Cette action est irréversible',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
             const SizedBox(height: 12),
             const Text(
               'En supprimant votre compte :\n\n'
-              '- Votre profil sera anonymise\n'
-              '- Vos articles publies seront supprimes\n'
+              '- Votre profil sera anonymisé\n'
+              '- Vos articles publiés seront supprimés\n'
               '- Vos conversations resteront visibles pour vos contacts, '
-              'mais votre nom apparaitra comme "Utilisateur supprime"\n'
-              "- Vous perdrez l'acces a votre abonnement en cours\n\n"
-              'Certaines donnees peuvent etre conservees temporairement '
-              'pour des raisons legales, conformement a notre politique de confidentialite.',
+              'mais votre nom apparaîtra comme "Utilisateur supprimé"\n'
+              "- Vous perdrez l'accès à votre abonnement en cours\n\n"
+              'Certaines données peuvent être conservées temporairement '
+              'pour des raisons légales, conformément à notre politique de confidentialité.',
             ),
             const SizedBox(height: 24),
             const Text('Tapez SUPPRIMER pour confirmer :'),
@@ -127,7 +127,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Text('Supprimer definitivement mon compte'),
+                    : const Text('Supprimer définitivement mon compte'),
               ),
             ),
           ],
