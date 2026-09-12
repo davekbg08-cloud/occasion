@@ -177,6 +177,42 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                         ),
                         child: Text(annonce.category),
                       ),
+                      productAsync.maybeWhen(
+                        data: (product) => product.sellerId == null
+                            ? const SizedBox.shrink()
+                            : Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: InkWell(
+                                  onTap: () => context.push(
+                                    '/seller/${product.sellerId}',
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.storefront_outlined,
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Vendeur : ${product.sellerName}',
+                                        style: const TextStyle(
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                      if (product.isSellerVerified) ...[
+                                        const SizedBox(width: 4),
+                                        const Icon(
+                                          Icons.verified,
+                                          color: Colors.blue,
+                                          size: 16,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                        orElse: () => const SizedBox.shrink(),
+                      ),
                       _PriceHistorySection(annonceId: annonce.id),
                       if (showBuyerActions) ...[
                         const SizedBox(height: 20),

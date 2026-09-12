@@ -56,6 +56,10 @@ class UserModel {
     this.referredBy,
     this.referralCount = 0,
     this.referralRewardPoints = 0,
+    this.ratingSum = 0,
+    this.ratingCount = 0,
+    this.averageRating = 0,
+    this.totalSales = 0,
   });
 
   final String id;
@@ -77,6 +81,16 @@ class UserModel {
   final String? referredBy;
   final int referralCount;
   final int referralRewardPoints;
+
+  /// Note moyenne et nombre de ventes — exclusivement écrits par la Cloud
+  /// Function `submitReview`/`notifySettlement` (voir `functions/index.js`),
+  /// jamais par le client : volontairement absents de [toMap] pour qu'une
+  /// mise à jour de profil ne les écrase jamais (même principe que les
+  /// champs de parrainage ci-dessus).
+  final int ratingSum;
+  final int ratingCount;
+  final double averageRating;
+  final int totalSales;
 
   bool get isSeller => role == UserRole.seller;
   bool get isBuyer => role == UserRole.buyer;
@@ -111,6 +125,10 @@ class UserModel {
       referredBy: map['referredBy'] as String?,
       referralCount: (map['referralCount'] as num?)?.toInt() ?? 0,
       referralRewardPoints: (map['referralRewardPoints'] as num?)?.toInt() ?? 0,
+      ratingSum: (map['ratingSum'] as num?)?.toInt() ?? 0,
+      ratingCount: (map['ratingCount'] as num?)?.toInt() ?? 0,
+      averageRating: (map['averageRating'] as num?)?.toDouble() ?? 0,
+      totalSales: (map['totalSales'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -143,6 +161,10 @@ class UserModel {
     String? referredBy,
     int? referralCount,
     int? referralRewardPoints,
+    int? ratingSum,
+    int? ratingCount,
+    double? averageRating,
+    int? totalSales,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -159,6 +181,10 @@ class UserModel {
       referredBy: referredBy ?? this.referredBy,
       referralCount: referralCount ?? this.referralCount,
       referralRewardPoints: referralRewardPoints ?? this.referralRewardPoints,
+      ratingSum: ratingSum ?? this.ratingSum,
+      ratingCount: ratingCount ?? this.ratingCount,
+      averageRating: averageRating ?? this.averageRating,
+      totalSales: totalSales ?? this.totalSales,
     );
   }
 

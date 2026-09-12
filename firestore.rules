@@ -651,6 +651,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Avis déposés après une commande complétée — exclusivement écrits par
+    // la Cloud Function `submitReview` (Admin SDK, dérive revieweeId/
+    // direction côté serveur, jamais transmis par le client). Lecture
+    // ouverte à tout utilisateur connecté, même principe que
+    // `publicProfiles` dont ces avis alimentent la note moyenne.
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     match /signalements/{signalementId} {
       allow create: if signedIn()
         && request.resource.data.utilisateurId == request.auth.uid

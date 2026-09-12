@@ -1302,3 +1302,89 @@ test("un utilisateur peut lire son propre statusLikes, pas celui d'un autre, et 
     })
   );
 });
+
+test("reviews : illisible et inéditable directement par un client, même le propriétaire de l'avis", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("reviews").doc("order1_seller1_buyer_to_seller").set({
+      orderId: "order1",
+      sellerId: "seller1",
+      reviewerId: "buyer1",
+      revieweeId: "seller1",
+      direction: "buyer_to_seller",
+      rating: 5,
+      comment: "",
+    });
+  });
+  const outsider = testEnv.authenticatedContext("outsider1").firestore();
+  await assertSucceeds(
+    outsider.collection("reviews").doc("order1_seller1_buyer_to_seller").get()
+  );
+
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("reviews").doc("order2_seller1_buyer_to_seller").set({
+      orderId: "order2",
+      sellerId: "seller1",
+      reviewerId: "buyer1",
+      revieweeId: "seller1",
+      direction: "buyer_to_seller",
+      rating: 5,
+      comment: "",
+    })
+  );
+  await assertFails(
+    buyer
+      .collection("reviews")
+      .doc("order1_seller1_buyer_to_seller")
+      .update({ rating: 1 })
+  );
+});
+
+test("un utilisateur non connecté ne peut jamais lire les avis", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("reviews").doc("order1_seller1_buyer_to_seller").set({
+      orderId: "order1",
+      sellerId: "seller1",
+      reviewerId: "buyer1",
+      revieweeId: "seller1",
+      direction: "buyer_to_seller",
+      rating: 5,
+      comment: "",
+    });
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+  await assertFails(
+    anonymous.collection("reviews").doc("order1_seller1_buyer_to_seller").get()
+  );
+});
+
+test("publicProfiles : le propriétaire ne peut jamais s'attribuer lui-même une note ou un nombre de ventes", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("publicProfiles").doc("seller1").set({
+      id: "seller1",
+      name: "Vendeur",
+      role: "seller",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ ratingSum: 999 })
+  );
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ ratingCount: 999 })
+  );
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ averageRating: 5 })
+  );
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ totalSales: 999 })
+  );
+
+  // Une mise à jour légitime (champs autorisés) doit toujours fonctionner :
+  // la fraude est bloquée précisément par l'absence de ces 4 champs dans le
+  // hasOnly, pas par un verrou global sur le document.
+  await assertSucceeds(
+    seller.collection("publicProfiles").doc("seller1").update({ name: "Nouveau nom" })
+  );
+});

@@ -1529,6 +1529,21 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
               }).catch((err) =>
                 console.error(`Erreur bumpSellerStats totalSales ${sellerId} :`, err)
               ),
+              // Miroir public (nombre de ventes affiché sur le profil
+              // vendeur, `publicProfiles/{userId}` — allow read: if
+              // signedIn()) : `sellerStatistics` reste strictement
+              // owner-read-only, jamais exposable directement aux
+              // acheteurs.
+              db
+                .collection("publicProfiles")
+                .doc(sellerId)
+                .set(
+                  { totalSales: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() },
+                  { merge: true }
+                )
+                .catch((err) =>
+                  console.error(`Erreur miroir publicProfiles totalSales ${sellerId} :`, err)
+                ),
             ]);
           })
         );
@@ -1676,6 +1691,134 @@ exports.recordAnnonceView = onCall(async (request) => {
   });
 
   return { status: "ok" };
+});
+
+const REVIEW_RATING_MIN = 1;
+const REVIEW_RATING_MAX = 5;
+const REVIEW_COMMENT_MAX_LENGTH = 1000;
+// Statuts d'une commande à partir desquels un avis peut être déposé : la
+// libération du reversement au vendeur (`payout_sent`) survient APRÈS
+// `completed` (voir la règle `orders` update) sans jamais y revenir — exiger
+// seulement `completed` fermerait la fenêtre de dépôt d'avis dès que
+// `applySettlement`/`confirmManualPayment` traite le reversement, parfois
+// quelques minutes après la réception.
+const REVIEWABLE_ORDER_STATUSES = new Set(["completed", "payout_sent"]);
+
+/**
+ * Dépose un avis après une commande complétée : l'acheteur note un vendeur
+ * de la commande, ou un vendeur de la commande note l'acheteur.
+ * `direction`/`revieweeId` sont dérivés uniquement côté serveur (jamais
+ * transmis par le client) pour empêcher toute usurpation — le client ne
+ * choisit que `sellerId` (lequel des vendeurs de la commande, utile pour un
+ * panier multi-vendeurs, voir `sellerIds` sur `orders`), `rating` et
+ * `comment`.
+ *
+ * Id de document déterministe `reviews/{orderId}_{sellerId}_{direction}` :
+ * un avis est définitif une fois posté (pas de mise à jour ni de
+ * suppression, cohérent avec l'immutabilité déjà pratiquée pour les
+ * messages) — un second appel sur le même triplet retourne
+ * `alreadyExisted: true` sans rien réécrire, jamais un écrasement. Une
+ * commande multi-vendeurs donne donc lieu à un avis distinct par vendeur,
+ * chaque vendeur déposant aussi son propre avis sur l'acheteur.
+ */
+exports.submitReview = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const orderId = request.data?.orderId;
+  const sellerId = request.data?.sellerId;
+  const rating = request.data?.rating;
+  const comment =
+    typeof request.data?.comment === "string" ? request.data.comment.trim() : "";
+
+  if (!isValidDocId(orderId, 128) || !isValidDocId(sellerId, 128)) {
+    throw new HttpsError("invalid-argument", "orderId/sellerId invalide.");
+  }
+  if (!Number.isInteger(rating) || rating < REVIEW_RATING_MIN || rating > REVIEW_RATING_MAX) {
+    throw new HttpsError("invalid-argument", "La note doit être un entier entre 1 et 5.");
+  }
+  if (comment.length > REVIEW_COMMENT_MAX_LENGTH) {
+    throw new HttpsError("invalid-argument", "Commentaire trop long.");
+  }
+
+  const orderRef = db.collection("orders").doc(orderId);
+
+  return db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) {
+      throw new HttpsError("not-found", "Commande introuvable.");
+    }
+    const order = orderSnap.data();
+    if (!REVIEWABLE_ORDER_STATUSES.has(order.status)) {
+      throw new HttpsError("failed-precondition", "La commande n'est pas encore complétée.");
+    }
+    const sellerIds = order.sellerIds ?? [];
+    if (!sellerIds.includes(sellerId)) {
+      throw new HttpsError("failed-precondition", "Ce vendeur ne fait pas partie de cette commande.");
+    }
+
+    let direction;
+    let revieweeId;
+    if (uid === order.buyerId) {
+      direction = "buyer_to_seller";
+      revieweeId = sellerId;
+    } else if (uid === sellerId) {
+      direction = "seller_to_buyer";
+      revieweeId = order.buyerId;
+    } else {
+      throw new HttpsError("permission-denied", "Vous ne faites pas partie de cette commande.");
+    }
+    if (!revieweeId) {
+      throw new HttpsError("failed-precondition", "Commande invalide.");
+    }
+
+    const reviewId = `${orderId}_${sellerId}_${direction}`;
+    const reviewRef = db.collection("reviews").doc(reviewId);
+    const reviewSnap = await tx.get(reviewRef);
+    if (reviewSnap.exists) {
+      return { alreadyExisted: true, reviewId };
+    }
+
+    const profileRef = db.collection("publicProfiles").doc(revieweeId);
+    const profileSnap = await tx.get(profileRef);
+    const currentSum = profileSnap.data()?.ratingSum ?? 0;
+    const currentCount = profileSnap.data()?.ratingCount ?? 0;
+    const newSum = currentSum + rating;
+    const newCount = currentCount + 1;
+
+    tx.set(reviewRef, {
+      orderId,
+      sellerId,
+      reviewerId: uid,
+      revieweeId,
+      direction,
+      rating,
+      comment,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    tx.set(
+      profileRef,
+      {
+        ratingSum: newSum,
+        ratingCount: newCount,
+        averageRating: newSum / newCount,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const orderFlagField =
+      direction === "buyer_to_seller" ? "buyerReviewedSellerIds" : "sellerReviewedBuyerIds";
+    tx.update(orderRef, {
+      [orderFlagField]: FieldValue.arrayUnion(sellerId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { alreadyExisted: false, reviewId };
+  });
 });
 
 /**

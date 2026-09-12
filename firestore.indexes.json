@@ -92,6 +92,15 @@
       ]
     },
     {
+      "collectionGroup": "annonces",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublished", "order": "ASCENDING" },
+        { "fieldPath": "ville", "order": "ASCENDING" },
+        { "fieldPath": "dateCreation", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "favoris",
       "queryScope": "COLLECTION",
       "fields": [
@@ -226,6 +235,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "buyerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "revieweeId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }

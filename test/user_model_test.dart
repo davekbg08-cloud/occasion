@@ -77,4 +77,86 @@ void main() {
       expect(updated.referralRewardPoints, 15);
     });
   });
+
+  group('UserModel — note moyenne et ventes (publicProfiles)', () {
+    test('fromMap : valeurs par défaut si champs absents', () {
+      final user = UserModel.fromMap({
+        'id': 'seller1',
+        'name': 'Bob',
+        'phone': '+243812345678',
+        'role': 'seller',
+        'createdAt': 0,
+      });
+
+      expect(user.ratingSum, 0);
+      expect(user.ratingCount, 0);
+      expect(user.averageRating, 0);
+      expect(user.totalSales, 0);
+    });
+
+    test(
+      'fromMap : lit tous les champs écrits par submitReview/notifySettlement',
+      () {
+        final user = UserModel.fromMap({
+          'id': 'seller1',
+          'name': 'Bob',
+          'phone': '+243812345678',
+          'role': 'seller',
+          'createdAt': 0,
+          'ratingSum': 12,
+          'ratingCount': 3,
+          'averageRating': 4.0,
+          'totalSales': 7,
+        });
+
+        expect(user.ratingSum, 12);
+        expect(user.ratingCount, 3);
+        expect(user.averageRating, 4.0);
+        expect(user.totalSales, 7);
+      },
+    );
+
+    test('toMap() n\'inclut jamais ces champs : jamais écrasables par une '
+        'mise à jour de profil côté client', () {
+      final user = UserModel(
+        id: 'seller1',
+        name: 'Bob',
+        phone: '+243812345678',
+        role: UserRole.seller,
+        createdAt: DateTime(2026, 1, 1),
+        ratingSum: 12,
+        ratingCount: 3,
+        averageRating: 4.0,
+        totalSales: 7,
+      );
+
+      final map = user.toMap();
+
+      expect(map.containsKey('ratingSum'), isFalse);
+      expect(map.containsKey('ratingCount'), isFalse);
+      expect(map.containsKey('averageRating'), isFalse);
+      expect(map.containsKey('totalSales'), isFalse);
+    });
+
+    test('copyWith préserve ces champs par défaut', () {
+      final user = UserModel(
+        id: 'seller1',
+        name: 'Bob',
+        phone: '+243812345678',
+        role: UserRole.seller,
+        createdAt: DateTime(2026, 1, 1),
+        ratingSum: 12,
+        ratingCount: 3,
+        averageRating: 4.0,
+        totalSales: 7,
+      );
+
+      final updated = user.copyWith(name: 'Bob B.');
+
+      expect(updated.ratingSum, 12);
+      expect(updated.ratingCount, 3);
+      expect(updated.averageRating, 4.0);
+      expect(updated.totalSales, 7);
+    });
+  });
 }

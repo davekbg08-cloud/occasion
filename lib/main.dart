@@ -41,6 +41,7 @@ import 'screens/seller_dashboard_screen.dart';
 import 'screens/seller_gift_catalog_screen.dart';
 import 'screens/seller_gift_redemptions_screen.dart';
 import 'screens/seller_orders_screen.dart';
+import 'screens/seller_public_profile_screen.dart';
 import 'screens/seller_statistics_screen.dart';
 import 'screens/simple_placeholder_screen.dart';
 import 'screens/status_feed_screen.dart';
@@ -342,6 +343,14 @@ class OccasionApp extends StatelessWidget {
         path: '/annonce/:id',
         builder: (context, state) =>
             AnnonceDetailScreen(annonceId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/seller/:id',
+        builder: (context, state) => _AuthGuard(
+          child: SellerPublicProfileScreen(
+            sellerId: state.pathParameters['id']!,
+          ),
+        ),
       ),
       GoRoute(path: '/auth', builder: (context, state) => const _AuthPage()),
       GoRoute(

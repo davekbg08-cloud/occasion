@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/auth_provider.dart';
+import '../widgets/leave_review_sheet.dart';
 
 class OrdersScreen extends ConsumerWidget {
   const OrdersScreen({super.key});
@@ -304,9 +305,55 @@ class _OrderCardState extends State<_OrderCard> {
                 ),
               ),
             ],
+            if (status == 'completed' || status == 'payout_sent')
+              ..._unreviewedSellerIds().map(
+                (sellerId) => Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _leaveReview(sellerId),
+                      icon: const Icon(Icons.star_outline, size: 18),
+                      label: Text(
+                        'Laisser un avis · ${_sellerItemsLabel(sellerId)}',
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  List<String> _unreviewedSellerIds() {
+    final sellerIds = (widget.data['sellerIds'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toList();
+    final reviewed =
+        (widget.data['buyerReviewedSellerIds'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toSet();
+    return sellerIds.where((id) => !reviewed.contains(id)).toList();
+  }
+
+  String _sellerItemsLabel(String sellerId) {
+    final items = widget.data['items'] as List<dynamic>? ?? const [];
+    final names = items
+        .map((item) => item as Map<String, dynamic>? ?? const {})
+        .where((item) => item['sellerId'] == sellerId)
+        .map((item) => item['name'] as String? ?? 'Article')
+        .toList();
+    return names.isEmpty ? 'Vendeur' : names.join(', ');
+  }
+
+  Future<void> _leaveReview(String sellerId) async {
+    await showLeaveReviewSheet(
+      context,
+      orderId: widget.orderId,
+      sellerId: sellerId,
+      title: 'Ton avis sur ${_sellerItemsLabel(sellerId)}',
     );
   }
 

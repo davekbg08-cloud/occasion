@@ -38,6 +38,8 @@ test.beforeEach(async () => {
     "annonces",
     "admins",
     "favoris",
+    "reviews",
+    "publicProfiles",
   ]);
 });
 
@@ -1554,4 +1556,242 @@ test("onAnnonceUpdated : une redélivrance du même évènement n'écrit jamais 
     .collection("priceHistory")
     .get();
   assert.equal(historySnap.docs.length, 1, "même event.id : une seule entrée, jamais un doublon");
+});
+
+test("submitReview : l'acheteur note le vendeur d'une commande complétée, met à jour publicProfiles et marque la commande", async () => {
+  await db.collection("orders").doc("order1").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+
+  const result = await functions.submitReview.run({
+    data: { orderId: "order1", sellerId: "seller1", rating: 5, comment: "Très bien" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+
+  const reviewSnap = await db.collection("reviews").doc("order1_seller1_buyer_to_seller").get();
+  assert.ok(reviewSnap.exists);
+  assert.equal(reviewSnap.data().reviewerId, "buyer1");
+  assert.equal(reviewSnap.data().revieweeId, "seller1");
+  assert.equal(reviewSnap.data().rating, 5);
+  assert.equal(reviewSnap.data().comment, "Très bien");
+
+  const profileSnap = await db.collection("publicProfiles").doc("seller1").get();
+  assert.equal(profileSnap.data().ratingSum, 5);
+  assert.equal(profileSnap.data().ratingCount, 1);
+  assert.equal(profileSnap.data().averageRating, 5);
+
+  const orderSnap = await db.collection("orders").doc("order1").get();
+  assert.deepEqual(orderSnap.data().buyerReviewedSellerIds, ["seller1"]);
+});
+
+test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens inverse)", async () => {
+  await db.collection("orders").doc("order2").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+
+  const result = await functions.submitReview.run({
+    data: { orderId: "order2", sellerId: "seller1", rating: 4, comment: "" },
+    auth: { uid: "seller1" },
+  });
+  assert.equal(result.alreadyExisted, false);
+
+  const reviewSnap = await db.collection("reviews").doc("order2_seller1_seller_to_buyer").get();
+  assert.ok(reviewSnap.exists);
+  assert.equal(reviewSnap.data().reviewerId, "seller1");
+  assert.equal(reviewSnap.data().revieweeId, "buyer1");
+
+  const profileSnap = await db.collection("publicProfiles").doc("buyer1").get();
+  assert.equal(profileSnap.data().ratingSum, 4);
+  assert.equal(profileSnap.data().ratingCount, 1);
+
+  const orderSnap = await db.collection("orders").doc("order2").get();
+  assert.deepEqual(orderSnap.data().sellerReviewedBuyerIds, ["seller1"]);
+});
+
+test("submitReview : un second appel sur le même triplet (orderId, sellerId, direction) ne réécrit jamais l'avis ni les stats", async () => {
+  await db.collection("orders").doc("order3").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+
+  await functions.submitReview.run({
+    data: { orderId: "order3", sellerId: "seller1", rating: 5, comment: "Premier avis" },
+    auth: { uid: "buyer1" },
+  });
+  const result = await functions.submitReview.run({
+    data: { orderId: "order3", sellerId: "seller1", rating: 1, comment: "Rejeu hostile" },
+    auth: { uid: "buyer1" },
+  });
+
+  assert.equal(result.alreadyExisted, true);
+
+  const reviewSnap = await db.collection("reviews").doc("order3_seller1_buyer_to_seller").get();
+  assert.equal(reviewSnap.data().rating, 5, "l'avis original ne doit jamais être écrasé");
+  assert.equal(reviewSnap.data().comment, "Premier avis");
+
+  const profileSnap = await db.collection("publicProfiles").doc("seller1").get();
+  assert.equal(profileSnap.data().ratingCount, 1, "un rejeu ne doit jamais compter deux fois");
+});
+
+test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", async () => {
+  await db.collection("orders").doc("order4").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+  await db.collection("orders").doc("order5").set({
+    buyerId: "buyer2",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+
+  await functions.submitReview.run({
+    data: { orderId: "order4", sellerId: "seller1", rating: 5, comment: "" },
+    auth: { uid: "buyer1" },
+  });
+  await functions.submitReview.run({
+    data: { orderId: "order5", sellerId: "seller1", rating: 3, comment: "" },
+    auth: { uid: "buyer2" },
+  });
+
+  const profileSnap = await db.collection("publicProfiles").doc("seller1").get();
+  assert.equal(profileSnap.data().ratingSum, 8);
+  assert.equal(profileSnap.data().ratingCount, 2);
+  assert.equal(profileSnap.data().averageRating, 4);
+});
+
+test("submitReview : rejette une commande pas encore complétée, un tiers hors commande, une note invalide et un vendeur hors commande", async () => {
+  await db.collection("orders").doc("order-paid").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "paid",
+  });
+  await db.collection("orders").doc("order-completed").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "completed",
+  });
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-paid", sellerId: "seller1", rating: 5, comment: "" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-completed", sellerId: "seller1", rating: 5, comment: "" },
+        auth: { uid: "outsider" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-completed", sellerId: "seller1", rating: 0, comment: "" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-completed", sellerId: "seller1", rating: 6, comment: "" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-completed", sellerId: "seller-not-in-order", rating: 5, comment: "" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-completed", sellerId: "seller1", rating: 5, comment: "" },
+        auth: undefined,
+      }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+});
+
+test("submitReview : accepte aussi une commande déjà reversée (payout_sent), pas seulement completed", async () => {
+  await db.collection("orders").doc("order-payout").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    status: "payout_sent",
+  });
+
+  const result = await functions.submitReview.run({
+    data: { orderId: "order-payout", sellerId: "seller1", rating: 5, comment: "" },
+    auth: { uid: "buyer1" },
+  });
+
+  assert.equal(result.alreadyExisted, false);
+});
+
+test("notifySettlement (paiement) : mirroire aussi totalSales dans publicProfiles, pas seulement sellerStatistics", async () => {
+  await db.collection("orders").doc("order-settle").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", totalPrice: 5000 }],
+    currency: "FC",
+    status: "pending_payment",
+  });
+  await db.collection("paymentIntents").doc("intent-settle").set({
+    type: "order",
+    orderId: "order-settle",
+    userId: "buyer1",
+    amount: 5000,
+    currency: "FC",
+    status: "created",
+  });
+  await db.collection("admins").doc("admin1").set({});
+
+  await functions.confirmManualPayment.run({
+    data: { transactionId: "intent-settle" },
+    auth: { uid: "admin1" },
+  });
+
+  const profileSnap = await db.collection("publicProfiles").doc("seller1").get();
+  assert.equal(profileSnap.data().totalSales, 1);
+
+  const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
+  assert.equal(statsSnap.data().totalSales, 1);
 });

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/auth_provider.dart';
+import '../widgets/leave_review_sheet.dart';
 
 class SellerOrdersScreen extends ConsumerWidget {
   const SellerOrdersScreen({super.key});
@@ -100,12 +101,21 @@ class SellerOrdersScreen extends ConsumerWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
+                    final orderId = docs[index].id;
                     final data = docs[index].data();
                     final status = data['status'] as String? ?? '';
                     final total = (data['total'] as num?)?.toDouble() ?? 0;
                     final buyerName =
                         data['buyerName'] as String? ?? 'Acheteur';
                     final date = _toDate(data['createdAt']);
+                    final reviewedBuyerIds =
+                        (data['sellerReviewedBuyerIds'] as List<dynamic>? ??
+                                const [])
+                            .whereType<String>()
+                            .toSet();
+                    final canReview =
+                        (status == 'completed' || status == 'payout_sent') &&
+                        !reviewedBuyerIds.contains(user.id);
 
                     return Card(
                       child: Padding(
@@ -133,6 +143,25 @@ class SellerOrdersScreen extends ConsumerWidget {
                               Text(
                                 DateFormat('dd/MM/yyyy HH:mm').format(date),
                                 style: TextStyle(color: Colors.grey[500]),
+                              ),
+                            ],
+                            if (canReview) ...[
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => showLeaveReviewSheet(
+                                    context,
+                                    orderId: orderId,
+                                    sellerId: user.id,
+                                    title: 'Ton avis sur $buyerName',
+                                  ),
+                                  icon: const Icon(
+                                    Icons.star_outline,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Laisser un avis'),
+                                ),
                               ),
                             ],
                           ],
