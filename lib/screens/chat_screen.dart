@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -176,13 +177,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            "Échec de l'envoi : ${kind == StatusType.video ? 'vidéo' : 'photo'} non envoyée. Réessaie.",
+            "Échec de l'envoi : ${kind == StatusType.video ? 'vidéo' : 'photo'} non envoyée (${_describeUploadError(error)}). Réessaie.",
           ),
         ),
       );
     } finally {
       if (mounted) setState(() => _isUploadingMedia = false);
     }
+  }
+
+  /// Détail court de l'erreur d'upload à afficher à l'utilisateur — sans
+  /// ça, tout échec (règles Storage non déployées, non-authentification,
+  /// fichier trop lourd...) affichait le même message générique, sans
+  /// aucun moyen de savoir laquelle de ces causes est réellement en jeu.
+  String _describeUploadError(Object error) {
+    if (error is FirebaseException) {
+      return error.message == null
+          ? error.code
+          : '${error.code} : ${error.message}';
+    }
+    return error.toString();
   }
 
   void _showAttachmentSheet() {
