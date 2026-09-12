@@ -53,6 +53,7 @@ ProductModel annonceToProductModel(Annonce annonce, UserModel? seller) {
     isSellerPhoneVerified: seller?.phoneVerified ?? false,
     sellerCreatedAt: seller?.createdAt,
     category: annonce.category,
+    saleState: annonce.saleState,
   );
 }
 

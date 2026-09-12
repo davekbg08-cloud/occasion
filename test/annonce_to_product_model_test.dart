@@ -60,5 +60,26 @@ void main() {
       expect(product.imageUrl, isNull);
       expect(product.imageUrls, isEmpty);
     });
+
+    test(
+      'régression : saleState de l\'annonce est bien propagé au ProductModel '
+      '(nécessaire pour le badge vendu/en négociation sur le marketplace, '
+      'lib/widgets/product_card.dart)',
+      () {
+        final annonce = Annonce(
+          id: 'annonce1',
+          title: 'Vélo',
+          description: 'Vélo en bon état',
+          price: 100,
+          category: 'Sport',
+          userId: 'seller1',
+          saleState: 'sold',
+        );
+
+        final product = annonceToProductModel(annonce, null);
+
+        expect(product.saleState, 'sold');
+      },
+    );
   });
 }

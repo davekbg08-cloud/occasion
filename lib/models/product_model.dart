@@ -16,6 +16,7 @@ class ProductModel extends Product {
     this.isSellerPhoneVerified = false,
     this.sellerCreatedAt,
     this.category,
+    this.saleState = 'available',
   });
 
   final String? imageUrl;
@@ -27,6 +28,7 @@ class ProductModel extends Product {
   final bool isSellerPhoneVerified;
   final DateTime? sellerCreatedAt;
   final String? category;
+  final String saleState;
 
   factory ProductModel.fromMap(Map<String, dynamic> map) {
     return ProductModel(
@@ -49,6 +51,7 @@ class ProductModel extends Product {
       isSellerPhoneVerified: map['isSellerPhoneVerified'] as bool? ?? false,
       sellerCreatedAt: _toDateTime(map['sellerCreatedAt']),
       category: map['category'] as String?,
+      saleState: map['saleState'] as String? ?? 'available',
     );
   }
 
@@ -67,6 +70,7 @@ class ProductModel extends Product {
     'isSellerPhoneVerified': isSellerPhoneVerified,
     'sellerCreatedAt': sellerCreatedAt?.millisecondsSinceEpoch,
     'category': category,
+    'saleState': saleState,
   };
 
   ProductModel copyWith({
@@ -84,6 +88,7 @@ class ProductModel extends Product {
     bool? isSellerPhoneVerified,
     DateTime? sellerCreatedAt,
     String? category,
+    String? saleState,
   }) {
     return ProductModel(
       id: id ?? this.id,
@@ -101,6 +106,7 @@ class ProductModel extends Product {
           isSellerPhoneVerified ?? this.isSellerPhoneVerified,
       sellerCreatedAt: sellerCreatedAt ?? this.sellerCreatedAt,
       category: category ?? this.category,
+      saleState: saleState ?? this.saleState,
     );
   }
 
