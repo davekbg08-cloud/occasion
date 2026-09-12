@@ -1388,3 +1388,54 @@ test("publicProfiles : le propriétaire ne peut jamais s'attribuer lui-même une
     seller.collection("publicProfiles").doc("seller1").update({ name: "Nouveau nom" })
   );
 });
+
+test("searchAlerts : un utilisateur peut créer, lire et supprimer sa propre alerte", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("searchAlerts").doc("alert1").set({
+      userId: "buyer1",
+      keyword: "iphone",
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(buyer.collection("searchAlerts").doc("alert1").get());
+  await assertSucceeds(buyer.collection("searchAlerts").doc("alert1").delete());
+});
+
+test("searchAlerts : un utilisateur ne peut ni lire ni supprimer l'alerte d'un autre", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("searchAlerts").doc("alert1").set({
+      userId: "buyer1",
+      keyword: "iphone",
+      createdAt: new Date(),
+    });
+  });
+  const outsider = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(outsider.collection("searchAlerts").doc("alert1").get());
+  await assertFails(outsider.collection("searchAlerts").doc("alert1").delete());
+});
+
+test("searchAlerts : un utilisateur ne peut pas créer une alerte au nom d'un autre", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("searchAlerts").doc("alert1").set({
+      userId: "buyer2",
+      keyword: "iphone",
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("searchAlerts : une alerte ne peut jamais être modifiée, uniquement supprimée puis recréée", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("searchAlerts").doc("alert1").set({
+      userId: "buyer1",
+      keyword: "iphone",
+      createdAt: new Date(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("searchAlerts").doc("alert1").update({ keyword: "samsung" })
+  );
+});

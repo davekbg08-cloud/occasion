@@ -154,6 +154,15 @@ service cloud.firestore {
         && data.dateAjout is timestamp;
     }
 
+    function validSearchAlert(data) {
+      return hasOnly(data, ['id', 'userId', 'keyword', 'city', 'category', 'createdAt'])
+        && stringField(data, 'userId', 128)
+        && optionalString(data, 'keyword', 160)
+        && optionalString(data, 'city', 120)
+        && optionalString(data, 'category', 120)
+        && data.createdAt is timestamp;
+    }
+
     function validMessage(data) {
       return hasOnly(data, [
         'id', 'conversationId', 'expediteurId', 'destinataireId',
@@ -360,6 +369,19 @@ service cloud.firestore {
         && validFavori(request.resource.data);
       allow update: if false;
       allow delete: if signedIn() && resource.data.utilisateurId == request.auth.uid;
+    }
+
+    // Recherches sauvegardées (alertes) — propriétaire uniquement, même
+    // principe que favoris. La correspondance/notification à la création
+    // d'une nouvelle annonce est faite côté serveur (Cloud Function
+    // onAnnonceCreated, Admin SDK, lit toute la collection).
+    match /searchAlerts/{alertId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && validSearchAlert(request.resource.data);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /statuses/{statusId} {

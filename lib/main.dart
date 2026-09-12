@@ -40,6 +40,7 @@ import 'screens/role_selection_screen.dart';
 import 'screens/seller_dashboard_screen.dart';
 import 'screens/seller_gift_catalog_screen.dart';
 import 'screens/seller_gift_redemptions_screen.dart';
+import 'screens/search_alerts_screen.dart';
 import 'screens/seller_orders_screen.dart';
 import 'screens/seller_public_profile_screen.dart';
 import 'screens/seller_statistics_screen.dart';
@@ -260,6 +261,11 @@ class OccasionApp extends StatelessWidget {
       GoRoute(
         path: '/search',
         builder: (context, state) => const _AuthGuard(child: SearchScreen()),
+      ),
+      GoRoute(
+        path: '/search-alerts',
+        builder: (context, state) =>
+            const _AuthGuard(child: SearchAlertsScreen()),
       ),
       GoRoute(
         path: '/notifications',

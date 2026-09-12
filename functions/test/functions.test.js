@@ -40,6 +40,7 @@ test.beforeEach(async () => {
     "favoris",
     "reviews",
     "publicProfiles",
+    "searchAlerts",
   ]);
 });
 
@@ -1794,4 +1795,132 @@ test("notifySettlement (paiement) : mirroire aussi totalSales dans publicProfile
 
   const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
   assert.equal(statsSnap.data().totalSales, 1);
+});
+
+test("onAnnonceCreated : notifie un utilisateur dont l'alerte correspond au mot-clé", async () => {
+  await db.collection("searchAlerts").doc("alert1").set({
+    userId: "buyer1",
+    keyword: "iphone",
+  });
+
+  const event = {
+    data: {
+      data: () => ({
+        sellerId: "seller1",
+        title: "iPhone 13 comme neuf",
+        description: "Bon état",
+        isPublished: true,
+      }),
+    },
+    params: { annonceId: "annonce1" },
+  };
+  await functions.onAnnonceCreated.run(event);
+
+  const notifSnap = await db
+    .collection("notifications")
+    .doc("searchAlertMatch_alert1_annonce1")
+    .get();
+  assert.ok(notifSnap.exists, "l'alerte correspond au mot-clé : doit notifier");
+});
+
+test("onAnnonceCreated : le vendeur n'est jamais notifié de sa propre annonce, même si elle correspond à sa propre alerte", async () => {
+  await db.collection("searchAlerts").doc("alert-seller").set({
+    userId: "seller1",
+    keyword: "iphone",
+  });
+
+  const event = {
+    data: {
+      data: () => ({
+        sellerId: "seller1",
+        title: "iPhone 13 comme neuf",
+        description: "Bon état",
+        isPublished: true,
+      }),
+    },
+    params: { annonceId: "annonce1" },
+  };
+  await functions.onAnnonceCreated.run(event);
+
+  const notifSnap = await db
+    .collection("notifications")
+    .doc("searchAlertMatch_alert-seller_annonce1")
+    .get();
+  assert.equal(notifSnap.exists, false);
+});
+
+test("onAnnonceCreated : aucune notification si aucun critère ne correspond (ville différente)", async () => {
+  await db.collection("searchAlerts").doc("alert-city").set({
+    userId: "buyer1",
+    city: "Kinshasa",
+  });
+
+  const event = {
+    data: {
+      data: () => ({
+        sellerId: "seller1",
+        title: "Vélo",
+        description: "",
+        isPublished: true,
+        city: "Lubumbashi",
+      }),
+    },
+    params: { annonceId: "annonce1" },
+  };
+  await functions.onAnnonceCreated.run(event);
+
+  const notifSnap = await db
+    .collection("notifications")
+    .doc("searchAlertMatch_alert-city_annonce1")
+    .get();
+  assert.equal(notifSnap.exists, false);
+});
+
+test("onAnnonceCreated : une annonce non publiée ne notifie jamais personne", async () => {
+  await db.collection("searchAlerts").doc("alert-unpub").set({
+    userId: "buyer1",
+    keyword: "vélo",
+  });
+
+  const event = {
+    data: {
+      data: () => ({
+        sellerId: "seller1",
+        title: "Vélo pas cher",
+        description: "",
+        isPublished: false,
+      }),
+    },
+    params: { annonceId: "annonce1" },
+  };
+  await functions.onAnnonceCreated.run(event);
+
+  const notifSnap = await db
+    .collection("notifications")
+    .doc("searchAlertMatch_alert-unpub_annonce1")
+    .get();
+  assert.equal(notifSnap.exists, false);
+});
+
+test("onAnnonceCreated : une alerte sans aucun critère correspond à toute nouvelle annonce publiée d'un autre vendeur", async () => {
+  await db.collection("searchAlerts").doc("alert-empty").set({ userId: "buyer1" });
+
+  const event = {
+    data: {
+      data: () => ({
+        sellerId: "seller1",
+        title: "N'importe quoi",
+        description: "",
+        isPublished: true,
+      }),
+    },
+    params: { annonceId: "annonce1" },
+  };
+  await functions.onAnnonceCreated.run(event);
+
+  const notifSnap = await db
+    .collection("notifications")
+    .doc("searchAlertMatch_alert-empty_annonce1")
+    .get();
+  assert.ok(notifSnap.exists);
 });

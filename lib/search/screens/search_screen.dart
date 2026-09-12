@@ -1,19 +1,76 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/search_provider.dart';
 import '../../annonce/presentation/widgets/annonce_card.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/search_alert_provider.dart';
 
 class SearchScreen extends ConsumerWidget {
   const SearchScreen({super.key});
 
+  Future<void> _saveSearch(BuildContext context, WidgetRef ref) async {
+    final userId = ref.read(authNotifierProvider).currentUser?.id;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connecte-toi pour enregistrer une recherche.'),
+        ),
+      );
+      return;
+    }
+    final query = ref.read(searchQueryProvider);
+    final filters = ref.read(searchFiltersProvider);
+    try {
+      await ref
+          .read(searchAlertServiceProvider)
+          .create(
+            userId: userId,
+            keyword: query,
+            city: filters['city'] as String? ?? '',
+            category: filters['category'] as String? ?? '',
+          );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Échec de l'enregistrement. Réessaie.")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final resultsAsync = ref.watch(searchResultsProvider);
+    final query = ref.watch(searchQueryProvider);
+    final filters = ref.watch(searchFiltersProvider);
+    final hasActiveSearch =
+        query.trim().isNotEmpty ||
+        (filters['city'] as String? ?? '').isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rechercher'),
+        actions: [
+          IconButton(
+            tooltip: 'Enregistrer cette recherche',
+            icon: const Icon(Icons.bookmark_add_outlined),
+            onPressed: hasActiveSearch ? () => _saveSearch(context, ref) : null,
+          ),
+          IconButton(
+            tooltip: 'Mes alertes de recherche',
+            icon: const Icon(Icons.notifications_active_outlined),
+            onPressed: () => context.push('/search-alerts'),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(112),
           child: Padding(

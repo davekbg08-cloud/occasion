@@ -294,6 +294,11 @@ class _BuyerOptions extends StatelessWidget {
           onTap: () => context.push('/referral'),
         ),
         _ProfileTile(
+          icon: Icons.notifications_active_outlined,
+          title: 'Mes alertes de recherche',
+          onTap: () => context.push('/search-alerts'),
+        ),
+        _ProfileTile(
           icon: Icons.chat_bubble_outline,
           title: 'Messages',
           onTap: () => context.push('/buyer-messages'),

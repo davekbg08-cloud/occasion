@@ -680,6 +680,62 @@ exports.onAnnonceUpdated = onDocumentUpdated(
 );
 
 /**
+ * Alertes de recherche sauvegardée : à la publication d'une nouvelle
+ * annonce, notifie chaque utilisateur ayant enregistré une alerte qui
+ * correspond (mot-clé contenu dans titre/description, ville/catégorie
+ * égales si renseignées dans l'alerte) — jamais le vendeur lui-même.
+ * Scan complet de `searchAlerts` à chaque nouvelle annonce : le volume
+ * d'usage actuel de l'app ne justifie pas un index/sharding plus complexe
+ * (à revisiter si le volume grandit). `notificationId` déterministe
+ * (alertId + annonceId) : idempotent sur une redélivrance du trigger.
+ */
+exports.onAnnonceCreated = onDocumentCreated(
+  "annonces/{annonceId}",
+  async (event) => {
+    const annonce = event.data.data();
+    const annonceId = event.params.annonceId;
+    if (annonce.isPublished !== true) return null;
+
+    const sellerId = annonce.sellerId ?? annonce.vendeurId ?? annonce.userId ?? null;
+    const title = (annonce.title ?? annonce.titre ?? "").toString();
+    const description = (annonce.description ?? "").toString();
+    const haystack = `${title} ${description}`.toLowerCase();
+    const city = annonce.city ?? annonce.ville ?? null;
+    const category = annonce.category ?? annonce.categorie ?? null;
+
+    const alertsSnap = await db.collection("searchAlerts").get();
+    const matches = alertsSnap.docs.filter((doc) => {
+      const alert = doc.data();
+      if (!alert.userId || alert.userId === sellerId) return false;
+      if (alert.keyword && !haystack.includes(String(alert.keyword).toLowerCase())) {
+        return false;
+      }
+      if (alert.city && alert.city !== city) return false;
+      if (alert.category && alert.category !== category) return false;
+      return true;
+    });
+
+    await Promise.all(
+      matches.map((doc) =>
+        sendToUser({
+          recipientId: doc.data().userId,
+          notificationId: `searchAlertMatch_${doc.id}_${annonceId}`,
+          type: "search_alert",
+          title: "🔔 Nouvelle annonce pour ta recherche",
+          body: title || "Une nouvelle annonce vient d'être publiée.",
+          route: `/annonce/${annonceId}`,
+          data: { annonceId, listingId: annonceId },
+        }).catch((err) =>
+          console.error(`Erreur sendToUser searchAlertMatch ${doc.id} -> ${annonceId} :`, err)
+        )
+      )
+    );
+
+    return null;
+  }
+);
+
+/**
  * Cloud Function callable qui remplace l'écriture directe côté client de
  * `ChatService.sendMessage` (ancien `chat_service.dart`) : le client ne
  * choisit plus jamais `senderId`/`receiverId`/`status`, et
