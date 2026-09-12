@@ -113,5 +113,88 @@ void main() {
         expect(reachedBeyondLimitCheck, isTrue);
       },
     );
+
+    test('updateSaleState modifie uniquement le saleState', () async {
+      final docRef = await firestore
+          .collection('annonces')
+          .add(_baseAnnonce(userId: sellerId).toJson());
+      final created = Annonce.fromJson({
+        ...(await docRef.get()).data()!,
+        'id': docRef.id,
+      });
+
+      final updated = await repository.updateSaleState(created, 'sold');
+
+      expect(updated.saleState, 'sold');
+      expect(updated.title, created.title);
+    });
+  });
+
+  group('AnnonceRepositoryImpl - filtre ville', () {
+    late FakeFirebaseFirestore firestore;
+    late AnnonceRepositoryImpl repository;
+
+    setUp(() {
+      firestore = FakeFirebaseFirestore();
+      repository = AnnonceRepositoryImpl(
+        firestore: firestore,
+        auth: MockFirebaseAuth(),
+        storage: MockFirebaseStorage(),
+      );
+    });
+
+    test('getAnnonces filtre par ville quand city est renseigné', () async {
+      await firestore.collection('annonces').add({
+        'vendeurId': 'seller1',
+        'titre': 'Annonce Lubumbashi',
+        'isPublished': true,
+        'status': 'published',
+        'active': true,
+        'ville': 'Lubumbashi',
+        'dateCreation': DateTime.now(),
+      });
+      await firestore.collection('annonces').add({
+        'vendeurId': 'seller2',
+        'titre': 'Annonce Kinshasa',
+        'isPublished': true,
+        'status': 'published',
+        'active': true,
+        'ville': 'Kinshasa',
+        'dateCreation': DateTime.now(),
+      });
+
+      final results = await repository.getAnnonces(city: 'Lubumbashi');
+
+      expect(results, hasLength(1));
+      expect(results.first.city, 'Lubumbashi');
+    });
+
+    test(
+      'getAnnonces sans city retourne toutes les annonces publiées',
+      () async {
+        await firestore.collection('annonces').add({
+          'vendeurId': 'seller1',
+          'titre': 'Annonce Lubumbashi',
+          'isPublished': true,
+          'status': 'published',
+          'active': true,
+          'ville': 'Lubumbashi',
+          'dateCreation': DateTime.now(),
+        });
+        await firestore.collection('annonces').add({
+          'vendeurId': 'seller2',
+          'titre': 'Annonce Kinshasa',
+          'isPublished': true,
+          'status': 'published',
+          'active': true,
+          'ville': 'Kinshasa',
+          'dateCreation': DateTime.now(),
+        });
+
+        final results = await repository.getAnnonces();
+
+        expect(results, hasLength(2));
+      },
+    );
   });
 }

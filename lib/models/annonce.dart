@@ -17,6 +17,7 @@ class Annonce {
     this.condition = '',
     this.phone = '',
     this.status = 'published',
+    this.saleState = 'available',
     this.createdAt,
     this.updatedAt,
     this.isActive = true,
@@ -42,6 +43,11 @@ class Annonce {
   final String condition;
   final String phone;
   final String status;
+
+  /// État de la vente, orthogonal à [status] (qui gère la visibilité
+  /// publié/brouillon) : disponible/vendu/en négociation. Valeurs
+  /// attendues : `available`, `sold`, `negotiating`.
+  final String saleState;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isActive;
@@ -98,6 +104,10 @@ class Annonce {
       condition: json['etat'] as String? ?? json['condition'] as String? ?? '',
       phone: json['telephone'] as String? ?? json['phone'] as String? ?? '',
       status: status,
+      saleState:
+          json['saleState'] as String? ??
+          json['etatVente'] as String? ??
+          'available',
       createdAt: _toDateTime(json['dateCreation'] ?? json['createdAt']),
       updatedAt: _toDateTime(json['dateModification'] ?? json['updatedAt']),
       isActive:
@@ -158,6 +168,8 @@ class Annonce {
           : status.trim(),
       'active': isActive,
       'isPublished': status == 'published' || isActive,
+      'saleState': saleState.trim().isEmpty ? 'available' : saleState.trim(),
+      'etatVente': saleState.trim().isEmpty ? 'available' : saleState.trim(),
       'dateCreation': createdAt,
       'dateModification': updatedAt,
     };
@@ -200,6 +212,7 @@ class Annonce {
     String? condition,
     String? phone,
     String? status,
+    String? saleState,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isActive,
@@ -225,6 +238,7 @@ class Annonce {
       condition: condition ?? this.condition,
       phone: phone ?? this.phone,
       status: status ?? this.status,
+      saleState: saleState ?? this.saleState,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isActive: isActive ?? this.isActive,

@@ -12,10 +12,15 @@ import '../../shared/models/annonce.dart';
 
 abstract class AnnonceRepository {
   Future<Annonce> createAnnonce(Annonce annonce, List<XFile> images);
-  Future<List<Annonce>> getAnnonces({String? search, String? category});
+  Future<List<Annonce>> getAnnonces({
+    String? search,
+    String? category,
+    String? city,
+  });
   Future<List<Annonce>> getSellerAnnonces(String sellerId);
   Future<Annonce> updateAnnonce(Annonce annonce, {List<XFile> newImages});
   Future<Annonce> updateAnnonceStatus(Annonce annonce, String status);
+  Future<Annonce> updateSaleState(Annonce annonce, String saleState);
   Future<void> deleteAnnonce(String id);
   Future<void> incrementViews(String id);
   Future<Annonce?> getAnnonceById(String id);
@@ -143,13 +148,20 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
   }
 
   @override
-  Future<List<Annonce>> getAnnonces({String? search, String? category}) async {
+  Future<List<Annonce>> getAnnonces({
+    String? search,
+    String? category,
+    String? city,
+  }) async {
     Query<Map<String, dynamic>> query = _annoncesRef
         .where('isPublished', isEqualTo: true)
         .orderBy('dateCreation', descending: true);
 
     if (category != null && category.trim().isNotEmpty) {
       query = query.where('categorie', isEqualTo: category.trim());
+    }
+    if (city != null && city.trim().isNotEmpty) {
+      query = query.where('ville', isEqualTo: city.trim());
     }
 
     final snapshot = await query.get();
@@ -305,6 +317,11 @@ class AnnonceRepositoryImpl implements AnnonceRepository {
             status == 'published' || status == 'active' || status == 'actif',
       ),
     );
+  }
+
+  @override
+  Future<Annonce> updateSaleState(Annonce annonce, String saleState) {
+    return updateAnnonce(annonce.copyWith(saleState: saleState));
   }
 
   @override

@@ -90,8 +90,8 @@ service cloud.firestore {
         'city', 'ville', 'district', 'quartier', 'phone', 'telephone',
         'imageUrls', 'images', 'favoritesCount', 'favoris', 'views', 'vues',
         'messagesCount', 'statut', 'status', 'active', 'isActive',
-        'isPublished', 'createdAt', 'dateCreation', 'updatedAt',
-        'dateModification'
+        'isPublished', 'saleState', 'etatVente', 'createdAt', 'dateCreation',
+        'updatedAt', 'dateModification'
       ])
       && (stringField(data, 'title', 160) || stringField(data, 'titre', 160))
       && stringField(data, 'description', 4000)
@@ -139,6 +139,8 @@ service cloud.firestore {
       && optionalBool(data, 'active')
       && optionalBool(data, 'isActive')
       && optionalBool(data, 'isPublished')
+      && optionalString(data, 'saleState', 40)
+      && optionalString(data, 'etatVente', 40)
       && (!( 'createdAt' in data) || data.createdAt == null || data.createdAt is timestamp)
       && (!( 'dateCreation' in data) || data.dateCreation == null || data.dateCreation is timestamp)
       && (!( 'updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp)

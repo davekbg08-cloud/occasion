@@ -15,18 +15,36 @@ class SearchScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Rechercher'),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
+          preferredSize: const Size.fromHeight(112),
           child: Padding(
             padding: const EdgeInsets.all(8),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Rechercher une annonce...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                ref.read(searchQueryProvider.notifier).state = value;
-              },
+            child: Column(
+              children: [
+                TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Rechercher une annonce...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) {
+                    ref.read(searchQueryProvider.notifier).state = value;
+                  },
+                ),
+                const SizedBox(height: 8),
+                _CityFilterField(
+                  onChanged: (value) {
+                    ref.read(searchFiltersProvider.notifier).update((state) {
+                      final next = {...state};
+                      if (value.trim().isEmpty) {
+                        next.remove('city');
+                      } else {
+                        next['city'] = value.trim();
+                      }
+                      return next;
+                    });
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -57,6 +75,52 @@ class SearchScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CityFilterField extends StatefulWidget {
+  const _CityFilterField({required this.onChanged});
+
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_CityFilterField> createState() => _CityFilterFieldState();
+}
+
+class _CityFilterFieldState extends State<_CityFilterField> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      decoration: InputDecoration(
+        hintText: 'Filtrer par ville/quartier...',
+        prefixIcon: const Icon(Icons.place_outlined),
+        border: const OutlineInputBorder(),
+        suffixIcon: _controller.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Retirer le filtre ville',
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _controller.clear();
+                  widget.onChanged('');
+                  setState(() {});
+                },
+              ),
+      ),
+      onChanged: (value) {
+        widget.onChanged(value);
+        setState(() {});
+      },
     );
   }
 }

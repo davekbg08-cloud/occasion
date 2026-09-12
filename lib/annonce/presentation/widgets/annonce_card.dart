@@ -26,7 +26,17 @@ class AnnonceCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PhotoCarousel(imageUrls: annonce.imageUrls),
+          Stack(
+            children: [
+              PhotoCarousel(imageUrls: annonce.imageUrls),
+              if (annonce.saleState != 'available')
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _SaleStateBadge(saleState: annonce.saleState),
+                ),
+            ],
+          ),
           ListTile(
             onTap: () => context.push('/annonce/${annonce.id}'),
             title: Text(annonce.title),
@@ -48,6 +58,35 @@ class AnnonceCard extends ConsumerWidget {
                 : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SaleStateBadge extends StatelessWidget {
+  const _SaleStateBadge({required this.saleState});
+
+  final String saleState;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSold = saleState == 'sold';
+    final color = isSold ? Colors.red : Colors.orange;
+    final label = isSold ? 'Vendu' : 'En négociation';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

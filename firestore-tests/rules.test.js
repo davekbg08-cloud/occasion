@@ -847,6 +847,44 @@ test("un utilisateur peut toujours (dé)favoriser une annonce (non affecté par 
   );
 });
 
+test("le vendeur peut mettre à jour le saleState de sa propre annonce", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller
+      .collection("annonces")
+      .doc("annonce1")
+      .set(
+        validAnnonceSeed({ saleState: "sold", etatVente: "sold" }),
+        { merge: true }
+      )
+  );
+});
+
+test("un acheteur ne peut pas modifier le saleState de l'annonce d'un autre", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("annonces")
+      .doc("annonce1")
+      .update({ saleState: "sold", etatVente: "sold" })
+  );
+});
+
 test("un client ne peut pas écrire dans la sous-collection viewers d'une annonce", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(

@@ -124,6 +124,10 @@ class _ListingCard extends ConsumerWidget {
                     _StatusChip(status: annonce.status),
                   ],
                 ),
+                if (annonce.saleState != 'available') ...[
+                  const SizedBox(height: 6),
+                  _SaleStateChip(saleState: annonce.saleState),
+                ],
                 const SizedBox(height: 6),
                 Text(
                   '${annonce.price.toStringAsFixed(0)} ${annonce.currency}',
@@ -188,6 +192,42 @@ class _ListingCard extends ConsumerWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                PopupMenuButton<String>(
+                  tooltip: 'État de la vente',
+                  onSelected: (value) => _updateSaleState(context, ref, value),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'available',
+                      child: Text('Disponible'),
+                    ),
+                    PopupMenuItem(value: 'sold', child: Text('Vendu')),
+                    PopupMenuItem(
+                      value: 'negotiating',
+                      child: Text('En négociation'),
+                    ),
+                  ],
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[600]!),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sell_outlined, size: 18),
+                        const SizedBox(width: 8),
+                        Text(_saleStateLabel(annonce.saleState)),
+                        const Spacer(),
+                        const Icon(Icons.arrow_drop_down),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -218,6 +258,34 @@ class _ListingCard extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Impossible de modifier le statut de l'annonce."),
+        ),
+      );
+    }
+  }
+
+  Future<void> _updateSaleState(
+    BuildContext context,
+    WidgetRef ref,
+    String saleState,
+  ) async {
+    try {
+      await ref
+          .read(annonceRepositoryProvider)
+          .updateSaleState(annonce, saleState);
+      ref.invalidate(sellerAnnoncesProvider(sellerId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'État de la vente mis à jour : ${_saleStateLabel(saleState)}.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Impossible de modifier l'état de la vente."),
         ),
       );
     }
@@ -283,6 +351,31 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         _statusLabel(status),
+        style: TextStyle(color: color, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _SaleStateChip extends StatelessWidget {
+  const _SaleStateChip({required this.saleState});
+
+  final String saleState;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSold = saleState == 'sold';
+    final color = isSold ? Colors.red : Colors.orange;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        _saleStateLabel(saleState),
         style: TextStyle(color: color, fontSize: 12),
       ),
     );
@@ -359,6 +452,14 @@ String _statusLabel(String status) {
     'expired' || 'expiree' || 'expirée' => 'Expirée',
     'rejected' || 'refusee' || 'refusée' => 'Refusée',
     _ => 'En attente',
+  };
+}
+
+String _saleStateLabel(String saleState) {
+  return switch (saleState) {
+    'sold' => 'Vendu',
+    'negotiating' => 'En négociation',
+    _ => 'Disponible',
   };
 }
 

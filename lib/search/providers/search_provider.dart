@@ -16,5 +16,6 @@ final searchResultsProvider = FutureProvider.autoDispose<List<Annonce>>((
   return repo.getAnnonces(
     search: query.trim().isEmpty ? null : query.trim(),
     category: filters['category'] as String?,
+    city: filters['city'] as String?,
   );
 });

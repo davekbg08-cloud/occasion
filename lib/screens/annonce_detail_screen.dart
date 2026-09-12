@@ -110,6 +110,8 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 PhotoCarousel(imageUrls: annonce.imageUrls),
+                if (annonce.saleState != 'available')
+                  _SaleStateBanner(saleState: annonce.saleState),
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -213,6 +215,32 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SaleStateBanner extends StatelessWidget {
+  const _SaleStateBanner({required this.saleState});
+
+  final String saleState;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSold = saleState == 'sold';
+    final color = isSold ? Colors.red : Colors.orange;
+    final label = isSold ? 'Cette annonce est vendue' : 'En négociation';
+
+    return Container(
+      width: double.infinity,
+      color: color,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
