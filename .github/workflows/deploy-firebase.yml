@@ -65,9 +65,19 @@ jobs:
       - name: Run Firestore rules tests and Cloud Functions integration tests against emulator
         run: firebase emulators:exec --only firestore --project demo-occasion "npm --prefix firestore-tests test && npm --prefix functions run test:integration"
 
+      # Authentification via un compte de service Google Cloud (clé JSON
+      # dans le secret GCP_SA_KEY) plutôt qu'un jeton `firebase login:ci` :
+      # ce dernier nécessite une session interactive en direct (Cloud
+      # Shell + navigateur), fragile sur mobile (l'onglet Cloud Shell se
+      # déconnecte dès qu'on change d'onglet pour l'étape d'autorisation).
+      # Une clé de service se crée entièrement via des formulaires web
+      # statiques, sans session à maintenir.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       # Ne déploie qu'après que tout ce qui précède soit passé — jamais un
       # déploiement en prod sur du code dont les tests échouent.
       - name: Deploy to Firebase (functions + firestore rules/indexes + storage rules)
-        run: firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive --token "$FIREBASE_TOKEN"
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive
