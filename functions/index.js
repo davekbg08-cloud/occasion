@@ -1404,6 +1404,51 @@ exports.deleteStatus = onCall(async (request) => {
 });
 
 /**
+ * Table canonique des formules vendeur — seule source de vérité pour le
+ * montant/la durée réellement activés à la confirmation d'un paiement.
+ * `paymentIntents.amount`/`durationDays`/`planName` sont écrits par le
+ * client (voir `SubscriptionNotifier.submitManualSubscriptionPayment`) et
+ * ne sont donc JAMAIS fiables tels quels : sans cette table, un client
+ * pouvait soumettre une intention avec un `amount` dérisoire mais un
+ * `durationDays` énorme, qu'un admin approuvant seulement la référence de
+ * paiement (sans recalculer la durée à la main) activerait tel quel.
+ * Doit rester synchronisé avec `plans` dans `lib/screens/subscription_screen.dart`.
+ */
+const SUBSCRIPTION_PLANS = {
+  seller_monthly: { name: "Vendeur Mensuel", amount: 20000, durationDays: 30 },
+};
+
+/**
+ * Recalcule le montant réel d'une commande à partir du prix ACTUEL de
+ * chaque annonce (`annonces/{productId}.price`), jamais du `unitPrice`/
+ * `totalPrice` fournis par le client dans `order.items` (`payment_screen.dart`
+ * les écrit directement depuis le panier local, sans lien imposé entre eux
+ * — un client pouvait donc soumettre n'importe quel total, découplé du
+ * prix réel des articles). Retourne `null` si un article référence une
+ * annonce introuvable (supprimée entre-temps) : dans ce cas, impossible de
+ * vérifier, la confirmation doit être refusée plutôt que de faire
+ * confiance au total déclaré.
+ */
+async function recomputeOrderTotal(tx, items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const annonceRefs = items.map((item) =>
+    db.collection("annonces").doc(String(item.productId))
+  );
+  const annonceSnaps = await Promise.all(annonceRefs.map((ref) => tx.get(ref)));
+
+  let total = 0;
+  for (let i = 0; i < items.length; i++) {
+    const snap = annonceSnaps[i];
+    if (!snap.exists) return null;
+    const price = snap.data().price;
+    const quantity = Number(items[i].quantity) || 0;
+    if (typeof price !== "number" || quantity <= 0) return null;
+    total += price * quantity;
+  }
+  return total;
+}
+
+/**
  * Applique le résultat d'un paiement (payé ou non) à Firestore : crée la
  * transaction, met à jour la commande ou active l'abonnement, et met à
  * jour l'intention de paiement elle-même.
@@ -1446,6 +1491,47 @@ async function applySettlement({
         return { applied: false, alreadySettled: true, status: intent.status };
       }
 
+      // Valide/recalcule AVANT toute écriture (les transactions Firestore
+      // exigent toutes les lectures en premier) — `intent.amount`/
+      // `durationDays`/`planName` viennent du client et ne sont jamais
+      // fiables tels quels. Uniquement à l'activation réelle (`isPaid`) :
+      // un rejet doit toujours pouvoir s'appliquer même si l'intention
+      // était malformée.
+      let subscriptionPlan = null;
+      let recomputedOrderTotal = null;
+      if (isPaid && intent.type === "subscription") {
+        subscriptionPlan = SUBSCRIPTION_PLANS[intent.planId];
+        if (!subscriptionPlan) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Formule d'abonnement inconnue (${intent.planId}) : confirmation refusée.`
+          );
+        }
+      }
+      if (isPaid && intent.type === "order" && intent.orderId) {
+        const orderSnap = await tx.get(db.collection("orders").doc(intent.orderId));
+        if (!orderSnap.exists) {
+          throw new HttpsError("not-found", "Commande introuvable.");
+        }
+        recomputedOrderTotal = await recomputeOrderTotal(tx, orderSnap.data().items);
+        if (recomputedOrderTotal === null) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Impossible de vérifier le montant de la commande (article introuvable) : confirmation refusée."
+          );
+        }
+        // Tolérance d'arrondi minime (devise sans centimes en pratique) :
+        // au-delà, le montant réclamé ne correspond pas au prix réel des
+        // articles — refuse plutôt que d'activer un montant potentiellement
+        // manipulé côté client.
+        if (Math.abs(recomputedOrderTotal - intent.amount) > 1) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Montant incohérent : commande à ${intent.amount}, prix réel des articles ${recomputedOrderTotal}. Confirmation refusée.`
+          );
+        }
+      }
+
       tx.set(
         db.collection("transactions").doc(transactionId),
         {
@@ -1454,7 +1540,7 @@ async function applySettlement({
           userId: intent.userId,
           orderId: intent.orderId ?? null,
           planId: intent.planId ?? null,
-          amount: intent.amount,
+          amount: subscriptionPlan ? subscriptionPlan.amount : intent.amount,
           currency: intent.currency ?? "FC",
           paymentMethod,
           paymentReference: intent.manualPaymentReference ?? null,
@@ -1484,7 +1570,7 @@ async function applySettlement({
       }
 
       if (intent.type === "subscription" && isPaid && intent.userId) {
-        const durationDays = intent.durationDays ?? 30;
+        const durationDays = subscriptionPlan.durationDays;
         const startDate = new Date();
         const expiryDate = new Date(
           startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
@@ -1496,8 +1582,8 @@ async function applySettlement({
             id: intent.userId,
             userId: intent.userId,
             planId: intent.planId,
-            planName: intent.planName,
-            price: intent.amount,
+            planName: subscriptionPlan.name,
+            price: subscriptionPlan.amount,
             startDate,
             expiryDate,
             isActive: true,
