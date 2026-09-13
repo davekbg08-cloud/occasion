@@ -245,7 +245,16 @@ service cloud.firestore {
               || resource.data.userId == request.auth.uid
             )
           )
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoris', 'messagesCount', 'dateModification'])
+          // `messagesCount` (jamais `favoris`, qu'aucun code client
+          // n'écrit réellement — l'ancienne règle l'autorisait à tort pour
+          // N'IMPORTE QUEL utilisateur connecté, à N'IMPORTE QUELLE valeur,
+          // sur N'IMPORTE QUELLE annonce) : incrément de +1 exactement, par
+          // n'importe quel participant qui démarre une conversation (voir
+          // `ChatService.getOrCreateChat`), jamais une valeur arbitraire.
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messagesCount', 'dateModification'])
+            && request.resource.data.messagesCount == resource.data.messagesCount + 1
+          )
         );
       allow delete: if signedIn()
         && isSeller()
@@ -343,6 +352,19 @@ service cloud.firestore {
 
     match /publicProfiles/{userId} {
       allow read: if signedIn();
+      // `identityStatus`/`sellerStatus` : mêmes valeurs client-permises que
+      // sur `users` (jamais 'verified'/'rejected', décision admin
+      // uniquement) — sans cette restriction, n'importe qui pouvait
+      // s'auto-attribuer `identityStatus: 'verified'` ici et afficher un
+      // faux badge "Vendeur vérifié" sur toutes ses annonces, alors que la
+      // même valeur est bien verrouillée côté `users`.
+      // `phoneVerified` : toujours autorisé dans le document (des profils
+      // existants l'ont déjà, et `hasOnly` ci-dessous porte sur le document
+      // RÉSULTANT après fusion, pas seulement sur ce qui est écrit — le
+      // retirer casserait toute mise à jour future de ces profils), mais
+      // verrouillé à `false` : aucun flux de vérification par SMS/OTP
+      // n'existe dans l'app, un client ne doit donc jamais pouvoir
+      // l'écrire à `true` lui-même (faux badge "Téléphone vérifié").
       allow create, update: if isOwner(userId)
         && hasOnly(request.resource.data, [
           'id', 'name', 'role', 'profileImageUrl', 'identityStatus',
@@ -352,9 +374,9 @@ service cloud.firestore {
         && optionalString(request.resource.data, 'name', 160)
         && optionalString(request.resource.data, 'role', 40)
         && optionalString(request.resource.data, 'profileImageUrl', 2000)
-        && optionalString(request.resource.data, 'identityStatus', 40)
-        && optionalString(request.resource.data, 'sellerStatus', 40)
-        && optionalBool(request.resource.data, 'phoneVerified');
+        && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
+        && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
+        && (!('phoneVerified' in request.resource.data) || request.resource.data.phoneVerified == false);
       allow delete: if isOwner(userId);
     }
 
