@@ -2371,6 +2371,40 @@ async function generateUniqueReferralCode() {
 }
 
 /**
+ * Génère et enregistre le code de parrainage d'un compte qui n'en a pas
+ * encore. `onUserCreated` ci-dessous ne se déclenche qu'à la CRÉATION du
+ * document `users/{uid}` (onCreate) : tout compte existant avant l'ajout
+ * du parrainage ne recevra jamais de `referralCode` par ce chemin, et
+ * restait bloqué indéfiniment sur l'écran "Parrainage" ("code en cours de
+ * génération, revenez dans un instant" — qui ne redevient jamais vrai).
+ * Callable idempotente que l'écran déclenche lui-même quand il voit un
+ * code manquant : ne régénère jamais un code déjà présent, pour ne
+ * jamais invalider un code déjà partagé et potentiellement déjà utilisé
+ * par un filleul.
+ */
+exports.ensureReferralCode = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise.");
+  }
+
+  const userRef = db.collection("users").doc(uid);
+  const snap = await userRef.get();
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "Compte introuvable.");
+  }
+
+  const existing = snap.data()?.referralCode;
+  if (existing) {
+    return { referralCode: existing };
+  }
+
+  const referralCode = await generateUniqueReferralCode();
+  await userRef.update({ referralCode });
+  return { referralCode };
+});
+
+/**
  * À la création de tout compte : attribue son propre code de parrainage,
  * et si un code de parrain a été saisi (`referredByCode`), le résout en
  * uid et incrémente le compteur du parrain. Ne bloque jamais la création

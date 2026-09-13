@@ -2,6 +2,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/user.dart';
+import '../services/referral_service.dart';
+
+final referralServiceProvider = Provider<ReferralService>(
+  (ref) => ReferralService(),
+);
+
+/// Déclenche la génération du code de parrainage côté serveur pour les
+/// comptes qui n'en ont pas encore (voir `ReferralService`/
+/// `ensureReferralCode`). `ReferralScreen` observe ce provider uniquement
+/// tant qu'il affiche l'état "code manquant" — une fois le code écrit,
+/// `currentUserDocProvider` s'actualise tout seul et cette famille est
+/// disposée (`autoDispose`), jamais rappelée pour rien.
+final ensureReferralCodeProvider = FutureProvider.autoDispose
+    .family<void, String>((ref, userId) {
+      return ref.read(referralServiceProvider).ensureReferralCode();
+    });
 
 /// Flux en direct du document `users/{uid}` de l'utilisateur courant,
 /// nécessaire ici car les champs de parrainage (`referralCode`,

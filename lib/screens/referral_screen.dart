@@ -33,6 +33,11 @@ class ReferralScreen extends ConsumerWidget {
         data: (user) {
           final code = user?.referralCode;
           if (code == null || code.isEmpty) {
+            // Comptes créés avant l'ajout du parrainage : `onUserCreated`
+            // (déclencheur onCreate) ne leur a jamais attribué de code.
+            // Sans cet appel, l'écran resterait bloqué indéfiniment sur ce
+            // message, "revenez dans un instant" n'arrivant jamais.
+            ref.watch(ensureReferralCodeProvider(userId));
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),

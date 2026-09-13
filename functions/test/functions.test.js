@@ -2005,3 +2005,53 @@ test("onAnnonceCreated : une alerte sans aucun critère correspond à toute nouv
     .get();
   assert.ok(notifSnap.exists);
 });
+
+test("ensureReferralCode : génère et enregistre un code pour un compte qui n'en a pas encore", async () => {
+  await db.collection("users").doc("user1").set({ name: "Alice" });
+
+  const result = await functions.ensureReferralCode.run({
+    data: {},
+    auth: { uid: "user1" },
+  });
+
+  assert.equal(typeof result.referralCode, "string");
+  assert.ok(result.referralCode.length > 0);
+  const userSnap = await db.collection("users").doc("user1").get();
+  assert.equal(userSnap.data().referralCode, result.referralCode);
+});
+
+test("ensureReferralCode : idempotent, ne régénère jamais un code déjà présent (ne casse pas un code déjà partagé)", async () => {
+  await db.collection("users").doc("user1").set({
+    name: "Alice",
+    referralCode: "ABCDEF",
+  });
+
+  const result = await functions.ensureReferralCode.run({
+    data: {},
+    auth: { uid: "user1" },
+  });
+
+  assert.equal(result.referralCode, "ABCDEF");
+  const userSnap = await db.collection("users").doc("user1").get();
+  assert.equal(userSnap.data().referralCode, "ABCDEF");
+});
+
+test("ensureReferralCode : refuse un utilisateur non connecté", async () => {
+  await assert.rejects(
+    () => functions.ensureReferralCode.run({ data: {}, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+});
+
+test("ensureReferralCode : refuse un compte introuvable", async () => {
+  await assert.rejects(
+    () => functions.ensureReferralCode.run({ data: {}, auth: { uid: "ghost" } }),
+    (err) => {
+      assert.equal(err.code, "not-found");
+      return true;
+    }
+  );
+});
