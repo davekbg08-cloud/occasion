@@ -48,22 +48,20 @@ service firebase.storage {
 
     // Photos/vidéos envoyées dans une conversation : privées aux deux
     // participants (jamais publiques, contrairement à `annonces`/`profiles`).
-    // `isChatParticipant` interroge Firestore pour vérifier que l'appelant
-    // est bien acheteur ou vendeur de CE chat — même principe que la
-    // fonction homonyme de `firestore.rules`. Immuable une fois envoyé
-    // (aucun `update`), comme les messages eux-mêmes.
-    function isChatParticipant(chatId) {
-      return signedIn()
-        && firestore.exists(/databases/(default)/documents/chats/$(chatId))
-        && (
-          firestore.get(/databases/(default)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
-          || firestore.get(/databases/(default)/documents/chats/$(chatId)).data.sellerId == request.auth.uid
-        );
-    }
-
-    match /chatMedia/{chatId}/{fileName} {
-      allow read: if isChatParticipant(chatId);
-      allow create: if isChatParticipant(chatId)
+    // Les deux participants sont encodés directement dans le chemin
+    // (`{buyerOrSender}/{sellerOrReceiver}`, voir
+    // `ChatMediaUploadService.upload`) plutôt que résolus via une lecture
+    // Firestore croisée (`firestore.get`) depuis les règles Storage :
+    // cette dernière approche s'est avérée systématiquement en échec
+    // (`unauthorized`) en production sur ce projet malgré une syntaxe
+    // conforme à la documentation — encoder l'autorisation dans le chemin
+    // lui-même évite complètement cette dépendance fragile. Immuable une
+    // fois envoyé (aucun `update`), comme les messages eux-mêmes.
+    match /chatMedia/{chatId}/{userA}/{userB}/{fileName} {
+      allow read: if signedIn()
+        && (request.auth.uid == userA || request.auth.uid == userB);
+      allow create: if signedIn()
+        && (request.auth.uid == userA || request.auth.uid == userB)
         && (
           (isImage() && request.resource.size <= 5 * 1024 * 1024)
           || (isVideo() && request.resource.size <= 25 * 1024 * 1024)

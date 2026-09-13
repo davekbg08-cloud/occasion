@@ -440,6 +440,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final clientMessageId = _service.newClientMessageId(chatId);
     final uploaded = await _mediaUploadService.upload(
       chatId: chatId,
+      senderId: senderId,
+      receiverId: receiverId,
       clientMessageId: clientMessageId,
       mediaFile: mediaFile,
       type: mediaKind,
