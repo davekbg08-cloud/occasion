@@ -384,9 +384,17 @@ class NotificationService {
 
     try {
       final token = await _fcm.getToken(vapidKey: kIsWeb ? _webVapidKey : null);
-      if (token == null) return;
+      if (token == null) {
+        await _recordTokenIssue(
+          userId,
+          'getToken() a renvoyé null (permission notification refusée ou '
+          'jeton FCM/APNs indisponible sur cet appareil).',
+        );
+        return;
+      }
 
       await _updateToken(userId, token);
+      await _clearTokenIssue(userId);
       await _tokenRefreshSubscription?.cancel();
       _tokenRefreshSubscription = _fcm.onTokenRefresh.listen((newToken) {
         _updateToken(userId, newToken);
@@ -397,7 +405,34 @@ class NotificationService {
       }
     } catch (error) {
       debugPrint('Token FCM non sauvegardé : $error');
+      await _recordTokenIssue(userId, error.toString());
     }
+  }
+
+  /// Dernière raison connue d'échec d'enregistrement du jeton FCM,
+  /// directement sur `users/{uid}` — sans ça, un échec ici était invisible
+  /// pour tout le monde (aucun crash, aucun log serveur, seulement un
+  /// `debugPrint` perdu dans la console de l'appareil) : `pushState:
+  /// pending_no_device` en Firestore Console devenait un mur sans indice
+  /// sur le pourquoi. Lisible dans la même Console déjà utilisée pour
+  /// diagnostiquer `pushState`. Best-effort : si même cette écriture
+  /// échoue (hors ligne...), on ne fait rien de plus.
+  static Future<void> _recordTokenIssue(String userId, String reason) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(userId).set({
+        'lastFcmTokenError': reason,
+        'lastFcmTokenErrorAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  static Future<void> _clearTokenIssue(String userId) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(userId).update({
+        'lastFcmTokenError': FieldValue.delete(),
+        'lastFcmTokenErrorAt': FieldValue.delete(),
+      });
+    } catch (_) {}
   }
 
   static Future<void> _updateToken(String userId, String token) async {
