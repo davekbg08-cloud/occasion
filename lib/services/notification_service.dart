@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
@@ -149,6 +150,23 @@ class NotificationService {
       debugPrint('Écoute FCM non initialisée : $error');
     }
   }
+
+  /// Permission de notification au niveau OS, interrogeable à tout moment
+  /// (contrairement à `_fcm.requestPermission()`, qui ne renvoie un
+  /// résultat qu'au moment de la demande initiale au démarrage). Android
+  /// ne réaffiche plus jamais le popup système une fois refusé une
+  /// première fois — sans ce contrôle, un utilisateur qui a bloqué les
+  /// notifications ne recevrait plus jamais que la version "in-app" (voir
+  /// `sendToUser`/`deviceTokensFor` côté serveur : sans jeton FCM, aucune
+  /// notification système n'est envoyée), sans indice sur la cause ni
+  /// moyen de la corriger depuis l'app.
+  static Future<bool> isPermissionDenied() async {
+    if (kIsWeb) return false;
+    final status = await ph.Permission.notification.status;
+    return status.isDenied || status.isPermanentlyDenied;
+  }
+
+  static Future<void> openSystemSettings() => ph.openAppSettings();
 
   static Future<void> _requestPermission() async {
     await _fcm.requestPermission(

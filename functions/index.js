@@ -8,8 +8,11 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
+const { randomUUID } = require("node:crypto");
 
-initializeApp();
+initializeApp({
+  storageBucket: "occasion-10cdb.firebasestorage.app",
+});
 
 const db = getFirestore();
 const fcm = getMessaging();
@@ -29,6 +32,65 @@ function storagePathFromDownloadUrl(url) {
     return match ? decodeURIComponent(match[1]) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Copie le fichier Storage d'un média transféré (`forwardChatMessage`) vers
+ * le dossier du chat CIBLE (`chatMedia/{targetChatId}/...`) : sans cette
+ * copie, le message transféré référencerait toujours le fichier du chat
+ * D'ORIGINE, et `storage.rules` (`isChatParticipant(chatId)` dérivé du
+ * chemin) protégerait ce fichier pour les participants du chat source, pas
+ * ceux du chat cible qui le reçoivent réellement — un participant du chat
+ * cible jamais présent dans le chat source obtiendrait quand même accès au
+ * média. Si la copie échoue (ex. fichier source déjà supprimé), on se
+ * rabat sur l'URL d'origine plutôt que de bloquer le transfert entier pour
+ * un problème de média.
+ */
+function chatMediaDownloadUrl(destPath, token) {
+  return `https://firebasestorage.googleapis.com/v0/b/${storageBucket.name}/o/${encodeURIComponent(destPath)}?alt=media&token=${token}`;
+}
+
+async function copyChatMediaToTargetChat(sourceMediaUrl, targetChatId, clientMessageId) {
+  const sourcePath = storagePathFromDownloadUrl(sourceMediaUrl);
+  if (!sourcePath) return sourceMediaUrl;
+
+  const extMatch = sourcePath.match(/\.([a-zA-Z0-9]+)$/);
+  const ext = extMatch ? extMatch[1] : "jpg";
+  const destPath = `chatMedia/${targetChatId}/${clientMessageId}.${ext}`;
+  const destFile = storageBucket.file(destPath);
+  const token = randomUUID();
+
+  try {
+    // `ifGenerationMatch: 0` : n'écrit QUE si aucun objet n'existe déjà à
+    // ce chemin exact. Sans cette précondition atomique, un `clientMessageId`
+    // déjà occupé par un AUTRE message (rejeu réseau, ou tentative hostile
+    // visant un id qu'elle ne possède pas) verrait son fichier écrasé par
+    // cette copie AVANT même que `writeChatMessage` ait pu rejeter l'écriture
+    // Firestore pour collision d'id — l'écrasement, lui, resterait définitif.
+    await storageBucket.file(sourcePath).copy(destFile, {
+      metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+      preconditionOpts: { ifGenerationMatch: 0 },
+    });
+    return chatMediaDownloadUrl(destPath, token);
+  } catch (err) {
+    if (err?.code === 412) {
+      // L'objet existe déjà à ce chemin : soit un rejeu légitime du MÊME
+      // transfert (même `clientMessageId`, réessayé après une coupure
+      // réseau une fois la copie Storage déjà passée), soit une collision
+      // sur un id détenu par quelqu'un d'autre — dans les deux cas, ne
+      // jamais écraser, réutiliser le fichier déjà en place. Si l'id
+      // appartient à un autre expéditeur, `writeChatMessage` rejette de
+      // toute façon l'écriture Firestore juste après.
+      const [meta] = await destFile.getMetadata().catch(() => [null]);
+      const existingToken = meta?.metadata?.firebaseStorageDownloadTokens
+        ?.split(",")[0];
+      if (existingToken) {
+        return chatMediaDownloadUrl(destPath, existingToken);
+      }
+    }
+    console.error(`Erreur copie média transféré ${sourcePath} -> ${destPath} :`, err);
+    return sourceMediaUrl;
   }
 }
 
@@ -783,7 +845,16 @@ function isValidChatMediaUrl(url, chatId) {
     return false;
   }
   try {
-    const pathname = decodeURIComponent(new URL(url).pathname);
+    const parsed = new URL(url);
+    // L'hôte des URLs de téléchargement Firebase Storage est toujours ce
+    // domaine, quel que soit le projet/bucket (le bucket apparaît dans le
+    // chemin, pas dans l'hôte) — sans ce contrôle, seul le chemin étant
+    // vérifié, n'importe quelle URL externe contenant `/chatMedia/{chatId}/`
+    // dans son chemin passerait la validation.
+    if (parsed.hostname !== "firebasestorage.googleapis.com") {
+      return false;
+    }
+    const pathname = decodeURIComponent(parsed.pathname);
     return pathname.includes(`/chatMedia/${chatId}/`);
   } catch {
     return false;
@@ -799,9 +870,10 @@ function isValidChatMediaUrl(url, chatId) {
  * Jamais appelé directement par un client — chaque callable a déjà validé
  * ses propres paramètres avant d'entrer ici (voir `isValidChatMediaUrl`
  * pour `sendChatMessage`, qui n'est volontairement PAS réappliquée ici :
- * `forwardChatMessage` réutilise l'URL déjà validée du message source, qui
- * pointe légitimement vers le dossier Storage du chat D'ORIGINE, pas la
- * cible).
+ * `forwardChatMessage` a déjà copié le média vers le dossier Storage du
+ * chat CIBLE avant d'appeler cette fonction, voir
+ * `copyChatMediaToTargetChat` — sauf échec de copie, auquel cas l'URL
+ * d'origine est réutilisée telle quelle en dernier recours).
  */
 async function writeChatMessage({
   uid,
@@ -997,15 +1069,17 @@ exports.sendChatMessage = onCall(async (request) => {
 
 /**
  * Transfère un message existant (texte et/ou média) vers une AUTRE
- * conversation dont l'appelant est participant. Ne duplique jamais le
- * fichier Storage sous-jacent : seul un nouveau document message est créé
- * dans la conversation cible, référençant la même `mediaUrl` que
- * l'original, avec `forwardedFromChatId`/`forwardedFromMessageId` pour
- * l'étiquette "Transféré" côté client. L'appelant doit être participant
- * des DEUX conversations (celle d'origine, pour avoir légitimement pu lire
- * ce message ; celle de destination, pour pouvoir y écrire) — jamais
- * uniquement l'une des deux. Réutilise l'idempotence de `writeChatMessage`
- * sur `clientMessageId` : un retry ne crée jamais de doublon.
+ * conversation dont l'appelant est participant. Si le message source a un
+ * média, le fichier Storage est copié vers le dossier du chat CIBLE (voir
+ * `copyChatMediaToTargetChat`) avant l'écriture, pour que les participants
+ * du chat cible (qui n'ont pas forcément participé au chat source) restent
+ * couverts par `storage.rules`. `forwardedFromChatId`/`forwardedFromMessageId`
+ * alimentent l'étiquette "Transféré" côté client. L'appelant doit être
+ * participant des DEUX conversations (celle d'origine, pour avoir
+ * légitimement pu lire ce message ; celle de destination, pour pouvoir y
+ * écrire) — jamais uniquement l'une des deux. Réutilise l'idempotence de
+ * `writeChatMessage` sur `clientMessageId` : un retry ne crée jamais de
+ * doublon.
  */
 exports.forwardChatMessage = onCall(async (request) => {
   const uid = request.auth?.uid;
@@ -1052,12 +1126,32 @@ exports.forwardChatMessage = onCall(async (request) => {
   }
   const sourceMsg = sourceMsgSnap.data();
 
+  // Vérifié ICI, avant toute copie Storage (pas seulement plus tard dans
+  // la transaction de `writeChatMessage`) : sans ça, une copie vers le
+  // dossier Storage d'un chat auquel l'appelant ne participe même pas
+  // aurait déjà eu lieu avant le rejet de l'écriture Firestore.
+  const targetChatSnap = await db.collection("chats").doc(targetChatId).get();
+  if (!targetChatSnap.exists) {
+    throw new HttpsError("not-found", "Conversation cible introuvable.");
+  }
+  const targetChatData = targetChatSnap.data();
+  if (uid !== targetChatData.buyerId && uid !== targetChatData.sellerId) {
+    throw new HttpsError(
+      "permission-denied",
+      "Vous ne participez pas à la conversation cible."
+    );
+  }
+
+  const mediaUrl = sourceMsg.mediaUrl
+    ? await copyChatMediaToTargetChat(sourceMsg.mediaUrl, targetChatId, clientMessageId)
+    : sourceMsg.mediaUrl;
+
   return writeChatMessage({
     uid,
     chatId: targetChatId,
     clientMessageId,
     content: sourceMsg.content ?? "",
-    mediaUrl: sourceMsg.mediaUrl,
+    mediaUrl,
     mediaType: sourceMsg.mediaType,
     mediaWidth: sourceMsg.mediaWidth,
     mediaHeight: sourceMsg.mediaHeight,

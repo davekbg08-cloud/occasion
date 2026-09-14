@@ -343,7 +343,14 @@ service cloud.firestore {
 
     match /publicProfiles/{userId} {
       allow read: if signedIn();
-      allow create, update: if isOwner(userId)
+      // `ratingSum`/`ratingCount`/`averageRating`/`totalSales` sont écrits
+      // uniquement par les Cloud Functions via l'Admin SDK (qui contourne ces
+      // règles) — ils doivent rester dans `hasOnly` pour que les écritures
+      // ultérieures du propriétaire (ex. `updateProfilePhoto`, un `set(...,
+      // merge:true)` sur le document complet déjà enrichi) ne se fassent pas
+      // rejeter par un document contenant des clés hors liste, mais le
+      // `diff().affectedKeys()` empêche le client de les modifier lui-même.
+      allow create: if isOwner(userId)
         && hasOnly(request.resource.data, [
           'id', 'name', 'role', 'profileImageUrl', 'identityStatus',
           'sellerStatus', 'phoneVerified', 'createdAt', 'updatedAt'
@@ -352,8 +359,24 @@ service cloud.firestore {
         && optionalString(request.resource.data, 'name', 160)
         && optionalString(request.resource.data, 'role', 40)
         && optionalString(request.resource.data, 'profileImageUrl', 2000)
-        && optionalString(request.resource.data, 'identityStatus', 40)
-        && optionalString(request.resource.data, 'sellerStatus', 40)
+        && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
+        && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
+        && optionalBool(request.resource.data, 'phoneVerified');
+      allow update: if isOwner(userId)
+        && hasOnly(request.resource.data, [
+          'id', 'name', 'role', 'profileImageUrl', 'identityStatus',
+          'sellerStatus', 'phoneVerified', 'createdAt', 'updatedAt',
+          'ratingSum', 'ratingCount', 'averageRating', 'totalSales'
+        ])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'ratingSum', 'ratingCount', 'averageRating', 'totalSales'
+        ])
+        && request.resource.data.id == userId
+        && optionalString(request.resource.data, 'name', 160)
+        && optionalString(request.resource.data, 'role', 40)
+        && optionalString(request.resource.data, 'profileImageUrl', 2000)
+        && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
+        && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
         && optionalBool(request.resource.data, 'phoneVerified');
       allow delete: if isOwner(userId);
     }

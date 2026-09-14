@@ -582,20 +582,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
       chatId: chatId,
       clientMessageId: clientMessageId,
       content: target.content,
-      basePending: PendingChatMessage(
-        clientMessageId: clientMessageId,
-        chatId: chatId,
-        senderId: target.senderId,
-        receiverId: target.receiverId,
-        content: target.content,
-        localCreatedAt: target.sentAt,
+      basePending: PendingChatMessage.fromMessage(
+        target,
         state: PendingMessageState.failed,
-        mediaUrl: target.mediaUrl,
-        mediaType: target.mediaType?.name,
-        mediaWidth: target.mediaWidth,
-        mediaHeight: target.mediaHeight,
-        forwardedFromChatId: target.forwardedFromChatId,
-        forwardedFromMessageId: target.forwardedFromMessageId,
       ),
     );
   }
@@ -660,20 +649,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
         content: target.content,
         basePending:
             entry ??
-            PendingChatMessage(
-              clientMessageId: target.id,
-              chatId: chatId,
-              senderId: target.senderId,
-              receiverId: target.receiverId,
-              content: target.content,
-              localCreatedAt: target.sentAt,
+            PendingChatMessage.fromMessage(
+              target,
               state: PendingMessageState.sending,
-              mediaUrl: target.mediaUrl,
-              mediaType: target.mediaType?.name,
-              mediaWidth: target.mediaWidth,
-              mediaHeight: target.mediaHeight,
-              forwardedFromChatId: target.forwardedFromChatId,
-              forwardedFromMessageId: target.forwardedFromMessageId,
             ),
       );
     }

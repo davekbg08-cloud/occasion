@@ -91,9 +91,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
-  Future<void> _send() async {
-    // 1. Connexion vérifiée AVANT toute lecture/nettoyage du texte : le
-    // champ ne doit jamais être vidé si l'utilisateur n'est plus connecté.
+  /// Vérifie la connexion avant tout envoi (texte, média, transfert) —
+  /// affiche le même message d'erreur partout plutôt que de le répéter à
+  /// chaque appelant.
+  UserModel? _requireLoggedInUser() {
     final me = ref.read(authNotifierProvider).currentUser;
     if (me == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,8 +102,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           content: Text('Vous devez être connecté pour envoyer un message.'),
         ),
       );
-      return;
     }
+    return me;
+  }
+
+  Future<void> _send() async {
+    // 1. Connexion vérifiée AVANT toute lecture/nettoyage du texte : le
+    // champ ne doit jamais être vidé si l'utilisateur n'est plus connecté.
+    final me = _requireLoggedInUser();
+    if (me == null) return;
 
     final text = _inputController.text.trim();
     if (text.isEmpty) return;
@@ -125,15 +133,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _pickAndSendMedia(StatusType kind, ImageSource source) async {
-    final me = ref.read(authNotifierProvider).currentUser;
-    if (me == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vous devez être connecté pour envoyer un message.'),
-        ),
-      );
-      return;
-    }
+    final me = _requireLoggedInUser();
+    if (me == null) return;
 
     final XFile? picked = kind == StatusType.video
         ? await _picker.pickVideo(
@@ -255,7 +256,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _showForwardSheet(Message message) async {
-    final me = ref.read(authNotifierProvider).currentUser;
+    final me = _requireLoggedInUser();
     if (me == null) return;
 
     final target = await showForwardMessageSheet(

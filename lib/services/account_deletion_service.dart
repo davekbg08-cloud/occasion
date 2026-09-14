@@ -23,21 +23,41 @@ class AccountDeletionService {
       _functionsOverride ?? FirebaseFunctions.instance;
 
   Future<void> deleteAccount(String userId) async {
+    final userRef = _db.collection('users').doc(userId);
+
+    // Six lectures indépendantes (aucune ne dépend du résultat d'une
+    // autre) : lancées en parallèle plutôt qu'en série pour ne pas cumuler
+    // leurs latences sur une action utilisateur (suppression de compte).
+    final [
+      statuses,
+      annonces,
+      blocked,
+      devices,
+      chatsAsBuyer,
+      chatsAsSeller,
+    ] = await Future.wait([
+      _db.collection('statuses').where('sellerId', isEqualTo: userId).get(),
+      _db.collection('annonces').where('vendeurId', isEqualTo: userId).get(),
+      userRef.collection('blockedUsers').get(),
+      userRef.collection('devices').get(),
+      _db.collection('chats').where('buyerId', isEqualTo: userId).get(),
+      _db.collection('chats').where('sellerId', isEqualTo: userId).get(),
+    ]);
+
     // `statuses` ne peut plus être supprimé directement par le client
     // (firestore.rules : `allow delete: if false`, exclusivement via cette
     // Cloud Function qui nettoie aussi les likes et le fichier Storage) —
     // un `batch.delete()` direct ferait échouer TOUT le lot ci-dessous dès
-    // que l'utilisateur a publié au moins un statut.
-    final statuses = await _db
-        .collection('statuses')
-        .where('sellerId', isEqualTo: userId)
-        .get();
-    for (final doc in statuses.docs) {
-      await _functions.httpsCallable('deleteStatus').call({'statusId': doc.id});
-    }
+    // que l'utilisateur a publié au moins un statut. Les appels sont
+    // indépendants entre eux, jamais besoin de les attendre en série.
+    await Future.wait(
+      statuses.docs.map(
+        (doc) =>
+            _functions.httpsCallable('deleteStatus').call({'statusId': doc.id}),
+      ),
+    );
 
     final batch = _db.batch();
-    final userRef = _db.collection('users').doc(userId);
 
     batch.set(userRef, {
       'name': _deletedUserName,
@@ -51,20 +71,12 @@ class AccountDeletionService {
     // jamais dans `products` — une ancienne collection jamais utilisée par
     // le reste de l'app, qui laissait les annonces publiées intactes après
     // suppression du compte malgré la promesse affichée à l'écran.
-    final annonces = await _db
-        .collection('annonces')
-        .where('vendeurId', isEqualTo: userId)
-        .get();
     for (final doc in annonces.docs) {
       batch.delete(doc.reference);
     }
-
-    final blocked = await userRef.collection('blockedUsers').get();
     for (final doc in blocked.docs) {
       batch.delete(doc.reference);
     }
-
-    final devices = await userRef.collection('devices').get();
     for (final doc in devices.docs) {
       batch.delete(doc.reference);
     }
@@ -75,30 +87,25 @@ class AccountDeletionService {
     // le nom d'origine resterait affiché indéfiniment à l'autre
     // participant, malgré la promesse "votre nom apparaîtra comme
     // Utilisateur supprimé".
-    final chatsAsBuyer = await _db
-        .collection('chats')
-        .where('buyerId', isEqualTo: userId)
-        .get();
-    for (final doc in chatsAsBuyer.docs) {
-      batch.update(doc.reference, {'buyerName': _deletedUserName});
-    }
-    final chatsAsSeller = await _db
-        .collection('chats')
-        .where('sellerId', isEqualTo: userId)
-        .get();
-    for (final doc in chatsAsSeller.docs) {
-      batch.update(doc.reference, {'sellerName': _deletedUserName});
+    for (final (snap, nameField) in [
+      (chatsAsBuyer, 'buyerName'),
+      (chatsAsSeller, 'sellerName'),
+    ]) {
+      for (final doc in snap.docs) {
+        batch.update(doc.reference, {nameField: _deletedUserName});
+      }
     }
 
     await batch.commit();
 
-    try {
-      final current = _auth.currentUser;
-      if (current != null && current.uid == userId) {
-        await current.delete();
-      }
-    } on FirebaseAuthException catch (error) {
-      if (error.code == 'requires-recent-login') rethrow;
+    final current = _auth.currentUser;
+    if (current != null && current.uid == userId) {
+      // Toute erreur ici (pas seulement `requires-recent-login`) doit
+      // remonter à l'appelant : les données Firestore sont déjà anonymisées
+      // à ce stade et ne peuvent pas être restaurées, donc masquer un échec
+      // de suppression Auth laisserait croire à tort que le compte est
+      // totalement supprimé alors que la session reste valide.
+      await current.delete();
     }
   }
 }

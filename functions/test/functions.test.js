@@ -1171,7 +1171,7 @@ test("sendChatMessage : refuse un message sans texte NI média, et un mediaType 
   );
 });
 
-test("forwardChatMessage : transfère texte+média vers une autre conversation sans dupliquer le fichier Storage", async () => {
+test("forwardChatMessage : transfère texte+média vers une autre conversation (copie Storage ignorée si le chemin source ne peut pas être résolu, aucun appel réseau réel)", async () => {
   const sourceChatId = "chat-fwd-source";
   const targetChatId = "chat-fwd-target";
   await seedChat(sourceChatId);
@@ -1182,7 +1182,16 @@ test("forwardChatMessage : transfère texte+média vers une autre conversation s
     sellerUnreadCount: 0,
   });
 
-  const mediaUrl = chatMediaUrl(sourceChatId, "src-msg.jpg");
+  // Passe `isValidChatMediaUrl` (bon hôte + chemin contenant
+  // `/chatMedia/{chatId}/`) mais N'A PAS le segment `/o/` d'une vraie URL de
+  // téléchargement Firebase Storage : `storagePathFromDownloadUrl` renvoie
+  // donc `null`, et `copyChatMediaToTargetChat` se rabat immédiatement sur
+  // l'URL fournie SANS tenter de copie Storage — ce test reste hermétique
+  // (aucun appel réseau réel), même schéma que `deleteStatus` plus haut. Le
+  // comportement de copie réussie (nouveau chemin sous le chat cible) n'est
+  // pas couvert ici : il nécessiterait un émulateur Storage, absent de
+  // cette suite qui ne cible que Firestore.
+  const mediaUrl = `https://firebasestorage.googleapis.com/chatMedia/${sourceChatId}/src-msg.jpg`;
   await functions.sendChatMessage.run({
     data: {
       chatId: sourceChatId,
@@ -1209,7 +1218,7 @@ test("forwardChatMessage : transfère texte+média vers une autre conversation s
 
   const fwdSnap = await db.collection("chats").doc(targetChatId).collection("messages").doc("fwd-msg-1").get();
   assert.equal(fwdSnap.data().content, "Regarde ça");
-  assert.equal(fwdSnap.data().mediaUrl, mediaUrl, "réutilise la MÊME URL, jamais un nouveau fichier Storage");
+  assert.equal(fwdSnap.data().mediaUrl, mediaUrl, "chemin source non résolu -> repli sur l'URL d'origine, sans appel réseau");
   assert.equal(fwdSnap.data().mediaType, "image");
   assert.equal(fwdSnap.data().forwardedFromChatId, sourceChatId);
   assert.equal(fwdSnap.data().forwardedFromMessageId, "src-msg");

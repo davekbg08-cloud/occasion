@@ -1,3 +1,5 @@
+import 'message.dart';
+
 /// État local (jamais envoyé tel quel à Firestore) d'un message en cours
 /// d'envoi ou en échec, persisté par [PendingMessageStore] pour survivre à
 /// la fermeture complète de l'application — voir
@@ -118,6 +120,33 @@ class PendingChatMessage {
     if (forwardedFromMessageId != null)
       'forwardedFromMessageId': forwardedFromMessageId,
   };
+
+  /// Reconstruit une entrée de la boîte d'envoi à partir d'une bulle
+  /// [Message] existante (retry manuel ou automatique, voir
+  /// `ChatNotifier.retryMessage`/`retryAllPending`) — un seul endroit qui
+  /// connaît la correspondance champ à champ entre les deux modèles, pour
+  /// qu'un futur champ (ex. `mediaWidth`) ne puisse pas être oublié dans
+  /// une seule des deux copies manuelles que ce factory remplace.
+  factory PendingChatMessage.fromMessage(
+    Message message, {
+    required PendingMessageState state,
+  }) {
+    return PendingChatMessage(
+      clientMessageId: message.id,
+      chatId: message.chatId,
+      senderId: message.senderId,
+      receiverId: message.receiverId,
+      content: message.content,
+      localCreatedAt: message.sentAt,
+      state: state,
+      mediaUrl: message.mediaUrl,
+      mediaType: message.mediaType?.name,
+      mediaWidth: message.mediaWidth,
+      mediaHeight: message.mediaHeight,
+      forwardedFromChatId: message.forwardedFromChatId,
+      forwardedFromMessageId: message.forwardedFromMessageId,
+    );
+  }
 
   factory PendingChatMessage.fromJson(Map<String, dynamic> json) {
     return PendingChatMessage(

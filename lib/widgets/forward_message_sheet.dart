@@ -44,9 +44,10 @@ class _ForwardMessageSheetBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final chats = ref.watch(
-      chatNotifierProvider.select((state) => state.chats),
-    );
+    final chats = ref
+        .watch(chatNotifierProvider.select((state) => state.chats))
+        .where((chat) => chat.id != excludeChatId)
+        .toList();
 
     return SafeArea(
       child: ConstrainedBox(
@@ -98,12 +99,6 @@ class _ForwardMessageSheetBody extends ConsumerWidget {
                         name,
                         style: const TextStyle(color: Colors.white),
                       ),
-                      subtitle: chat.id == excludeChatId
-                          ? const Text(
-                              'Conversation actuelle',
-                              style: TextStyle(color: Colors.grey),
-                            )
-                          : null,
                       onTap: () => Navigator.of(context).pop(chat),
                     );
                   },
