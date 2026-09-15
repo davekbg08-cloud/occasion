@@ -330,11 +330,12 @@ service cloud.firestore {
             ]
           )
         && (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['identityStatus', 'sellerStatus'])
-          || (
-            isClientSettableIdentityStatus(request.resource.data.identityStatus)
-            && isClientSettableIdentityStatus(request.resource.data.sellerStatus)
-          )
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['identityStatus'])
+          || isClientSettableIdentityStatus(request.resource.data.identityStatus)
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['sellerStatus'])
+          || isClientSettableIdentityStatus(request.resource.data.sellerStatus)
         );
 
       allow delete: if false;

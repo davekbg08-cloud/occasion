@@ -1546,21 +1546,47 @@ const SUBSCRIPTION_PLANS = {
  * vérifier, la confirmation doit être refusée plutôt que de faire
  * confiance au total déclaré.
  */
-async function recomputeOrderTotal(tx, items) {
-  if (!Array.isArray(items) || items.length === 0) return null;
+/**
+ * Prix ACTUEL de l'annonce × quantité pour chaque article — jamais
+ * `item.totalPrice`, fourni par le client (`order.items`, écrit
+ * directement depuis le panier local par `payment_screen.dart`, sans lien
+ * imposé avec le prix réel). Source unique partagée par la validation du
+ * montant total (`recomputeOrderTotal`, qui refuse la confirmation si un
+ * article est introuvable/invalide) ET l'attribution du revenu/des points
+ * de fidélité PAR VENDEUR après confirmation (`notifySettlement`,
+ * `creditOrderLoyaltyPoints`) : sans ce partage, un total globalement
+ * cohérent pouvait quand même créditer chaque vendeur du `totalPrice` non
+ * vérifié de ses propres articles (ex. le transférer artificiellement à
+ * un autre vendeur de la même commande sans changer le total validé).
+ * `verifiedTotal` vaut `null` pour un article dont l'annonce est
+ * introuvable/invalide.
+ */
+async function verifiedItemTotals(items, getDoc) {
+  if (!Array.isArray(items) || items.length === 0) return [];
   const annonceRefs = items.map((item) =>
     db.collection("annonces").doc(String(item.productId))
   );
-  const annonceSnaps = await Promise.all(annonceRefs.map((ref) => tx.get(ref)));
+  const annonceSnaps = await Promise.all(annonceRefs.map((ref) => getDoc(ref)));
 
-  let total = 0;
-  for (let i = 0; i < items.length; i++) {
+  return items.map((item, i) => {
     const snap = annonceSnaps[i];
-    if (!snap.exists) return null;
+    if (!snap.exists) return { ...item, verifiedTotal: null };
     const price = snap.data().price;
-    const quantity = Number(items[i].quantity) || 0;
-    if (typeof price !== "number" || quantity <= 0) return null;
-    total += price * quantity;
+    const quantity = Number(item.quantity) || 0;
+    if (typeof price !== "number" || quantity <= 0) {
+      return { ...item, verifiedTotal: null };
+    }
+    return { ...item, verifiedTotal: price * quantity };
+  });
+}
+
+async function recomputeOrderTotal(tx, items) {
+  const withTotals = await verifiedItemTotals(items, (ref) => tx.get(ref));
+  if (withTotals.length === 0) return null;
+  let total = 0;
+  for (const item of withTotals) {
+    if (item.verifiedTotal === null) return null;
+    total += item.verifiedTotal;
   }
   return total;
 }
@@ -1657,7 +1683,13 @@ async function applySettlement({
           userId: intent.userId,
           orderId: intent.orderId ?? null,
           planId: intent.planId ?? null,
-          amount: subscriptionPlan ? subscriptionPlan.amount : intent.amount,
+          // Le montant enregistré (piste d'audit) doit refléter la valeur
+          // VÉRIFIÉE côté serveur, jamais celle déclarée par le client —
+          // sinon la tolérance d'arrondi acceptée ci-dessus laisserait un
+          // écart mineur mais réel se figer dans `transactions.amount`.
+          amount: subscriptionPlan
+            ? subscriptionPlan.amount
+            : (recomputedOrderTotal ?? intent.amount),
           currency: intent.currency ?? "FC",
           paymentMethod,
           paymentReference: intent.manualPaymentReference ?? null,
@@ -1783,15 +1815,22 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
         const sellerIds = order.sellerIds ?? [];
         const items = order.items ?? [];
         const currency = order.currency ?? "FC";
+        // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
+        // client — voir `verifiedItemTotals`. La commande a déjà été
+        // validée en agrégat par `recomputeOrderTotal` à la confirmation ;
+        // ce recalcul par article empêche un acheteur de transférer un
+        // montant entre vendeurs d'une même commande multi-vendeur sans
+        // changer le total.
+        const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
 
         await Promise.all(
           sellerIds.map(async (sellerId) => {
             // Un même montant `order.total` peut couvrir plusieurs vendeurs
             // (panier multi-vendeur) : on ne crédite chacun que de son
             // propre sous-total, pas du total de la commande.
-            const sellerSubtotal = items
+            const sellerSubtotal = verifiedItems
               .filter((item) => item.sellerId === sellerId)
-              .reduce((sum, item) => sum + (item.totalPrice ?? 0), 0);
+              .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
 
             await Promise.all([
               sendToUser({
@@ -2232,12 +2271,17 @@ exports.onOrderCompleted = onDocumentUpdated(
     const items = after.items ?? [];
     const currency = after.currency ?? "FC";
     const sellerIds = after.sellerIds ?? [];
+    // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
+    // client — voir `verifiedItemTotals`. Sans ça, un acheteur pouvait
+    // gonfler les points de fidélité d'un vendeur (ou les réduire) sans
+    // changer le total de commande déjà validé à la confirmation.
+    const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
 
     await Promise.all(
       sellerIds.map(async (sellerId) => {
-        const sellerSubtotal = items
+        const sellerSubtotal = verifiedItems
           .filter((item) => item.sellerId === sellerId)
-          .reduce((sum, item) => sum + (item.totalPrice ?? 0), 0);
+          .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
         const points = pointsForAmount(currency, sellerSubtotal);
         if (points <= 0 || !buyerId) return;
 
