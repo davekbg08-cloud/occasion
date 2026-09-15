@@ -317,13 +317,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // ne pas être immédiatement lisible juste après sa création (latence
     // réseau/cohérence), ou la lecture peut échouer temporairement (réseau
     // indisponible) — dans les deux cas on retente plutôt que de
-    // déconnecter l'utilisateur à tort.
+    // déconnecter l'utilisateur à tort. `.timeout(...)` est indispensable
+    // ici : sans lui, un réseau faible/instable (LTE 1-2 barres) peut
+    // laisser chaque tentative bloquée très longtemps avant d'échouer,
+    // gardant l'écran de démarrage figé sur le logo plusieurs minutes au
+    // lieu des ~10s max par tentative attendues.
     for (final delayMs in [0, 400, 900]) {
       if (delayMs > 0) {
         await Future<void>.delayed(Duration(milliseconds: delayMs));
       }
       try {
-        final snapshot = await _users.doc(firebaseUser.uid).get();
+        final snapshot = await _users
+            .doc(firebaseUser.uid)
+            .get()
+            .timeout(const Duration(seconds: 10));
         data = snapshot.data();
         lastError = null;
         if (data != null) break;

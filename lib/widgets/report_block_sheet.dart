@@ -172,7 +172,10 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                         } on FirebaseException catch (e) {
                           errorMessage = e.code == 'permission-denied'
                               ? 'Vous avez déjà signalé ceci.'
-                              : 'Signalement impossible. Réessayez.';
+                              : 'Signalement impossible : ${e.code}. Réessaie.';
+                        } catch (error) {
+                          errorMessage =
+                              'Signalement impossible : $error. Réessaie.';
                         }
 
                         if (sheetContext.mounted) Navigator.pop(sheetContext);
@@ -181,7 +184,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                             SnackBar(
                               content: Text(
                                 errorMessage ??
-                                    'Signalement envoye. Merci de nous aider a garder Occasion sur.',
+                                    'Signalement envoyé. Merci de nous aider à garder Occasion sûr.',
                               ),
                             ),
                           );
@@ -216,17 +219,27 @@ class _ReportOrBlockSheet extends ConsumerWidget {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              await ref
-                  .read(moderationServiceProvider)
-                  .blockUser(
-                    currentUserId: currentUserId,
-                    blockedUserId: targetUserId,
-                    blockedUserName: targetUserName,
-                  );
+              String? errorMessage;
+              try {
+                await ref
+                    .read(moderationServiceProvider)
+                    .blockUser(
+                      currentUserId: currentUserId,
+                      blockedUserId: targetUserId,
+                      blockedUserName: targetUserName,
+                    );
+              } catch (error) {
+                errorMessage = 'Blocage impossible : $error. Réessaie.';
+              }
+
               if (dialogContext.mounted) Navigator.pop(dialogContext);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$targetUserName a été bloqué(e).')),
+                  SnackBar(
+                    content: Text(
+                      errorMessage ?? '$targetUserName a été bloqué(e).',
+                    ),
+                  ),
                 );
               }
             },

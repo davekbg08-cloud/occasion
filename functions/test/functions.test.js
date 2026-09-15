@@ -605,6 +605,7 @@ test("deleteStatus : supprime un statut avec plus de 400 likes sans dépasser la
 
 test("applySettlement (via confirmManualPayment) : deux confirmations concurrentes ne règlent qu'une seule fois", async () => {
   await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("annonces").doc("annonce1").set({ sellerId: "seller1", price: 10000 });
   await db.collection("paymentIntents").doc("intent1").set({
     type: "order",
     userId: "buyer1",
@@ -617,7 +618,7 @@ test("applySettlement (via confirmManualPayment) : deux confirmations concurrent
   await db.collection("orders").doc("order1").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", totalPrice: 10000 }],
+    items: [{ sellerId: "seller1", productId: "annonce1", quantity: 1, totalPrice: 10000 }],
     currency: "FC",
     status: "pending_payment",
   });
@@ -636,6 +637,105 @@ test("applySettlement (via confirmManualPayment) : deux confirmations concurrent
 
   const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
   assert.equal(statsSnap.data().totalSales, 1);
+});
+
+test("régression : confirmManualPayment refuse une commande dont le montant déclaré ne correspond pas au prix réel des articles", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("annonces").doc("annonce-fraude").set({ sellerId: "seller1", price: 50000 });
+  await db.collection("orders").doc("order-fraude").set({
+    buyerId: "buyer1",
+    sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-fraude", quantity: 1, totalPrice: 100 }],
+    currency: "FC",
+    status: "pending_payment",
+  });
+  // L'acheteur (ou un appel Firestore brut) a déclaré un montant dérisoire
+  // (100) alors que l'annonce vaut réellement 50000.
+  await db.collection("paymentIntents").doc("intent-fraude").set({
+    type: "order",
+    userId: "buyer1",
+    orderId: "order-fraude",
+    amount: 100,
+    currency: "FC",
+    status: "awaiting_manual_verification",
+    manualPaymentMethod: "orange_money_manual",
+  });
+
+  await assert.rejects(
+    () =>
+      functions.confirmManualPayment.run({
+        data: { transactionId: "intent-fraude" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+
+  const orderSnap = await db.collection("orders").doc("order-fraude").get();
+  assert.equal(orderSnap.data().status, "pending_payment", "la commande ne doit jamais passer 'paid' sur un montant incohérent");
+});
+
+test("régression : confirmManualPayment refuse un abonnement dont la formule (planId) est inconnue", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("paymentIntents").doc("intent-plan-inconnu").set({
+    type: "subscription",
+    userId: "seller1",
+    planId: "plan_qui_n_existe_pas",
+    planName: "Formule bidon",
+    amount: 1,
+    durationDays: 36500,
+    currency: "FC",
+    status: "awaiting_manual_verification",
+    manualPaymentMethod: "orange_money_manual",
+  });
+
+  await assert.rejects(
+    () =>
+      functions.confirmManualPayment.run({
+        data: { transactionId: "intent-plan-inconnu" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+
+  const subSnap = await db.collection("subscriptions").doc("seller1").get();
+  assert.equal(subSnap.exists, false, "aucun abonnement ne doit être activé sur une formule inconnue");
+});
+
+test("régression : confirmManualPayment ignore le montant/durée déclarés par le client pour un abonnement, utilise toujours la formule canonique", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  // Le client a déclaré un montant dérisoire (1) et une durée énorme
+  // (36500 jours) — exactement le scénario décrit par l'audit de
+  // sécurité : sans la table canonique, un admin confirmant seulement la
+  // référence de paiement activerait ces valeurs telles quelles.
+  await db.collection("paymentIntents").doc("intent-plan-triche").set({
+    type: "subscription",
+    userId: "seller1",
+    planId: "seller_monthly",
+    planName: "Formule Premium Gratuite",
+    amount: 1,
+    durationDays: 36500,
+    currency: "FC",
+    status: "awaiting_manual_verification",
+    manualPaymentMethod: "orange_money_manual",
+  });
+
+  await functions.confirmManualPayment.run({
+    data: { transactionId: "intent-plan-triche" },
+    auth: { uid: "admin1" },
+  });
+
+  const subSnap = await db.collection("subscriptions").doc("seller1").get();
+  assert.equal(subSnap.data().price, 20000);
+  assert.equal(subSnap.data().planName, "Vendeur Mensuel");
+  const durationMs = subSnap.data().expiryDate.toMillis() - subSnap.data().startDate.toMillis();
+  const durationDays = Math.round(durationMs / (24 * 60 * 60 * 1000));
+  assert.equal(durationDays, 30, "la durée doit venir de la table canonique (30 jours), jamais des 36500 jours déclarés par le client");
 });
 
 test("sendChatMessage : crée le message avec senderId/receiverId/status déterminés côté serveur", async () => {
@@ -1858,10 +1958,11 @@ test("submitReview : accepte aussi une commande déjà reversée (payout_sent), 
 });
 
 test("notifySettlement (paiement) : mirroire aussi totalSales dans publicProfiles, pas seulement sellerStatistics", async () => {
+  await db.collection("annonces").doc("annonce-settle").set({ sellerId: "seller1", price: 5000 });
   await db.collection("orders").doc("order-settle").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", totalPrice: 5000 }],
+    items: [{ sellerId: "seller1", productId: "annonce-settle", quantity: 1, totalPrice: 5000 }],
     currency: "FC",
     status: "pending_payment",
   });

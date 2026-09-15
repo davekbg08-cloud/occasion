@@ -833,7 +833,7 @@ test("un utilisateur ne peut plus incrémenter directement les vues d'une annonc
   );
 });
 
-test("un utilisateur peut toujours (dé)favoriser une annonce (non affecté par le retrait de vues)", async () => {
+test("régression : un utilisateur ne peut plus écrire `favoris` à une valeur arbitraire sur une annonce d'un autre vendeur (aucun code client ne l'écrit réellement — la règle l'autorisait à tort)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx
       .firestore()
@@ -842,8 +842,28 @@ test("un utilisateur peut toujours (dé)favoriser une annonce (non affecté par 
       .set(validAnnonceSeed());
   });
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("annonces").doc("annonce1").update({ favoris: 999999 })
+  );
+});
+
+test("régression : `messagesCount` ne peut être incrémenté que de +1 exactement par un non-propriétaire (jamais une valeur arbitraire)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed({ messagesCount: 3 }));
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertSucceeds(
-    buyer.collection("annonces").doc("annonce1").update({ favoris: 1 })
+    buyer.collection("annonces").doc("annonce1").update({ messagesCount: 4 })
+  );
+  await assertFails(
+    buyer.collection("annonces").doc("annonce1").update({ messagesCount: 999 })
+  );
+  await assertFails(
+    buyer.collection("annonces").doc("annonce1").update({ messagesCount: 3 })
   );
 });
 
@@ -1386,6 +1406,54 @@ test("publicProfiles : le propriétaire ne peut jamais s'attribuer lui-même une
   // hasOnly, pas par un verrou global sur le document.
   await assertSucceeds(
     seller.collection("publicProfiles").doc("seller1").update({ name: "Nouveau nom" })
+  );
+});
+
+test("régression : publicProfiles.identityStatus/sellerStatus ne peuvent jamais être auto-attribués à 'verified' (faux badge Vendeur vérifié)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("publicProfiles").doc("seller1").set({
+      id: "seller1",
+      name: "Vendeur",
+      role: "seller",
+      identityStatus: "unverified",
+      sellerStatus: "unverified",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ identityStatus: "verified" })
+  );
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ sellerStatus: "verified" })
+  );
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ identityStatus: "rejected" })
+  );
+
+  // Les valeurs de "soumission" (jamais 'verified') restent permises.
+  await assertSucceeds(
+    seller.collection("publicProfiles").doc("seller1").update({ identityStatus: "identity_submitted" })
+  );
+});
+
+test("régression : publicProfiles.phoneVerified ne peut jamais être auto-attribué à true (faux badge Téléphone vérifié, aucun flux SMS/OTP n'existe)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("publicProfiles").doc("seller1").set({
+      id: "seller1",
+      name: "Vendeur",
+      role: "seller",
+      phoneVerified: false,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+
+  await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ phoneVerified: true })
+  );
+  // false reste permis (c'est la valeur écrite à l'inscription).
+  await assertSucceeds(
+    seller.collection("publicProfiles").doc("seller1").update({ phoneVerified: false })
   );
 });
 

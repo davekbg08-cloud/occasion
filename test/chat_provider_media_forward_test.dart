@@ -91,6 +91,8 @@ class _FakeMediaUploadService extends ChatMediaUploadService {
   @override
   Future<ChatMediaUploadResult> upload({
     required String chatId,
+    required String senderId,
+    required String receiverId,
     required String clientMessageId,
     required XFile mediaFile,
     required StatusType type,

@@ -23,15 +23,17 @@ class ChatMediaUploadResult {
   final int? height;
 }
 
-/// Upload d'une photo/vidéo de chat vers `chatMedia/{chatId}/{clientMessageId}.ext`
-/// — le même `clientMessageId` que le message qui la référencera, pour que
-/// le chemin Storage soit directement gouverné par `storage.rules`
-/// (`isChatParticipant(chatId)`, voir ce fichier). Aucune tentative de
-/// reprise après une fermeture de l'app en plein upload : tant que
-/// [upload] n'a pas renvoyé son résultat, rien n'est persisté localement
-/// (voir le commentaire de `PendingChatMessage`) — un échec ici se retente
-/// simplement en repartant de zéro (nouveau `clientMessageId`), jamais en
-/// essayant de reprendre un transfert partiel.
+/// Upload d'une photo/vidéo de chat vers
+/// `chatMedia/{chatId}/{senderId}/{receiverId}/{clientMessageId}.ext` — les
+/// deux participants sont encodés directement dans le chemin pour que
+/// `storage.rules` puisse autoriser sans lecture Firestore croisée (une
+/// approche essayée d'abord, mais qui échouait systématiquement en
+/// production sur ce projet). Aucune tentative de reprise après une
+/// fermeture de l'app en plein upload : tant que [upload] n'a pas renvoyé
+/// son résultat, rien n'est persisté localement (voir le commentaire de
+/// `PendingChatMessage`) — un échec ici se retente simplement en repartant
+/// de zéro (nouveau `clientMessageId`), jamais en essayant de reprendre un
+/// transfert partiel.
 class ChatMediaUploadService {
   ChatMediaUploadService([this._storageOverride]);
 
@@ -43,18 +45,21 @@ class ChatMediaUploadService {
 
   Future<ChatMediaUploadResult> upload({
     required String chatId,
+    required String senderId,
+    required String receiverId,
     required String clientMessageId,
     required XFile mediaFile,
     required StatusType type,
     void Function(double progress)? onProgress,
   }) {
+    final folder = 'chatMedia/$chatId/$senderId/$receiverId';
     return type == StatusType.video
-        ? _uploadVideo(chatId, clientMessageId, mediaFile, onProgress)
-        : _uploadImage(chatId, clientMessageId, mediaFile, onProgress);
+        ? _uploadVideo(folder, clientMessageId, mediaFile, onProgress)
+        : _uploadImage(folder, clientMessageId, mediaFile, onProgress);
   }
 
   Future<ChatMediaUploadResult> _uploadImage(
-    String chatId,
+    String folder,
     String clientMessageId,
     XFile file,
     void Function(double progress)? onProgress,
@@ -68,7 +73,7 @@ class ChatMediaUploadService {
       throw Exception('L\'image reste trop lourde après compression.');
     }
 
-    final ref = _storage.ref().child('chatMedia/$chatId/$clientMessageId.jpg');
+    final ref = _storage.ref().child('$folder/$clientMessageId.jpg');
     final task = ref.putData(
       compressed.bytes,
       SettableMetadata(
@@ -92,12 +97,12 @@ class ChatMediaUploadService {
   }
 
   Future<ChatMediaUploadResult> _uploadVideo(
-    String chatId,
+    String folder,
     String clientMessageId,
     XFile file,
     void Function(double progress)? onProgress,
   ) async {
-    final ref = _storage.ref().child('chatMedia/$chatId/$clientMessageId.mp4');
+    final ref = _storage.ref().child('$folder/$clientMessageId.mp4');
 
     if (kIsWeb) {
       // Pas de transcodage natif disponible sur le web : on applique

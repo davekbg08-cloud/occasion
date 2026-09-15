@@ -1,0 +1,83 @@
+name: Deploy Firebase (Functions + Rules)
+
+# Jusqu'ici, tout changement de Cloud Functions/règles Firestore/règles
+# Storage devait être déployé manuellement (CLI Firebase ou copier-coller
+# dans la Console) — source récurrente de bugs cette session (règles
+# Storage restées incomplètes en prod pendant des jours, notifications
+# cassées faute de redéploiement des fonctions...). Ce workflow déploie
+# automatiquement dès qu'un de ces fichiers change sur `main`, seulement
+# après que les tests soient passés — même filet de sécurité que ci.yml,
+# jamais un déploiement sur du code cassé.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "functions/**"
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "storage.rules"
+      - ".github/workflows/deploy-firebase.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-firebase
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Test then deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Java (required by the Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Install Cloud Functions dependencies
+        run: npm install
+        working-directory: functions
+
+      - name: Check Cloud Functions syntax
+        run: npm test
+        working-directory: functions
+
+      - name: Install Firestore rules test dependencies
+        run: npm install
+        working-directory: firestore-tests
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Run Firestore rules tests and Cloud Functions integration tests against emulator
+        run: firebase emulators:exec --only firestore --project demo-occasion "npm --prefix firestore-tests test && npm --prefix functions run test:integration"
+
+      # Authentification via un compte de service Google Cloud (clé JSON
+      # dans le secret GCP_SA_KEY) plutôt qu'un jeton `firebase login:ci` :
+      # ce dernier nécessite une session interactive en direct (Cloud
+      # Shell + navigateur), fragile sur mobile (l'onglet Cloud Shell se
+      # déconnecte dès qu'on change d'onglet pour l'étape d'autorisation).
+      # Une clé de service se crée entièrement via des formulaires web
+      # statiques, sans session à maintenir.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # Ne déploie qu'après que tout ce qui précède soit passé — jamais un
+      # déploiement en prod sur du code dont les tests échouent.
+      - name: Deploy to Firebase (functions + firestore rules/indexes + storage rules)
+        run: firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive

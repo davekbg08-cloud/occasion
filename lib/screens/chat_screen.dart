@@ -180,6 +180,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           content: Text(
             "Échec de l'envoi : ${kind == StatusType.video ? 'vidéo' : 'photo'} non envoyée (${_describeUploadError(error)}). Réessaie.",
           ),
+          // Durée par défaut (4s) trop courte pour lire/capturer le détail
+          // technique de l'erreur — nécessaire pour le diagnostic à
+          // distance (voir le code entre parenthèses).
+          duration: const Duration(seconds: 10),
+          action: SnackBarAction(
+            label: 'OK',
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
         ),
       );
     } finally {
@@ -295,6 +305,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("Échec de l'envoi : ${next.error}. Réessaie."),
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'OK',
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
           ),
         );
       }
