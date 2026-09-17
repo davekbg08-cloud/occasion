@@ -539,18 +539,36 @@ class _EmptyFeed extends StatelessWidget {
   }
 }
 
-class _ErrorFeed extends StatelessWidget {
+class _ErrorFeed extends ConsumerWidget {
   const _ErrorFeed();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final message =
+        ref.watch(statusNotifierProvider).error ??
+        'Impossible de charger le feed pour le moment.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(
-          'Impossible de charger le feed pour le moment.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white70),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: () =>
+                  ref.read(statusNotifierProvider.notifier).retryLoadFeed(),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white70),
+              ),
+              child: const Text('Réessayer'),
+            ),
+          ],
         ),
       ),
     );

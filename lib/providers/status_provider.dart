@@ -58,8 +58,9 @@ class StatusState {
 }
 
 class StatusNotifier extends StateNotifier<StatusState> {
-  StatusNotifier({StatusService? service})
+  StatusNotifier({StatusService? service, Duration? loadTimeout})
     : _service = service ?? StatusService(),
+      _loadTimeout = loadTimeout ?? const Duration(seconds: 12),
       super(const StatusState());
 
   final StatusService _service;
@@ -67,6 +68,17 @@ class StatusNotifier extends StateNotifier<StatusState> {
   _feedSubscription;
   bool _feedLoaded = false;
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
+  Timer? _loadTimeoutTimer;
+
+  /// Le flux `snapshots()` Firestore ne fait JAMAIS échouer sur une simple
+  /// instabilité réseau/DNS (déjà observé en prod : `ERR_NAME_NOT_RESOLVED`
+  /// récurrent) — il retente silencieusement en arrière-plan, sans jamais
+  /// émettre ni données ni erreur s'il n'y a rien en cache local. Sans ce
+  /// garde-fou, `isLoading` resterait bloqué à `true` indéfiniment (spinner
+  /// sans fin), contrairement au lecteur vidéo qui, lui, est déjà borné.
+  /// Configurable (constructeur) uniquement pour permettre aux tests de ne
+  /// pas attendre 12 vraies secondes.
+  final Duration _loadTimeout;
 
   void loadFeed() {
     if (_feedLoaded) return;
@@ -75,9 +87,22 @@ class StatusNotifier extends StateNotifier<StatusState> {
     _feedSubscription?.cancel();
     state = state.copyWith(isLoading: true, clearError: true);
 
+    _loadTimeoutTimer?.cancel();
+    _loadTimeoutTimer = Timer(_loadTimeout, () {
+      if (state.isLoading && state.statuses.isEmpty) {
+        state = state.copyWith(
+          isLoading: false,
+          error:
+              'Connexion instable : impossible de charger le contenu pour '
+              'le moment.',
+        );
+      }
+    });
+
     try {
       _feedSubscription = _service.feed().listen(
         (docs) {
+          _loadTimeoutTimer?.cancel();
           _lastDoc = docs.isEmpty ? null : docs.last;
           state = state.copyWith(
             statuses: docs
@@ -89,12 +114,21 @@ class StatusNotifier extends StateNotifier<StatusState> {
           );
         },
         onError: (Object error) {
+          _loadTimeoutTimer?.cancel();
           state = state.copyWith(isLoading: false, error: error.toString());
         },
       );
     } catch (error) {
+      _loadTimeoutTimer?.cancel();
       state = state.copyWith(isLoading: false, error: error.toString());
     }
+  }
+
+  /// Relance le chargement après un échec (bouton "Réessayer") — sans quoi
+  /// [loadFeed] ne referait rien puisque `_feedLoaded` est déjà à `true`.
+  void retryLoadFeed() {
+    _feedLoaded = false;
+    loadFeed();
   }
 
   /// Charge la page suivante du feed (pagination), à appeler quand
@@ -110,7 +144,9 @@ class StatusNotifier extends StateNotifier<StatusState> {
 
     state = state.copyWith(isLoadingMore: true, clearError: true);
     try {
-      final docs = await _service.fetchMoreFeed(after: lastDoc);
+      final docs = await _service
+          .fetchMoreFeed(after: lastDoc)
+          .timeout(_loadTimeout);
       if (docs.isNotEmpty) _lastDoc = docs.last;
       state = state.copyWith(
         statuses: [
@@ -263,6 +299,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
   @override
   void dispose() {
     _feedSubscription?.cancel();
+    _loadTimeoutTimer?.cancel();
     super.dispose();
   }
 }
