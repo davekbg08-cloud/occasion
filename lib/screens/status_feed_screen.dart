@@ -164,6 +164,12 @@ class _StatusPageState extends State<_StatusPage> {
     }
   }
 
+  /// Au-delà de ce délai, `initialize()` ne doit plus jamais laisser
+  /// l'utilisateur face à un spinner indéfini (ex. connexion instable en
+  /// plein streaming) — bascule sur l'état d'échec avec "Réessayer" plutôt
+  /// que d'attendre sans fin une réponse qui ne viendra peut-être jamais.
+  static const _initTimeout = Duration(seconds: 15);
+
   void _initVideo() {
     _videoError = false;
     final controller = VideoPlayerController.networkUrl(
@@ -172,6 +178,7 @@ class _StatusPageState extends State<_StatusPage> {
     _video = controller;
     controller
         .initialize()
+        .timeout(_initTimeout)
         .then((_) {
           if (!mounted) return;
           setState(() {});

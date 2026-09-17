@@ -67,7 +67,7 @@ class ChatMediaUploadService {
     final compressed = await ImageCompressionService.compressXFile(
       file,
       maxWidth: 1600,
-      quality: 80,
+      quality: 90,
     );
     if (compressed.compressedSize > maxImageBytes) {
       throw Exception('L\'image reste trop lourde après compression.');
