@@ -155,6 +155,7 @@ class _StatusPage extends StatefulWidget {
 class _StatusPageState extends State<_StatusPage> {
   VideoPlayerController? _video;
   bool _videoError = false;
+  bool _isInitializing = false;
 
   @override
   void initState() {
@@ -170,25 +171,40 @@ class _StatusPageState extends State<_StatusPage> {
   /// que d'attendre sans fin une réponse qui ne viendra peut-être jamais.
   static const _initTimeout = Duration(seconds: 15);
 
-  void _initVideo() {
+  Future<void> _initVideo() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
     _videoError = false;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(widget.status.mediaUrl),
-    );
+
+    final url = widget.status.mediaUrl.trim();
+    if (!url.startsWith('http')) {
+      if (mounted) setState(() => _videoError = true);
+      _isInitializing = false;
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _video = controller;
-    controller
-        .initialize()
-        .timeout(_initTimeout)
-        .then((_) {
-          if (!mounted) return;
-          setState(() {});
-          controller.setLooping(true);
-          if (widget.isActive) controller.play();
-        })
-        .catchError((Object error) {
-          if (!mounted) return;
-          setState(() => _videoError = true);
-        });
+
+    try {
+      await controller.initialize().timeout(_initTimeout);
+
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() {});
+      controller.setLooping(true);
+      if (widget.isActive) controller.play();
+    } catch (_) {
+      // Contrôleur jamais initialisé (timeout ou URL invalide) : le
+      // disposer évite de garder une ressource vidéo ouverte pour rien.
+      controller.dispose();
+      _video = null;
+      if (mounted) setState(() => _videoError = true);
+    } finally {
+      _isInitializing = false;
+    }
   }
 
   void _retryVideo() {

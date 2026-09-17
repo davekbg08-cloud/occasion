@@ -26,6 +26,7 @@ class FullscreenVideoViewer extends StatefulWidget {
 class _FullscreenVideoViewerState extends State<FullscreenVideoViewer> {
   VideoPlayerController? _controller;
   bool _error = false;
+  bool _isInitializing = false;
 
   @override
   void initState() {
@@ -39,24 +40,37 @@ class _FullscreenVideoViewerState extends State<FullscreenVideoViewer> {
   /// que d'attendre sans fin une réponse qui ne viendra peut-être jamais.
   static const _initTimeout = Duration(seconds: 15);
 
-  void _init() {
+  Future<void> _init() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
     _error = false;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(widget.videoUrl),
-    );
+
+    final url = widget.videoUrl.trim();
+    if (!url.startsWith('http')) {
+      if (mounted) setState(() => _error = true);
+      _isInitializing = false;
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
-    controller
-        .initialize()
-        .timeout(_initTimeout)
-        .then((_) {
-          if (!mounted) return;
-          setState(() {});
-          controller.play();
-        })
-        .catchError((Object error) {
-          if (!mounted) return;
-          setState(() => _error = true);
-        });
+
+    try {
+      await controller.initialize().timeout(_initTimeout);
+
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() {});
+      controller.play();
+    } catch (_) {
+      controller.dispose();
+      _controller = null;
+      if (mounted) setState(() => _error = true);
+    } finally {
+      _isInitializing = false;
+    }
   }
 
   void _retry() {
