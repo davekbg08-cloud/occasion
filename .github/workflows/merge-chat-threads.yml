@@ -1,0 +1,67 @@
+name: Merge duplicate chat threads (one-time migration)
+
+# Chantier ponctuel : fusionne les fils de discussion dupliqués (même
+# binôme acheteur/vendeur, doublons créés par l'ancien schéma d'id qui
+# incluait listingId — voir migration/merge_chat_threads/mergeChatThreads.js)
+# en un seul fil canonique. Se déclenche UNIQUEMENT à la main
+# (workflow_dispatch) — jamais automatiquement sur un push, ce n'est pas un
+# déploiement récurrent mais une opération ponctuelle sur des données de
+# production.
+#
+# Choisir le mode dans l'onglet Actions de GitHub (bouton "Run workflow") :
+#   dry-run       : aucune écriture, affiche seulement le rapport.
+#   apply-merge   : écrit les fils fusionnés, ne supprime rien.
+#   apply-cleanup : supprime les doublons désormais redondants — SEULE
+#                   étape irréversible de ce chantier, à ne lancer
+#                   qu'après avoir relu le rapport d'apply-merge.
+#
+# Authentification identique à deploy-firebase.yml (compte de service via
+# le secret GCP_SA_KEY) — aucune session Cloud Shell nécessaire.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Mode d'exécution"
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply-merge
+          - apply-cleanup
+        default: dry-run
+
+permissions:
+  contents: read
+
+jobs:
+  merge-chat-threads:
+    name: Merge chat threads (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install migration script dependencies
+        run: npm install
+        working-directory: migration/merge_chat_threads
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Run migration script
+        working-directory: migration/merge_chat_threads
+        env:
+          GOOGLE_CLOUD_PROJECT: occasion-10cdb
+        run: |
+          FLAG=""
+          if [ "${{ inputs.mode }}" = "apply-merge" ]; then FLAG="--apply-merge"; fi
+          if [ "${{ inputs.mode }}" = "apply-cleanup" ]; then FLAG="--apply-cleanup"; fi
+          node mergeChatThreads.js $FLAG
