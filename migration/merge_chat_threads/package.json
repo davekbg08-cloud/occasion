@@ -1,8 +1,0 @@
-{
-  "name": "merge-chat-threads",
-  "private": true,
-  "description": "Script de migration unique : fusionne les fils de discussion dupliqués (même binôme acheteur/vendeur, id différent à cause de listingId) en un seul fil canonique. Voir mergeChatThreads.js pour l'usage. À supprimer une fois le chantier terminé.",
-  "dependencies": {
-    "firebase-admin": "^13.0.0"
-  }
-}
