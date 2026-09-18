@@ -1,18 +1,38 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 class LoyaltyService {
-  LoyaltyService({FirebaseFunctions? functions})
-    : _functions = functions ?? FirebaseFunctions.instance;
+  LoyaltyService({FirebaseFunctions? functions, FirebaseFirestore? firestore})
+    : _functions = functions ?? FirebaseFunctions.instance,
+      _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFunctions _functions;
+  final FirebaseFirestore _firestore;
+
+  /// Id déterministe pour une demande d'échange (même principe que
+  /// `clientMessageId` côté chat, voir `ChatService.newClientMessageId`) —
+  /// à générer une seule fois par intention d'échange et à réutiliser tel
+  /// quel pour toute relance après échec, jamais régénéré à chaque appel.
+  String newClientRequestId() =>
+      _firestore.collection('giftRedemptions').doc().id;
 
   /// Demande l'échange de points contre un article du catalogue. Le débit
   /// des points est atomique côté serveur (voir `requestGiftRedemption`
-  /// dans `functions/index.js`) : lève une `FirebaseFunctionsException` si
-  /// le solde est insuffisant ou l'article indisponible.
-  Future<void> requestGiftRedemption(String itemId) async {
+  /// dans `functions/index.js`), qui utilise [clientRequestId] comme id de
+  /// document déterministe : une relance après timeout/coupure réseau avec
+  /// le MÊME [clientRequestId] retombe sur la demande déjà créée au lieu
+  /// de débiter les points une seconde fois. Lève une
+  /// `FirebaseFunctionsException` si le solde est insuffisant ou l'article
+  /// indisponible.
+  Future<void> requestGiftRedemption(
+    String itemId, {
+    required String clientRequestId,
+  }) async {
     final callable = _functions.httpsCallable('requestGiftRedemption');
-    await callable.call(<String, dynamic>{'itemId': itemId});
+    await callable.call(<String, dynamic>{
+      'itemId': itemId,
+      'clientRequestId': clientRequestId,
+    });
   }
 
   /// Le vendeur propriétaire du catalogue (ou un admin) valide ou rejette

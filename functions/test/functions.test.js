@@ -2255,3 +2255,71 @@ test("ensureReferralCode : refuse un compte introuvable", async () => {
     }
   );
 });
+
+test("requestGiftRedemption : débite les points et crée la demande", async () => {
+  await db.collection("giftCatalogItems").doc("gift1").set({
+    sellerId: "seller1",
+    title: "Bon d'achat",
+    pointsCost: 30,
+    isActive: true,
+  });
+  await db
+    .collection("loyaltyPoints")
+    .doc("buyer1_seller1")
+    .set({ buyerId: "buyer1", sellerId: "seller1", balance: 100 });
+
+  const result = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift1", clientRequestId: "req1" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.status, "pending");
+  assert.equal(result.redemptionId, "req1");
+
+  const redemptionSnap = await db.collection("giftRedemptions").doc("req1").get();
+  assert.ok(redemptionSnap.exists);
+  assert.equal(redemptionSnap.data().pointsCost, 30);
+
+  const pointsSnap = await db.collection("loyaltyPoints").doc("buyer1_seller1").get();
+  assert.equal(pointsSnap.data().balance, 70);
+});
+
+test("régression : requestGiftRedemption avec le même clientRequestId ne débite jamais deux fois (relance après timeout)", async () => {
+  await db.collection("giftCatalogItems").doc("gift2").set({
+    sellerId: "seller1",
+    title: "Bon d'achat 2",
+    pointsCost: 20,
+    isActive: true,
+  });
+  await db
+    .collection("loyaltyPoints")
+    .doc("buyer2_seller1")
+    .set({ buyerId: "buyer2", sellerId: "seller1", balance: 100 });
+
+  const first = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift2", clientRequestId: "req2" },
+    auth: { uid: "buyer2" },
+  });
+  const second = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift2", clientRequestId: "req2" },
+    auth: { uid: "buyer2" },
+  });
+
+  assert.equal(first.redemptionId, second.redemptionId);
+
+  const pointsSnap = await db.collection("loyaltyPoints").doc("buyer2_seller1").get();
+  assert.equal(pointsSnap.data().balance, 80, "un seul débit malgré les deux appels");
+});
+
+test("requestGiftRedemption : refuse un clientRequestId manquant", async () => {
+  await assert.rejects(
+    () =>
+      functions.requestGiftRedemption.run({
+        data: { itemId: "gift1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+});

@@ -2383,12 +2383,36 @@ exports.requestGiftRedemption = onCall(async (request) => {
   if (!itemId || typeof itemId !== "string") {
     throw new HttpsError("invalid-argument", "itemId manquant");
   }
+  const clientRequestId = request.data?.clientRequestId;
+  if (!isValidDocId(clientRequestId, 128)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "clientRequestId manquant/invalide"
+    );
+  }
 
   const itemRef = db.collection("giftCatalogItems").doc(itemId);
-  const redemptionRef = db.collection("giftRedemptions").doc();
+  // Id déterministe fourni par le client (même principe que
+  // clientMessageId pour les messages de chat) : une relance après
+  // timeout/coupure réseau retombe sur le MÊME document plutôt que d'en
+  // créer un second, ce qui débiterait les points deux fois pour une
+  // seule demande logique.
+  const redemptionRef = db.collection("giftRedemptions").doc(clientRequestId);
 
-  const { sellerId, itemTitle, pointsCost } = await db.runTransaction(
-    async (tx) => {
+  const { sellerId, itemTitle, pointsCost, status, alreadyExisted } =
+    await db.runTransaction(async (tx) => {
+      const existingSnap = await tx.get(redemptionRef);
+      if (existingSnap.exists) {
+        const existing = existingSnap.data();
+        return {
+          sellerId: existing.sellerId,
+          itemTitle: existing.itemTitle,
+          pointsCost: existing.pointsCost,
+          status: existing.status,
+          alreadyExisted: true,
+        };
+      }
+
       const itemSnap = await tx.get(itemRef);
       if (!itemSnap.exists || itemSnap.data().isActive !== true) {
         throw new HttpsError(
@@ -2435,23 +2459,30 @@ exports.requestGiftRedemption = onCall(async (request) => {
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      return { sellerId, itemTitle: item.title ?? "", pointsCost };
-    }
-  );
+      return {
+        sellerId,
+        itemTitle: item.title ?? "",
+        pointsCost,
+        status: "pending",
+        alreadyExisted: false,
+      };
+    });
 
-  await sendToUser({
-    recipientId: sellerId,
-    notificationId: `gift_redemption_${redemptionRef.id}_request`,
-    type: "order",
-    title: "🎁 Demande d'échange de cadeau",
-    body: `Un acheteur demande "${itemTitle}" contre ${pointsCost} points.`,
-    route: "/gift-redemptions",
-    data: { redemptionId: redemptionRef.id },
-  }).catch((err) =>
-    console.error("Erreur notif requestGiftRedemption :", err)
-  );
+  if (!alreadyExisted) {
+    await sendToUser({
+      recipientId: sellerId,
+      notificationId: `gift_redemption_${redemptionRef.id}_request`,
+      type: "order",
+      title: "🎁 Demande d'échange de cadeau",
+      body: `Un acheteur demande "${itemTitle}" contre ${pointsCost} points.`,
+      route: "/gift-redemptions",
+      data: { redemptionId: redemptionRef.id },
+    }).catch((err) =>
+      console.error("Erreur notif requestGiftRedemption :", err)
+    );
+  }
 
-  return { status: "pending", redemptionId: redemptionRef.id };
+  return { status, redemptionId: redemptionRef.id };
 });
 
 /**
