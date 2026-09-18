@@ -1750,9 +1750,10 @@ test("onAnnonceUpdated : une redélivrance du même évènement n'écrit jamais 
 });
 
 test("submitReview : l'acheteur note le vendeur d'une commande complétée, met à jour publicProfiles et marque la commande", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order1").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1779,9 +1780,10 @@ test("submitReview : l'acheteur note le vendeur d'une commande complétée, met 
 });
 
 test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens inverse)", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order2").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1805,9 +1807,10 @@ test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens
 });
 
 test("submitReview : un second appel sur le même triplet (orderId, sellerId, direction) ne réécrit jamais l'avis ni les stats", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order3").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1831,14 +1834,15 @@ test("submitReview : un second appel sur le même triplet (orderId, sellerId, di
 });
 
 test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order4").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
   await db.collection("orders").doc("order5").set({
     buyerId: "buyer2",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1858,14 +1862,15 @@ test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", a
 });
 
 test("submitReview : rejette une commande pas encore complétée, un tiers hors commande, une note invalide et un vendeur hors commande", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order-paid").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "paid",
   });
   await db.collection("orders").doc("order-completed").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1943,9 +1948,10 @@ test("submitReview : rejette une commande pas encore complétée, un tiers hors 
 });
 
 test("submitReview : accepte aussi une commande déjà reversée (payout_sent), pas seulement completed", async () => {
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order-payout").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "payout_sent",
   });
 
@@ -1986,6 +1992,90 @@ test("notifySettlement (paiement) : mirroire aussi totalSales dans publicProfile
 
   const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
   assert.equal(statsSnap.data().totalSales, 1);
+});
+
+test("notifySettlement (paiement) : les stats/notifications vont au vrai vendeur de l'annonce, jamais à un sellerId falsifié par l'acheteur", async () => {
+  await db.collection("annonces").doc("annonce-forge-1").set({ sellerId: "realSeller", price: 5000 });
+  await db.collection("orders").doc("order-forge-1").set({
+    buyerId: "buyer1",
+    // L'acheteur prétend que le vendeur est "accomplice" — le vrai
+    // propriétaire de l'annonce est "realSeller".
+    sellerIds: ["accomplice"],
+    items: [{ sellerId: "accomplice", productId: "annonce-forge-1", quantity: 1, totalPrice: 5000 }],
+    currency: "FC",
+    status: "pending_payment",
+  });
+  await db.collection("paymentIntents").doc("intent-forge-1").set({
+    type: "order",
+    orderId: "order-forge-1",
+    userId: "buyer1",
+    amount: 5000,
+    currency: "FC",
+    status: "created",
+  });
+  await db.collection("admins").doc("admin2").set({});
+
+  await functions.confirmManualPayment.run({
+    data: { transactionId: "intent-forge-1" },
+    auth: { uid: "admin2" },
+  });
+
+  const realSellerProfile = await db.collection("publicProfiles").doc("realSeller").get();
+  assert.equal(realSellerProfile.data().totalSales, 1, "le vrai vendeur doit être crédité");
+
+  const realSellerStats = await db.collection("sellerStatistics").doc("realSeller").get();
+  assert.equal(realSellerStats.data().totalSales, 1);
+
+  const accompliceProfile = await db.collection("publicProfiles").doc("accomplice").get();
+  assert.equal(
+    accompliceProfile.exists,
+    false,
+    "le complice désigné par l'acheteur ne doit jamais être crédité"
+  );
+
+  const notifSeller = await db
+    .collection("notifications")
+    .doc("order_intent-forge-1_seller_realSeller")
+    .get();
+  assert.ok(notifSeller.exists, "le vrai vendeur doit être notifié pour préparer l'envoi");
+});
+
+test("onOrderCompleted : les points de fidélité vont au vrai vendeur de l'annonce, jamais à un sellerId falsifié", async () => {
+  await db.collection("annonces").doc("annonce-forge-2").set({ sellerId: "realSeller2", price: 10000 });
+
+  const event = {
+    data: {
+      before: { data: () => ({ status: "paid" }) },
+      after: {
+        data: () => ({
+          status: "completed",
+          buyerId: "buyer1",
+          currency: "FC",
+          sellerIds: ["accomplice2"],
+          items: [{ sellerId: "accomplice2", productId: "annonce-forge-2", quantity: 1 }],
+        }),
+      },
+    },
+    params: { orderId: "order-forge-2" },
+  };
+
+  await functions.onOrderCompleted.run(event);
+
+  const notif = await db
+    .collection("notifications")
+    .doc("loyalty_earned_order-forge-2_realSeller2")
+    .get();
+  assert.ok(notif.exists, "le vrai vendeur doit déclencher le crédit de points, pas le complice");
+
+  const statsReal = await db.collection("sellerStatistics").doc("realSeller2").get();
+  assert.equal(statsReal.data()?.loyaltyPoints, 10, "10000 FC à 1pt/1000FC = 10 points");
+
+  const statsAccomplice = await db.collection("sellerStatistics").doc("accomplice2").get();
+  assert.equal(
+    statsAccomplice.exists,
+    false,
+    "le complice désigné par l'acheteur ne doit jamais être crédité"
+  );
 });
 
 test("onAnnonceCreated : notifie un utilisateur dont l'alerte correspond au mot-clé", async () => {

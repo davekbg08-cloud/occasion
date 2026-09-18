@@ -1570,13 +1570,22 @@ async function verifiedItemTotals(items, getDoc) {
 
   return items.map((item, i) => {
     const snap = annonceSnaps[i];
-    if (!snap.exists) return { ...item, verifiedTotal: null };
-    const price = snap.data().price;
-    const quantity = Number(item.quantity) || 0;
-    if (typeof price !== "number" || quantity <= 0) {
-      return { ...item, verifiedTotal: null };
+    if (!snap.exists) {
+      return { ...item, verifiedTotal: null, verifiedSellerId: null };
     }
-    return { ...item, verifiedTotal: price * quantity };
+    const data = snap.data();
+    const price = data.price;
+    const quantity = Number(item.quantity) || 0;
+    // Vrai vendeur = celui qui possède réellement l'annonce, JAMAIS
+    // item.sellerId (100% contrôlé par le client, voir
+    // lib/screens/payment_screen.dart) — sans ça un acheteur peut
+    // rediriger paiement/stats/avis/points de fidélité vers un compte
+    // complice sans jamais avertir le vrai vendeur.
+    const verifiedSellerId = data.sellerId ?? data.vendeurId ?? null;
+    if (typeof price !== "number" || quantity <= 0) {
+      return { ...item, verifiedTotal: null, verifiedSellerId };
+    }
+    return { ...item, verifiedTotal: price * quantity, verifiedSellerId };
   });
 }
 
@@ -1812,7 +1821,6 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
       if (isPaid) {
         const orderSnap = await db.collection("orders").doc(intent.orderId).get();
         const order = orderSnap.data() ?? {};
-        const sellerIds = order.sellerIds ?? [];
         const items = order.items ?? [];
         const currency = order.currency ?? "FC";
         // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
@@ -1822,6 +1830,14 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
         // montant entre vendeurs d'une même commande multi-vendeur sans
         // changer le total.
         const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
+        // Jamais `order.sellerIds` (rempli par l'acheteur à la création de
+        // la commande, voir lib/screens/payment_screen.dart) : les vrais
+        // vendeurs sont dérivés des annonces réelles.
+        const sellerIds = [
+          ...new Set(
+            verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
+          ),
+        ];
 
         await Promise.all(
           sellerIds.map(async (sellerId) => {
@@ -1829,7 +1845,7 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
             // (panier multi-vendeur) : on ne crédite chacun que de son
             // propre sous-total, pas du total de la commande.
             const sellerSubtotal = verifiedItems
-              .filter((item) => item.sellerId === sellerId)
+              .filter((item) => item.verifiedSellerId === sellerId)
               .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
 
             await Promise.all([
@@ -2073,7 +2089,18 @@ exports.submitReview = onCall(async (request) => {
     if (!REVIEWABLE_ORDER_STATUSES.has(order.status)) {
       throw new HttpsError("failed-precondition", "La commande n'est pas encore complétée.");
     }
-    const sellerIds = order.sellerIds ?? [];
+    // Jamais `order.sellerIds` (rempli par l'acheteur à la création de la
+    // commande) : dérivé des annonces réelles, sinon un acheteur pourrait
+    // désigner un complice comme "vendeur" de la commande pour recevoir/
+    // poster un faux avis.
+    const verifiedItems = await verifiedItemTotals(order.items ?? [], (ref) =>
+      tx.get(ref)
+    );
+    const sellerIds = [
+      ...new Set(
+        verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
+      ),
+    ];
     if (!sellerIds.includes(sellerId)) {
       throw new HttpsError("failed-precondition", "Ce vendeur ne fait pas partie de cette commande.");
     }
@@ -2229,19 +2256,29 @@ exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
   console.log(`autoReleaseEscrow: ${snapshot.size} commande(s) libérée(s).`);
 
   await Promise.all(
-    snapshot.docs.flatMap((doc) => {
-      const sellerIds = doc.data().sellerIds ?? [];
-      return sellerIds.map((sellerId) =>
-        sendToUser({
-          recipientId: sellerId,
-          notificationId: `escrow_${doc.id}_${sellerId}`,
-          type: "order",
-          title: "💰 Fonds libérés",
-          body: "Le séquestre de votre commande a été libéré automatiquement.",
-          route: "/seller-orders",
-          data: { orderId: doc.id },
-        }).catch((err) =>
-          console.error(`Erreur notif escrow ${doc.id} -> ${sellerId} :`, err)
+    snapshot.docs.map(async (doc) => {
+      const items = doc.data().items ?? [];
+      // Jamais `doc.data().sellerIds` (rempli par l'acheteur) : dérivé des
+      // annonces réelles, même principe que notifySettlement/onOrderCompleted.
+      const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
+      const sellerIds = [
+        ...new Set(
+          verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
+        ),
+      ];
+      await Promise.all(
+        sellerIds.map((sellerId) =>
+          sendToUser({
+            recipientId: sellerId,
+            notificationId: `escrow_${doc.id}_${sellerId}`,
+            type: "order",
+            title: "💰 Fonds libérés",
+            body: "Le séquestre de votre commande a été libéré automatiquement.",
+            route: "/seller-orders",
+            data: { orderId: doc.id },
+          }).catch((err) =>
+            console.error(`Erreur notif escrow ${doc.id} -> ${sellerId} :`, err)
+          )
         )
       );
     })
@@ -2270,17 +2307,24 @@ exports.onOrderCompleted = onDocumentUpdated(
     const buyerId = after.buyerId;
     const items = after.items ?? [];
     const currency = after.currency ?? "FC";
-    const sellerIds = after.sellerIds ?? [];
     // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
     // client — voir `verifiedItemTotals`. Sans ça, un acheteur pouvait
     // gonfler les points de fidélité d'un vendeur (ou les réduire) sans
     // changer le total de commande déjà validé à la confirmation.
     const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
+    // Jamais `after.sellerIds` (rempli par l'acheteur à la création) :
+    // dérivé des annonces réelles, seule source de vérité pour savoir qui
+    // doit recevoir les points de fidélité.
+    const sellerIds = [
+      ...new Set(
+        verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
+      ),
+    ];
 
     await Promise.all(
       sellerIds.map(async (sellerId) => {
         const sellerSubtotal = verifiedItems
-          .filter((item) => item.sellerId === sellerId)
+          .filter((item) => item.verifiedSellerId === sellerId)
           .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
         const points = pointsForAmount(currency, sellerSubtotal);
         if (points <= 0 || !buyerId) return;
