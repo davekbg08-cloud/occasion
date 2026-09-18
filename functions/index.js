@@ -2732,18 +2732,32 @@ exports.ensureReferralCode = onCall(async (request) => {
  * uid et incrémente le compteur du parrain. Ne bloque jamais la création
  * du compte elle-même (déjà faite avant que ce trigger s'exécute) : un
  * code invalide ou introuvable est simplement ignoré.
+ *
+ * Les triggers Cloud Functions livrent "au moins une fois" : `event.data`
+ * reflète toujours le document tel qu'il était À LA CRÉATION, identique à
+ * chaque redélivrance — il faut donc relire l'état COURANT du document
+ * pour savoir si ce trigger a déjà fait son travail, sans quoi une
+ * redélivrance régénérerait `referralCode` (invalidant un code déjà
+ * partagé/utilisé) et réincrémenterait `referralCount` du parrain une
+ * seconde fois. Même précaution que `ensureReferralCode` ci-dessus.
  */
 exports.onUserCreated = onDocumentCreated(
   "users/{userId}",
   async (event) => {
     const userId = event.params.userId;
     const data = event.data.data() ?? {};
+    const userRef = db.collection("users").doc(userId);
 
-    const referralCode = await generateUniqueReferralCode();
-    const updates = { referralCode };
+    const currentSnap = await userRef.get();
+    const current = currentSnap.data() ?? {};
+
+    const updates = {};
+    if (!current.referralCode) {
+      updates.referralCode = await generateUniqueReferralCode();
+    }
 
     const enteredCode = (data.referredByCode ?? "").trim().toUpperCase();
-    if (enteredCode) {
+    if (enteredCode && !current.referredBy) {
       try {
         const match = await db
           .collection("users")
@@ -2762,7 +2776,9 @@ exports.onUserCreated = onDocumentCreated(
       }
     }
 
-    await db.collection("users").doc(userId).update(updates);
+    if (Object.keys(updates).length > 0) {
+      await userRef.update(updates);
+    }
   }
 );
 

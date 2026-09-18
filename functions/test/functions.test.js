@@ -2323,3 +2323,58 @@ test("requestGiftRedemption : refuse un clientRequestId manquant", async () => {
     }
   );
 });
+
+test("onUserCreated : attribue un code de parrainage et résout le code du parrain", async () => {
+  await db.collection("users").doc("referrer1").set({
+    referralCode: "REFCODE1",
+    referralCount: 0,
+  });
+  await db.collection("users").doc("newuser1").set({ referredByCode: "REFCODE1" });
+
+  const event = {
+    data: { data: () => ({ referredByCode: "REFCODE1" }) },
+    params: { userId: "newuser1" },
+  };
+  await functions.onUserCreated.run(event);
+
+  const newUserSnap = await db.collection("users").doc("newuser1").get();
+  assert.ok(newUserSnap.data().referralCode, "un code doit être généré");
+  assert.equal(newUserSnap.data().referredBy, "referrer1");
+
+  const referrerSnap = await db.collection("users").doc("referrer1").get();
+  assert.equal(referrerSnap.data().referralCount, 1);
+});
+
+test("régression : onUserCreated tolère une redélivrance du trigger sans régénérer referralCode ni réincrémenter referralCount", async () => {
+  await db.collection("users").doc("referrer2").set({
+    referralCode: "REFCODE2",
+    referralCount: 0,
+  });
+  await db.collection("users").doc("newuser2").set({ referredByCode: "REFCODE2" });
+
+  const event = {
+    data: { data: () => ({ referredByCode: "REFCODE2" }) },
+    params: { userId: "newuser2" },
+  };
+  await functions.onUserCreated.run(event);
+  const firstSnap = await db.collection("users").doc("newuser2").get();
+  const firstCode = firstSnap.data().referralCode;
+
+  // Simule une redélivrance "au moins une fois" du même évènement.
+  await functions.onUserCreated.run(event);
+  const secondSnap = await db.collection("users").doc("newuser2").get();
+
+  assert.equal(
+    secondSnap.data().referralCode,
+    firstCode,
+    "le code ne doit jamais être régénéré sur redélivrance"
+  );
+  assert.equal(secondSnap.data().referredBy, "referrer2");
+
+  const referrerSnap = await db.collection("users").doc("referrer2").get();
+  assert.equal(
+    referrerSnap.data().referralCount,
+    1,
+    "le compteur du parrain ne doit jamais être réincrémenté sur redélivrance"
+  );
+});
