@@ -605,16 +605,6 @@ class BuyerNav extends ConsumerStatefulWidget {
 class _BuyerNavState extends ConsumerState<BuyerNav> {
   int _index = 0;
 
-  static const _pages = [
-    StatusFeedScreen(),
-    ProductListScreen(),
-    ChatListScreen(
-      title: 'Messages privés',
-      emptySubtitle: 'Contactez un vendeur depuis une annonce.',
-    ),
-    ProfileScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authNotifierProvider).currentUser;
@@ -629,8 +619,25 @@ class _BuyerNavState extends ConsumerState<BuyerNav> {
     _listenChats(user.id);
     final unreadCount = _unreadCount(ref, user.id);
 
+    // Ne peut plus être `const` : StatusFeedScreen a besoin de savoir si
+    // son onglet est actuellement affiché (voir isVisible) pour couper le
+    // son d'une vidéo en cours quand on bascule vers un autre onglet — un
+    // IndexedStack garde tous ses enfants montés en permanence, il ne les
+    // détruit jamais en changeant d'onglet. Ça n'affecte pas la
+    // préservation d'état des autres onglets (basée sur position/type
+    // dans l'arbre, pas sur la constness du widget).
+    final pages = [
+      StatusFeedScreen(isVisible: _index == 0),
+      const ProductListScreen(),
+      const ChatListScreen(
+        title: 'Messages privés',
+        emptySubtitle: 'Contactez un vendeur depuis une annonce.',
+      ),
+      const ProfileScreen(),
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),

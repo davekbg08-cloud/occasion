@@ -17,7 +17,14 @@ import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
-  const StatusFeedScreen({super.key});
+  const StatusFeedScreen({super.key, this.isVisible = true});
+
+  /// L'onglet Feed est-il celui actuellement affiché ? `BuyerNav` garde cet
+  /// écran monté en permanence dans un `IndexedStack` en changeant
+  /// d'onglet (Profil, Messages...) — sans ce signal, la vidéo en cours
+  /// continue de jouer (son compris) même invisible, faute de tout autre
+  /// mécanisme de cycle de vie réagissant à un changement d'onglet.
+  final bool isVisible;
 
   @override
   ConsumerState<StatusFeedScreen> createState() => _StatusFeedScreenState();
@@ -94,7 +101,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                     return _StatusPage(
                       key: ValueKey(status.id),
                       status: status,
-                      isActive: index == _currentPage,
+                      isActive: index == _currentPage && widget.isVisible,
                       currentUserId: currentUser?.id ?? '',
                     );
                   },
