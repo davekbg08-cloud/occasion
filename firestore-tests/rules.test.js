@@ -869,6 +869,30 @@ function validAnnonceSeed(overrides) {
   };
 }
 
+test("régression : un utilisateur non connecté ne peut plus lire une annonce publiée (numéro de téléphone du vendeur exposé sans authentification)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed({ phone: "+243900000000" }));
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+  await assertFails(anonymous.collection("annonces").doc("annonce1").get());
+});
+
+test("un utilisateur connecté peut toujours lire une annonce publiée", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("annonces").doc("annonce1").get());
+});
+
 test("un utilisateur ne peut plus incrémenter directement les vues d'une annonce", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx

@@ -240,14 +240,19 @@ service cloud.firestore {
     }
 
     match /annonces/{annonceId} {
-      allow read: if isPublishedAnnonce(resource.data)
-        || (
-          signedIn()
-          && (
-            resource.data.sellerId == request.auth.uid
-            || resource.data.vendeurId == request.auth.uid
-            || resource.data.userId == request.auth.uid
-          )
+      // `signedIn()` sur les DEUX branches : chaque annonce publiée
+      // contient le numéro de téléphone du vendeur (`phone`/`telephone`,
+      // voir validAnnonce ci-dessus) — sans cette exigence, n'importe qui
+      // pouvait le lire sans même être connecté. Aucun flux de navigation
+      // anonyme n'existe dans l'app (`lib/main.dart::_AuthGate` redirige
+      // systématiquement vers l'écran de connexion, aucun
+      // signInAnonymously nulle part) : ce resserrement ne casse rien.
+      allow read: if signedIn()
+        && (
+          isPublishedAnnonce(resource.data)
+          || resource.data.sellerId == request.auth.uid
+          || resource.data.vendeurId == request.auth.uid
+          || resource.data.userId == request.auth.uid
         );
       allow create: if signedIn()
         && isSeller()
