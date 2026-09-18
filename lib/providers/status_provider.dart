@@ -70,6 +70,16 @@ class StatusNotifier extends StateNotifier<StatusState> {
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
   Timer? _loadTimeoutTimer;
 
+  /// Compte les `toggleLike()` en vol par statut (jamais juste un `Set` :
+  /// un double-tap avant résolution du premier appel retirerait l'id trop
+  /// tôt). Tant qu'un id est présent ici, le listener de [loadFeed] ne
+  /// doit jamais écraser son `likesCount` local avec un instantané encore
+  /// susceptible de refléter l'état serveur d'avant le commit de la
+  /// bascule — sinon le compteur affiché revient brièvement à l'ancienne
+  /// valeur avant de "sauter" au bon nombre une fois le vrai instantané
+  /// reçu (régression observée en prod).
+  final Map<String, int> _pendingLikeToggles = {};
+
   /// Le flux `snapshots()` Firestore ne fait JAMAIS échouer sur une simple
   /// instabilité réseau/DNS (déjà observé en prod : `ERR_NAME_NOT_RESOLVED`
   /// récurrent) — il retente silencieusement en arrière-plan, sans jamais
@@ -105,9 +115,25 @@ class StatusNotifier extends StateNotifier<StatusState> {
           _loadTimeoutTimer?.cancel();
           _lastDoc = docs.isEmpty ? null : docs.last;
           state = state.copyWith(
-            statuses: docs
-                .map((doc) => Status.fromMap({...doc.data(), 'id': doc.id}))
-                .toList(),
+            statuses: docs.map((doc) {
+              final fresh = Status.fromMap({...doc.data(), 'id': doc.id});
+              if ((_pendingLikeToggles[doc.id] ?? 0) <= 0) return fresh;
+              // Une bascule de like est en vol pour ce statut : garder le
+              // compteur local optimiste plutôt que celui de l'instantané,
+              // qui peut encore refléter l'état serveur d'avant le commit
+              // de toggleLike() — les autres champs (légende, actif...)
+              // restent bien ceux à jour.
+              Status? local;
+              for (final status in state.statuses) {
+                if (status.id == doc.id) {
+                  local = status;
+                  break;
+                }
+              }
+              return local == null
+                  ? fresh
+                  : fresh.copyWith(likesCount: local.likesCount);
+            }).toList(),
             isLoading: false,
             hasMore: docs.length >= StatusService.feedPageSize,
             clearError: true,
@@ -225,6 +251,8 @@ class StatusNotifier extends StateNotifier<StatusState> {
   /// compteur/l'état si le serveur renvoie un résultat différent de la
   /// supposition locale (ex. déjà basculé depuis un autre appareil).
   Future<void> toggleLike(String statusId) async {
+    _pendingLikeToggles.update(statusId, (n) => n + 1, ifAbsent: () => 1);
+
     final guessedLiked = !state.likedIds.contains(statusId);
     final optimisticDelta = guessedLiked ? 1 : -1;
 
@@ -279,6 +307,13 @@ class StatusNotifier extends StateNotifier<StatusState> {
             : {...state.likedIds, statusId},
         error: error.toString(),
       );
+    } finally {
+      final remaining = (_pendingLikeToggles[statusId] ?? 1) - 1;
+      if (remaining <= 0) {
+        _pendingLikeToggles.remove(statusId);
+      } else {
+        _pendingLikeToggles[statusId] = remaining;
+      }
     }
   }
 
