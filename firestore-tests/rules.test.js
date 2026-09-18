@@ -1604,6 +1604,20 @@ test("régression : la collection héritée /messages (remplacée par chats/{id}
   );
 });
 
+test("régression : la collection morte /products (jamais utilisée, remplacée par annonces) est entièrement verrouillée", async () => {
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("products").doc("p1").set({ sellerId: "seller1", status: "active" })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("products").doc("p1").set({
+      sellerId: "seller1",
+      status: "active",
+    });
+  });
+  await assertFails(seller.collection("products").doc("p1").get());
+});
+
 test("régression : la collection héritée /conversations (et sa sous-collection messages) est entièrement verrouillée", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(

@@ -479,17 +479,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Code mort : aucune référence à `products` dans lib/ ou functions/ —
+    // les annonces vivent exclusivement dans `annonces`. Verrouillage
+    // plutôt que suppression de la règle (réduction de surface immédiate,
+    // sans risque de casser un chemin de lecture qui existerait encore
+    // ailleurs sans qu'une recherche l'ait révélé).
     match /products/{productId} {
-      allow read: if resource.data.status in ['active', 'published']
-        || resource.data.statut in ['active', 'published']
-        || resource.data.isActive == true
-        || (signedIn() && resource.data.sellerId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.sellerId == request.auth.uid
-        && isSeller();
-      allow update, delete: if signedIn()
-        && isSeller()
-        && resource.data.sellerId == request.auth.uid;
+      allow read, write: if false;
     }
 
     // Collections héritées, remplacées depuis longtemps par `chats/{chatId}
