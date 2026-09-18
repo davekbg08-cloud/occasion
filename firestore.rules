@@ -492,40 +492,23 @@ service cloud.firestore {
         && resource.data.sellerId == request.auth.uid;
     }
 
+    // Collections héritées, remplacées depuis longtemps par `chats/{chatId}
+    // /messages` — plus aucune référence dans lib/. Grandes ouvertes
+    // jusqu'ici : `create` sur /messages laissait n'importe quel
+    // utilisateur connecté écrire à un `destinataireId` arbitraire (spam),
+    // et `update` sur les deux collections ne diffait jamais contre
+    // `resource.data` (contenu/expéditeur falsifiable a posteriori).
+    // Verrouillage complet plutôt qu'un correctif partiel : rien de
+    // légitime ne les utilise, aucune forme restreinte à maintenir.
     match /messages/{messageId} {
-      allow read: if signedIn()
-        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.expediteurId == request.auth.uid
-        && validMessage(request.resource.data);
-      allow update: if signedIn()
-        && validMessage(request.resource.data)
-        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
-      allow delete: if false;
+      allow read, write: if false;
     }
 
     match /conversations/{conversationId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.participants;
-      allow create: if signedIn()
-        && request.auth.uid in request.resource.data.participants
-        && validConversation(request.resource.data);
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.participants
-        && validConversation(request.resource.data);
-      allow delete: if false;
+      allow read, write: if false;
 
       match /messages/{messageId} {
-        allow read: if isConversationParticipant(conversationId);
-        allow create: if isConversationParticipant(conversationId)
-          && request.resource.data.expediteurId == request.auth.uid
-          && validMessage(request.resource.data);
-        allow update: if isConversationParticipant(conversationId)
-          && validMessage(request.resource.data)
-          && (
-            resource.data.expediteurId == request.auth.uid
-            || resource.data.destinataireId == request.auth.uid
-          );
-        allow delete: if false;
+        allow read, write: if false;
       }
     }
 

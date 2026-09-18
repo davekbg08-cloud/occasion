@@ -1581,3 +1581,55 @@ test("searchAlerts : une alerte ne peut jamais être modifiée, uniquement suppr
     buyer.collection("searchAlerts").doc("alert1").update({ keyword: "samsung" })
   );
 });
+
+test("régression : la collection héritée /messages (remplacée par chats/{id}/messages) est entièrement verrouillée", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("messages").doc("legacy1").set({
+      expediteurId: "buyer1",
+      destinataireId: "buyer2",
+      contenu: "spam",
+    })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("messages").doc("legacy1").set({
+      expediteurId: "buyer1",
+      destinataireId: "buyer2",
+      contenu: "ancien message",
+    });
+  });
+  await assertFails(buyer.collection("messages").doc("legacy1").get());
+  await assertFails(
+    buyer.collection("messages").doc("legacy1").update({ contenu: "falsifié" })
+  );
+});
+
+test("régression : la collection héritée /conversations (et sa sous-collection messages) est entièrement verrouillée", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("conversations").doc("legacy-conv1").set({
+      participants: ["buyer1", "buyer2"],
+    })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("conversations").doc("legacy-conv1").set({
+      participants: ["buyer1", "buyer2"],
+    });
+    await ctx
+      .firestore()
+      .collection("conversations")
+      .doc("legacy-conv1")
+      .collection("messages")
+      .doc("legacy-m1")
+      .set({ expediteurId: "buyer1", destinataireId: "buyer2", contenu: "ancien" });
+  });
+  await assertFails(buyer.collection("conversations").doc("legacy-conv1").get());
+  await assertFails(
+    buyer
+      .collection("conversations")
+      .doc("legacy-conv1")
+      .collection("messages")
+      .doc("legacy-m1")
+      .get()
+  );
+});
