@@ -170,10 +170,60 @@ test("un client ne peut pas passer une commande à 'paid' directement", async ()
     buyer.collection("orders").doc("order1").set({
       buyerId: "buyer1",
       status: "pending_payment",
+      items: [{ productId: "annonce1", quantity: 1, unitPrice: 1000, totalPrice: 1000 }],
+      sellerIds: ["seller1"],
+      total: 1000,
+      currency: "FC",
     })
   );
   await assertFails(
     buyer.collection("orders").doc("order1").update({ status: "paid" })
+  );
+});
+
+test("création de commande : refuse un schéma incomplet (items/sellerIds/total manquants)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
+  await assertFails(
+    buyer.collection("orders").doc("order-incomplete").set({
+      buyerId: "buyer2",
+      status: "pending_payment",
+    })
+  );
+});
+
+test("création de commande : refuse un panier surdimensionné (plus de 50 articles)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
+  const items = Array.from({ length: 51 }, (_, i) => ({
+    productId: `annonce${i}`,
+    quantity: 1,
+    unitPrice: 100,
+    totalPrice: 100,
+  }));
+  await assertFails(
+    buyer.collection("orders").doc("order-too-big").set({
+      buyerId: "buyer2",
+      status: "pending_payment",
+      items,
+      sellerIds: ["seller1"],
+      total: 5100,
+      currency: "FC",
+    })
+  );
+});
+
+test("création de commande : accepte un schéma bien formé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
+  await assertSucceeds(
+    buyer.collection("orders").doc("order-valid").set({
+      buyerId: "buyer2",
+      buyerName: "Acheteur Test",
+      buyerPhone: "+243900000000",
+      status: "pending_payment",
+      items: [{ productId: "annonce1", quantity: 2, unitPrice: 500, totalPrice: 1000 }],
+      sellerIds: ["seller1"],
+      total: 1000,
+      currency: "FC",
+    })
   );
 });
 

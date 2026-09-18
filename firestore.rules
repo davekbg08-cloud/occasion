@@ -216,6 +216,29 @@ service cloud.firestore {
         && (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp);
     }
 
+    // Défense en profondeur uniquement (le vrai vendeur de chaque article
+    // est de toute façon re-dérivé côté serveur depuis l'annonce réelle,
+    // voir functions/index.js::verifiedItemTotals — jamais fait confiance
+    // à sellerIds/items[].sellerId tels quels) : borne la forme générale
+    // d'une commande à la création, sans quoi n'importe quel document
+    // pouvait être écrit sous status='pending_payment'. Pas de validation
+    // `.all()` par article (syntaxe jamais utilisée ailleurs dans ce
+    // fichier, à ne pas introduire sans test isolé sur un chemin aussi
+    // sensible à l'argent) — seulement des bornes de taille/type globales.
+    function validOrder(data) {
+      return hasOnly(data, [
+        'id', 'buyerId', 'buyerName', 'buyerPhone', 'items', 'sellerIds',
+        'total', 'currency', 'status', 'createdAt', 'updatedAt'
+      ])
+        && stringField(data, 'buyerId', 128)
+        && optionalString(data, 'buyerName', 200)
+        && optionalString(data, 'buyerPhone', 40)
+        && data.items is list && data.items.size() > 0 && data.items.size() <= 50
+        && data.sellerIds is list && data.sellerIds.size() > 0 && data.sellerIds.size() <= 50
+        && data.total is number && data.total >= 0
+        && stringField(data, 'currency', 10);
+    }
+
     match /annonces/{annonceId} {
       allow read: if isPublishedAnnonce(resource.data)
         || (
@@ -640,7 +663,8 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow create: if signedIn()
         && request.resource.data.buyerId == request.auth.uid
-        && request.resource.data.status == 'pending_payment';
+        && request.resource.data.status == 'pending_payment'
+        && validOrder(request.resource.data);
       allow read: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid
