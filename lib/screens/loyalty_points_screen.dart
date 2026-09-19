@@ -136,12 +136,24 @@ class _GiftItemTile extends ConsumerStatefulWidget {
 class _GiftItemTileState extends ConsumerState<_GiftItemTile> {
   bool _isSubmitting = false;
 
+  // Généré une seule fois par intention d'échange, réutilisé tel quel pour
+  // toute relance après échec — jamais régénéré tant que la demande n'a
+  // pas abouti, pour que requestGiftRedemption() reste idempotent (voir
+  // functions/index.js) même si l'appel précédent a en réalité réussi
+  // côté serveur sans que la réponse soit arrivée jusqu'ici.
+  String? _pendingClientRequestId;
+
   Future<void> _redeem() async {
     setState(() => _isSubmitting = true);
+    final service = ref.read(loyaltyServiceProvider);
+    final clientRequestId = _pendingClientRequestId ??= service
+        .newClientRequestId();
     try {
-      await ref
-          .read(loyaltyServiceProvider)
-          .requestGiftRedemption(widget.item.id);
+      await service.requestGiftRedemption(
+        widget.item.id,
+        clientRequestId: clientRequestId,
+      );
+      _pendingClientRequestId = null;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Demande d\'échange envoyée.')),

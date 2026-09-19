@@ -170,6 +170,10 @@ test("un client ne peut pas passer une commande à 'paid' directement", async ()
     buyer.collection("orders").doc("order1").set({
       buyerId: "buyer1",
       status: "pending_payment",
+      items: [{ productId: "annonce1", quantity: 1, unitPrice: 1000, totalPrice: 1000 }],
+      sellerIds: ["seller1"],
+      total: 1000,
+      currency: "FC",
     })
   );
   await assertFails(
@@ -229,30 +233,49 @@ test("régression : un acheteur ne peut plus renvoyer une commande en litige ver
   );
 });
 
-test("régression : les collections `messages`/`conversations` héritées (remplacées par `chats`) sont désormais en lecture seule", async () => {
-  const sender = testEnv.authenticatedContext("buyer1").firestore();
-  await testEnv.withSecurityRulesDisabled(async (ctx) => {
-    await ctx.firestore().collection("messages").doc("msg1").set({
-      expediteurId: "buyer1",
-      destinataireId: "seller1",
-      contenu: "Bonjour",
-    });
-    await ctx.firestore().collection("conversations").doc("conv1").set({
-      participants: ["buyer1", "seller1"],
-    });
-  });
+test("création de commande : refuse un schéma incomplet (items/sellerIds/total manquants)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
   await assertFails(
-    sender.collection("messages").doc("msg2").set({
-      expediteurId: "buyer1",
-      destinataireId: "seller1",
-      contenu: "Nouveau message",
+    buyer.collection("orders").doc("order-incomplete").set({
+      buyerId: "buyer2",
+      status: "pending_payment",
     })
   );
+});
+
+test("création de commande : refuse un panier surdimensionné (plus de 50 articles)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
+  const items = Array.from({ length: 51 }, (_, i) => ({
+    productId: `annonce${i}`,
+    quantity: 1,
+    unitPrice: 100,
+    totalPrice: 100,
+  }));
   await assertFails(
-    sender.collection("messages").doc("msg1").update({ contenu: "Message modifié après coup" })
+    buyer.collection("orders").doc("order-too-big").set({
+      buyerId: "buyer2",
+      status: "pending_payment",
+      items,
+      sellerIds: ["seller1"],
+      total: 5100,
+      currency: "FC",
+    })
   );
-  await assertFails(
-    sender.collection("conversations").doc("conv1").update({ participants: ["buyer1", "seller1", "attacker"] })
+});
+
+test("création de commande : accepte un schéma bien formé", async () => {
+  const buyer = testEnv.authenticatedContext("buyer2").firestore();
+  await assertSucceeds(
+    buyer.collection("orders").doc("order-valid").set({
+      buyerId: "buyer2",
+      buyerName: "Acheteur Test",
+      buyerPhone: "+243900000000",
+      status: "pending_payment",
+      items: [{ productId: "annonce1", quantity: 2, unitPrice: 500, totalPrice: 1000 }],
+      sellerIds: ["seller1"],
+      total: 1000,
+      currency: "FC",
+    })
   );
 });
 
@@ -897,6 +920,30 @@ function validAnnonceSeed(overrides) {
     ...overrides,
   };
 }
+
+test("régression : un utilisateur non connecté ne peut plus lire une annonce publiée (numéro de téléphone du vendeur exposé sans authentification)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed({ phone: "+243900000000" }));
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+  await assertFails(anonymous.collection("annonces").doc("annonce1").get());
+});
+
+test("un utilisateur connecté peut toujours lire une annonce publiée", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(buyer.collection("annonces").doc("annonce1").get());
+});
 
 test("un utilisateur ne peut plus incrémenter directement les vues d'une annonce", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
@@ -1610,5 +1657,71 @@ test("searchAlerts : une alerte ne peut jamais être modifiée, uniquement suppr
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(
     buyer.collection("searchAlerts").doc("alert1").update({ keyword: "samsung" })
+  );
+});
+
+test("régression : la collection héritée /messages (remplacée par chats/{id}/messages) est entièrement verrouillée", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("messages").doc("legacy1").set({
+      expediteurId: "buyer1",
+      destinataireId: "buyer2",
+      contenu: "spam",
+    })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("messages").doc("legacy1").set({
+      expediteurId: "buyer1",
+      destinataireId: "buyer2",
+      contenu: "ancien message",
+    });
+  });
+  await assertFails(buyer.collection("messages").doc("legacy1").get());
+  await assertFails(
+    buyer.collection("messages").doc("legacy1").update({ contenu: "falsifié" })
+  );
+});
+
+test("régression : la collection morte /products (jamais utilisée, remplacée par annonces) est entièrement verrouillée", async () => {
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("products").doc("p1").set({ sellerId: "seller1", status: "active" })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("products").doc("p1").set({
+      sellerId: "seller1",
+      status: "active",
+    });
+  });
+  await assertFails(seller.collection("products").doc("p1").get());
+});
+
+test("régression : la collection héritée /conversations (et sa sous-collection messages) est entièrement verrouillée", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("conversations").doc("legacy-conv1").set({
+      participants: ["buyer1", "buyer2"],
+    })
+  );
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("conversations").doc("legacy-conv1").set({
+      participants: ["buyer1", "buyer2"],
+    });
+    await ctx
+      .firestore()
+      .collection("conversations")
+      .doc("legacy-conv1")
+      .collection("messages")
+      .doc("legacy-m1")
+      .set({ expediteurId: "buyer1", destinataireId: "buyer2", contenu: "ancien" });
+  });
+  await assertFails(buyer.collection("conversations").doc("legacy-conv1").get());
+  await assertFails(
+    buyer
+      .collection("conversations")
+      .doc("legacy-conv1")
+      .collection("messages")
+      .doc("legacy-m1")
+      .get()
   );
 });

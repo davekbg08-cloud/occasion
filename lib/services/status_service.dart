@@ -166,9 +166,9 @@ class StatusService {
       final compressed = await ImageCompressionService.compressXFile(
         mediaFile,
         maxWidth: 1080,
-        quality: 75,
+        quality: 90,
       );
-      if (compressed.compressedSize > 2 * 1024 * 1024) {
+      if (compressed.compressedSize > 5 * 1024 * 1024) {
         throw Exception("L'image reste trop lourde après compression.");
       }
       await ref.putData(

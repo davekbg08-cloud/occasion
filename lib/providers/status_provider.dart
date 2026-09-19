@@ -58,8 +58,9 @@ class StatusState {
 }
 
 class StatusNotifier extends StateNotifier<StatusState> {
-  StatusNotifier({StatusService? service})
+  StatusNotifier({StatusService? service, Duration? loadTimeout})
     : _service = service ?? StatusService(),
+      _loadTimeout = loadTimeout ?? const Duration(seconds: 12),
       super(const StatusState());
 
   final StatusService _service;
@@ -67,6 +68,27 @@ class StatusNotifier extends StateNotifier<StatusState> {
   _feedSubscription;
   bool _feedLoaded = false;
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
+  Timer? _loadTimeoutTimer;
+
+  /// Compte les `toggleLike()` en vol par statut (jamais juste un `Set` :
+  /// un double-tap avant résolution du premier appel retirerait l'id trop
+  /// tôt). Tant qu'un id est présent ici, le listener de [loadFeed] ne
+  /// doit jamais écraser son `likesCount` local avec un instantané encore
+  /// susceptible de refléter l'état serveur d'avant le commit de la
+  /// bascule — sinon le compteur affiché revient brièvement à l'ancienne
+  /// valeur avant de "sauter" au bon nombre une fois le vrai instantané
+  /// reçu (régression observée en prod).
+  final Map<String, int> _pendingLikeToggles = {};
+
+  /// Le flux `snapshots()` Firestore ne fait JAMAIS échouer sur une simple
+  /// instabilité réseau/DNS (déjà observé en prod : `ERR_NAME_NOT_RESOLVED`
+  /// récurrent) — il retente silencieusement en arrière-plan, sans jamais
+  /// émettre ni données ni erreur s'il n'y a rien en cache local. Sans ce
+  /// garde-fou, `isLoading` resterait bloqué à `true` indéfiniment (spinner
+  /// sans fin), contrairement au lecteur vidéo qui, lui, est déjà borné.
+  /// Configurable (constructeur) uniquement pour permettre aux tests de ne
+  /// pas attendre 12 vraies secondes.
+  final Duration _loadTimeout;
 
   void loadFeed() {
     if (_feedLoaded) return;
@@ -75,26 +97,64 @@ class StatusNotifier extends StateNotifier<StatusState> {
     _feedSubscription?.cancel();
     state = state.copyWith(isLoading: true, clearError: true);
 
+    _loadTimeoutTimer?.cancel();
+    _loadTimeoutTimer = Timer(_loadTimeout, () {
+      if (state.isLoading && state.statuses.isEmpty) {
+        state = state.copyWith(
+          isLoading: false,
+          error:
+              'Connexion instable : impossible de charger le contenu pour '
+              'le moment.',
+        );
+      }
+    });
+
     try {
       _feedSubscription = _service.feed().listen(
         (docs) {
+          _loadTimeoutTimer?.cancel();
           _lastDoc = docs.isEmpty ? null : docs.last;
           state = state.copyWith(
-            statuses: docs
-                .map((doc) => Status.fromMap({...doc.data(), 'id': doc.id}))
-                .toList(),
+            statuses: docs.map((doc) {
+              final fresh = Status.fromMap({...doc.data(), 'id': doc.id});
+              if ((_pendingLikeToggles[doc.id] ?? 0) <= 0) return fresh;
+              // Une bascule de like est en vol pour ce statut : garder le
+              // compteur local optimiste plutôt que celui de l'instantané,
+              // qui peut encore refléter l'état serveur d'avant le commit
+              // de toggleLike() — les autres champs (légende, actif...)
+              // restent bien ceux à jour.
+              Status? local;
+              for (final status in state.statuses) {
+                if (status.id == doc.id) {
+                  local = status;
+                  break;
+                }
+              }
+              return local == null
+                  ? fresh
+                  : fresh.copyWith(likesCount: local.likesCount);
+            }).toList(),
             isLoading: false,
             hasMore: docs.length >= StatusService.feedPageSize,
             clearError: true,
           );
         },
         onError: (Object error) {
+          _loadTimeoutTimer?.cancel();
           state = state.copyWith(isLoading: false, error: error.toString());
         },
       );
     } catch (error) {
+      _loadTimeoutTimer?.cancel();
       state = state.copyWith(isLoading: false, error: error.toString());
     }
+  }
+
+  /// Relance le chargement après un échec (bouton "Réessayer") — sans quoi
+  /// [loadFeed] ne referait rien puisque `_feedLoaded` est déjà à `true`.
+  void retryLoadFeed() {
+    _feedLoaded = false;
+    loadFeed();
   }
 
   /// Charge la page suivante du feed (pagination), à appeler quand
@@ -110,7 +170,9 @@ class StatusNotifier extends StateNotifier<StatusState> {
 
     state = state.copyWith(isLoadingMore: true, clearError: true);
     try {
-      final docs = await _service.fetchMoreFeed(after: lastDoc);
+      final docs = await _service
+          .fetchMoreFeed(after: lastDoc)
+          .timeout(_loadTimeout);
       if (docs.isNotEmpty) _lastDoc = docs.last;
       state = state.copyWith(
         statuses: [
@@ -189,6 +251,8 @@ class StatusNotifier extends StateNotifier<StatusState> {
   /// compteur/l'état si le serveur renvoie un résultat différent de la
   /// supposition locale (ex. déjà basculé depuis un autre appareil).
   Future<void> toggleLike(String statusId) async {
+    _pendingLikeToggles.update(statusId, (n) => n + 1, ifAbsent: () => 1);
+
     final guessedLiked = !state.likedIds.contains(statusId);
     final optimisticDelta = guessedLiked ? 1 : -1;
 
@@ -243,6 +307,13 @@ class StatusNotifier extends StateNotifier<StatusState> {
             : {...state.likedIds, statusId},
         error: error.toString(),
       );
+    } finally {
+      final remaining = (_pendingLikeToggles[statusId] ?? 1) - 1;
+      if (remaining <= 0) {
+        _pendingLikeToggles.remove(statusId);
+      } else {
+        _pendingLikeToggles[statusId] = remaining;
+      }
     }
   }
 
@@ -263,6 +334,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
   @override
   void dispose() {
     _feedSubscription?.cancel();
+    _loadTimeoutTimer?.cancel();
     super.dispose();
   }
 }

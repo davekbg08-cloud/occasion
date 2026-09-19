@@ -1750,11 +1750,10 @@ test("onAnnonceUpdated : une redélivrance du même évènement n'écrit jamais 
 });
 
 test("submitReview : l'acheteur note le vendeur d'une commande complétée, met à jour publicProfiles et marque la commande", async () => {
-  await db.collection("annonces").doc("annonce-review-1").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order1").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-1", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1781,11 +1780,10 @@ test("submitReview : l'acheteur note le vendeur d'une commande complétée, met 
 });
 
 test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens inverse)", async () => {
-  await db.collection("annonces").doc("annonce-review-2").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order2").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-2", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1809,11 +1807,10 @@ test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens
 });
 
 test("submitReview : un second appel sur le même triplet (orderId, sellerId, direction) ne réécrit jamais l'avis ni les stats", async () => {
-  await db.collection("annonces").doc("annonce-review-3").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order3").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-3", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1837,17 +1834,15 @@ test("submitReview : un second appel sur le même triplet (orderId, sellerId, di
 });
 
 test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", async () => {
-  await db.collection("annonces").doc("annonce-review-4").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order4").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-4", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
   await db.collection("orders").doc("order5").set({
     buyerId: "buyer2",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-4", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1867,18 +1862,15 @@ test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", a
 });
 
 test("submitReview : rejette une commande pas encore complétée, un tiers hors commande, une note invalide et un vendeur hors commande", async () => {
-  await db.collection("annonces").doc("annonce-review-paid").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order-paid").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-paid", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "paid",
   });
-  await db.collection("annonces").doc("annonce-review-completed").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order-completed").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-completed", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1957,8 +1949,8 @@ test("submitReview : rejette une commande pas encore complétée, un tiers hors 
 
 test("submitReview : un `order.sellerIds` falsifié (tiers étranger à l'annonce réelle) ne permet jamais de lui poster un avis", async () => {
   // L'acheteur a réellement acheté chez seller1 (l'annonce référencée par
-  // `items` le confirme), mais a mis "victim" dans `sellerIds` — jamais
-  // recoupé avec les articles avant ce correctif.
+  // `items` le confirme), mais avait mis "victim" dans `sellerIds` — jamais
+  // recoupé avec les articles avant le correctif verifiedSellerId.
   await db.collection("annonces").doc("annonce-review-spoof").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order-spoofed-seller").set({
     buyerId: "buyer1",
@@ -1984,11 +1976,10 @@ test("submitReview : un `order.sellerIds` falsifié (tiers étranger à l'annonc
 });
 
 test("submitReview : accepte aussi une commande déjà reversée (payout_sent), pas seulement completed", async () => {
-  await db.collection("annonces").doc("annonce-review-payout").set({ sellerId: "seller1", price: 100 });
+  await db.collection("annonces").doc("annonce-review1").set({ sellerId: "seller1", price: 1000 });
   await db.collection("orders").doc("order-payout").set({
     buyerId: "buyer1",
-    sellerIds: ["seller1"],
-    items: [{ sellerId: "seller1", productId: "annonce-review-payout", quantity: 1 }],
+    items: [{ productId: "annonce-review1", quantity: 1 }],
     status: "payout_sent",
   });
 
@@ -2029,6 +2020,90 @@ test("notifySettlement (paiement) : mirroire aussi totalSales dans publicProfile
 
   const statsSnap = await db.collection("sellerStatistics").doc("seller1").get();
   assert.equal(statsSnap.data().totalSales, 1);
+});
+
+test("notifySettlement (paiement) : les stats/notifications vont au vrai vendeur de l'annonce, jamais à un sellerId falsifié par l'acheteur", async () => {
+  await db.collection("annonces").doc("annonce-forge-1").set({ sellerId: "realSeller", price: 5000 });
+  await db.collection("orders").doc("order-forge-1").set({
+    buyerId: "buyer1",
+    // L'acheteur prétend que le vendeur est "accomplice" — le vrai
+    // propriétaire de l'annonce est "realSeller".
+    sellerIds: ["accomplice"],
+    items: [{ sellerId: "accomplice", productId: "annonce-forge-1", quantity: 1, totalPrice: 5000 }],
+    currency: "FC",
+    status: "pending_payment",
+  });
+  await db.collection("paymentIntents").doc("intent-forge-1").set({
+    type: "order",
+    orderId: "order-forge-1",
+    userId: "buyer1",
+    amount: 5000,
+    currency: "FC",
+    status: "created",
+  });
+  await db.collection("admins").doc("admin2").set({});
+
+  await functions.confirmManualPayment.run({
+    data: { transactionId: "intent-forge-1" },
+    auth: { uid: "admin2" },
+  });
+
+  const realSellerProfile = await db.collection("publicProfiles").doc("realSeller").get();
+  assert.equal(realSellerProfile.data().totalSales, 1, "le vrai vendeur doit être crédité");
+
+  const realSellerStats = await db.collection("sellerStatistics").doc("realSeller").get();
+  assert.equal(realSellerStats.data().totalSales, 1);
+
+  const accompliceProfile = await db.collection("publicProfiles").doc("accomplice").get();
+  assert.equal(
+    accompliceProfile.exists,
+    false,
+    "le complice désigné par l'acheteur ne doit jamais être crédité"
+  );
+
+  const notifSeller = await db
+    .collection("notifications")
+    .doc("order_intent-forge-1_seller_realSeller")
+    .get();
+  assert.ok(notifSeller.exists, "le vrai vendeur doit être notifié pour préparer l'envoi");
+});
+
+test("onOrderCompleted : les points de fidélité vont au vrai vendeur de l'annonce, jamais à un sellerId falsifié", async () => {
+  await db.collection("annonces").doc("annonce-forge-2").set({ sellerId: "realSeller2", price: 10000 });
+
+  const event = {
+    data: {
+      before: { data: () => ({ status: "paid" }) },
+      after: {
+        data: () => ({
+          status: "completed",
+          buyerId: "buyer1",
+          currency: "FC",
+          sellerIds: ["accomplice2"],
+          items: [{ sellerId: "accomplice2", productId: "annonce-forge-2", quantity: 1 }],
+        }),
+      },
+    },
+    params: { orderId: "order-forge-2" },
+  };
+
+  await functions.onOrderCompleted.run(event);
+
+  const notif = await db
+    .collection("notifications")
+    .doc("loyalty_earned_order-forge-2_realSeller2")
+    .get();
+  assert.ok(notif.exists, "le vrai vendeur doit déclencher le crédit de points, pas le complice");
+
+  const statsReal = await db.collection("sellerStatistics").doc("realSeller2").get();
+  assert.equal(statsReal.data()?.loyaltyPoints, 10, "10000 FC à 1pt/1000FC = 10 points");
+
+  const statsAccomplice = await db.collection("sellerStatistics").doc("accomplice2").get();
+  assert.equal(
+    statsAccomplice.exists,
+    false,
+    "le complice désigné par l'acheteur ne doit jamais être crédité"
+  );
 });
 
 test("onAnnonceCreated : notifie un utilisateur dont l'alerte correspond au mot-clé", async () => {
@@ -2206,5 +2281,128 @@ test("ensureReferralCode : refuse un compte introuvable", async () => {
       assert.equal(err.code, "not-found");
       return true;
     }
+  );
+});
+
+test("requestGiftRedemption : débite les points et crée la demande", async () => {
+  await db.collection("giftCatalogItems").doc("gift1").set({
+    sellerId: "seller1",
+    title: "Bon d'achat",
+    pointsCost: 30,
+    isActive: true,
+  });
+  await db
+    .collection("loyaltyPoints")
+    .doc("buyer1_seller1")
+    .set({ buyerId: "buyer1", sellerId: "seller1", balance: 100 });
+
+  const result = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift1", clientRequestId: "req1" },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.status, "pending");
+  assert.equal(result.redemptionId, "req1");
+
+  const redemptionSnap = await db.collection("giftRedemptions").doc("req1").get();
+  assert.ok(redemptionSnap.exists);
+  assert.equal(redemptionSnap.data().pointsCost, 30);
+
+  const pointsSnap = await db.collection("loyaltyPoints").doc("buyer1_seller1").get();
+  assert.equal(pointsSnap.data().balance, 70);
+});
+
+test("régression : requestGiftRedemption avec le même clientRequestId ne débite jamais deux fois (relance après timeout)", async () => {
+  await db.collection("giftCatalogItems").doc("gift2").set({
+    sellerId: "seller1",
+    title: "Bon d'achat 2",
+    pointsCost: 20,
+    isActive: true,
+  });
+  await db
+    .collection("loyaltyPoints")
+    .doc("buyer2_seller1")
+    .set({ buyerId: "buyer2", sellerId: "seller1", balance: 100 });
+
+  const first = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift2", clientRequestId: "req2" },
+    auth: { uid: "buyer2" },
+  });
+  const second = await functions.requestGiftRedemption.run({
+    data: { itemId: "gift2", clientRequestId: "req2" },
+    auth: { uid: "buyer2" },
+  });
+
+  assert.equal(first.redemptionId, second.redemptionId);
+
+  const pointsSnap = await db.collection("loyaltyPoints").doc("buyer2_seller1").get();
+  assert.equal(pointsSnap.data().balance, 80, "un seul débit malgré les deux appels");
+});
+
+test("requestGiftRedemption : refuse un clientRequestId manquant", async () => {
+  await assert.rejects(
+    () =>
+      functions.requestGiftRedemption.run({
+        data: { itemId: "gift1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "invalid-argument");
+      return true;
+    }
+  );
+});
+
+test("onUserCreated : attribue un code de parrainage et résout le code du parrain", async () => {
+  await db.collection("users").doc("referrer1").set({
+    referralCode: "REFCODE1",
+    referralCount: 0,
+  });
+  await db.collection("users").doc("newuser1").set({ referredByCode: "REFCODE1" });
+
+  const event = {
+    data: { data: () => ({ referredByCode: "REFCODE1" }) },
+    params: { userId: "newuser1" },
+  };
+  await functions.onUserCreated.run(event);
+
+  const newUserSnap = await db.collection("users").doc("newuser1").get();
+  assert.ok(newUserSnap.data().referralCode, "un code doit être généré");
+  assert.equal(newUserSnap.data().referredBy, "referrer1");
+
+  const referrerSnap = await db.collection("users").doc("referrer1").get();
+  assert.equal(referrerSnap.data().referralCount, 1);
+});
+
+test("régression : onUserCreated tolère une redélivrance du trigger sans régénérer referralCode ni réincrémenter referralCount", async () => {
+  await db.collection("users").doc("referrer2").set({
+    referralCode: "REFCODE2",
+    referralCount: 0,
+  });
+  await db.collection("users").doc("newuser2").set({ referredByCode: "REFCODE2" });
+
+  const event = {
+    data: { data: () => ({ referredByCode: "REFCODE2" }) },
+    params: { userId: "newuser2" },
+  };
+  await functions.onUserCreated.run(event);
+  const firstSnap = await db.collection("users").doc("newuser2").get();
+  const firstCode = firstSnap.data().referralCode;
+
+  // Simule une redélivrance "au moins une fois" du même évènement.
+  await functions.onUserCreated.run(event);
+  const secondSnap = await db.collection("users").doc("newuser2").get();
+
+  assert.equal(
+    secondSnap.data().referralCode,
+    firstCode,
+    "le code ne doit jamais être régénéré sur redélivrance"
+  );
+  assert.equal(secondSnap.data().referredBy, "referrer2");
+
+  const referrerSnap = await db.collection("users").doc("referrer2").get();
+  assert.equal(
+    referrerSnap.data().referralCount,
+    1,
+    "le compteur du parrain ne doit jamais être réincrémenté sur redélivrance"
   );
 });

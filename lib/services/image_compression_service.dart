@@ -34,7 +34,7 @@ class ImageCompressionException implements Exception {
 
 class ImageCompressionService {
   static const defaultMaxWidth = 1600;
-  static const defaultQuality = 82;
+  static const defaultQuality = 90;
 
   static Future<CompressedImage> compressXFile(
     XFile file, {
@@ -69,7 +69,7 @@ class ImageCompressionService {
     }
 
     final encoded = Uint8List.fromList(
-      img.encodeJpg(normalized, quality: quality.clamp(60, 85).toInt()),
+      img.encodeJpg(normalized, quality: quality.clamp(60, 92).toInt()),
     );
 
     return CompressedImage(

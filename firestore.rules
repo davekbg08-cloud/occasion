@@ -254,15 +254,43 @@ service cloud.firestore {
         && (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is timestamp);
     }
 
+    // Défense en profondeur uniquement (le vrai vendeur de chaque article
+    // est de toute façon re-dérivé côté serveur depuis l'annonce réelle,
+    // voir functions/index.js::verifiedItemTotals — jamais fait confiance
+    // à sellerIds/items[].sellerId tels quels) : borne la forme générale
+    // d'une commande à la création, sans quoi n'importe quel document
+    // pouvait être écrit sous status='pending_payment'. Pas de validation
+    // `.all()` par article (syntaxe jamais utilisée ailleurs dans ce
+    // fichier, à ne pas introduire sans test isolé sur un chemin aussi
+    // sensible à l'argent) — seulement des bornes de taille/type globales.
+    function validOrder(data) {
+      return hasOnly(data, [
+        'id', 'buyerId', 'buyerName', 'buyerPhone', 'items', 'sellerIds',
+        'total', 'currency', 'status', 'createdAt', 'updatedAt'
+      ])
+        && stringField(data, 'buyerId', 128)
+        && optionalString(data, 'buyerName', 200)
+        && optionalString(data, 'buyerPhone', 40)
+        && data.items is list && data.items.size() > 0 && data.items.size() <= 50
+        && data.sellerIds is list && data.sellerIds.size() > 0 && data.sellerIds.size() <= 50
+        && data.total is number && data.total >= 0
+        && stringField(data, 'currency', 10);
+    }
+
     match /annonces/{annonceId} {
-      allow read: if isPublishedAnnonce(resource.data)
-        || (
-          signedIn()
-          && (
-            resource.data.sellerId == request.auth.uid
-            || resource.data.vendeurId == request.auth.uid
-            || resource.data.userId == request.auth.uid
-          )
+      // `signedIn()` sur les DEUX branches : chaque annonce publiée
+      // contient le numéro de téléphone du vendeur (`phone`/`telephone`,
+      // voir validAnnonce ci-dessus) — sans cette exigence, n'importe qui
+      // pouvait le lire sans même être connecté. Aucun flux de navigation
+      // anonyme n'existe dans l'app (`lib/main.dart::_AuthGate` redirige
+      // systématiquement vers l'écran de connexion, aucun
+      // signInAnonymously nulle part) : ce resserrement ne casse rien.
+      allow read: if signedIn()
+        && (
+          isPublishedAnnonce(resource.data)
+          || resource.data.sellerId == request.auth.uid
+          || resource.data.vendeurId == request.auth.uid
+          || resource.data.userId == request.auth.uid
         );
       allow create: if signedIn()
         && isSeller()
@@ -470,37 +498,32 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Code mort : aucune référence à `products` dans lib/ ou functions/ —
+    // les annonces vivent exclusivement dans `annonces`. Verrouillage
+    // plutôt que suppression de la règle (réduction de surface immédiate,
+    // sans risque de casser un chemin de lecture qui existerait encore
+    // ailleurs sans qu'une recherche l'ait révélé).
     match /products/{productId} {
-      allow read: if resource.data.status in ['active', 'published']
-        || resource.data.statut in ['active', 'published']
-        || resource.data.isActive == true
-        || (signedIn() && resource.data.sellerId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.sellerId == request.auth.uid
-        && isSeller();
-      allow update, delete: if signedIn()
-        && isSeller()
-        && resource.data.sellerId == request.auth.uid;
+      allow read, write: if false;
     }
 
-    // Collections héritées, remplacées par `chats`/`chats/{id}/messages`
-    // (aucun écran de l'app n'y lit/écrit — voir chat_service.dart) :
-    // écriture désactivée pour éviter toute altération de contenu/expéditeur
-    // après coup (validMessage() ne fige que les types/tailles de champs,
-    // jamais l'immutabilité de expediteurId/contenu/dateEnvoi une fois créé).
+    // Collections héritées, remplacées depuis longtemps par `chats/{chatId}
+    // /messages` — plus aucune référence dans lib/. Grandes ouvertes
+    // jusqu'ici : `create` sur /messages laissait n'importe quel
+    // utilisateur connecté écrire à un `destinataireId` arbitraire (spam),
+    // et `update` sur les deux collections ne diffait jamais contre
+    // `resource.data` (contenu/expéditeur falsifiable a posteriori).
+    // Verrouillage complet plutôt qu'un correctif partiel : rien de
+    // légitime ne les utilise, aucune forme restreinte à maintenir.
     match /messages/{messageId} {
-      allow read: if signedIn()
-        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     match /conversations/{conversationId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.participants;
-      allow create, update, delete: if false;
+      allow read, write: if false;
 
       match /messages/{messageId} {
-        allow read: if isConversationParticipant(conversationId);
-        allow create, update, delete: if false;
+        allow read, write: if false;
       }
     }
 
@@ -647,7 +670,8 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow create: if signedIn()
         && request.resource.data.buyerId == request.auth.uid
-        && request.resource.data.status == 'pending_payment';
+        && request.resource.data.status == 'pending_payment'
+        && validOrder(request.resource.data);
       allow read: if signedIn()
         && (
           resource.data.buyerId == request.auth.uid

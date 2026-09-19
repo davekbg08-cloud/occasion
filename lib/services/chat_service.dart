@@ -25,12 +25,14 @@ class ChatService {
     return _chats.doc(chatId).collection('messages');
   }
 
-  String _chatId(String uid1, String uid2, String? listingId) {
+  /// Identité d'un fil de discussion : UNIQUEMENT le binôme (acheteur,
+  /// vendeur), jamais le produit — un même vendeur contacté depuis deux
+  /// annonces différentes, ou depuis un statut puis une annonce, retombe
+  /// toujours sur le MÊME fil (comme WhatsApp). `listingId` reste stocké
+  /// comme métadonnée ("sujet actuel de la conversation"), jamais comme
+  /// identité — voir [getOrCreateChat].
+  String _chatId(String uid1, String uid2) {
     final ids = [uid1, uid2]..sort();
-    final listingPart = listingId?.trim();
-    if (listingPart != null && listingPart.isNotEmpty) {
-      ids.add(listingPart.replaceAll('/', '_'));
-    }
     return ids.join('_');
   }
 
@@ -44,7 +46,7 @@ class ChatService {
     String? listingId,
     String? listingTitle,
   }) async {
-    final id = _chatId(buyerId, sellerId, listingId);
+    final id = _chatId(buyerId, sellerId);
     final doc = await _chats.doc(id).get();
 
     if (!doc.exists) {
@@ -73,17 +75,44 @@ class ChatService {
       return chat;
     }
 
+    final newListingId = listingId?.trim();
+    final existingListingId = (doc.data()?['listingId'] as String?)?.trim();
+    // Nouvel intérêt pour un produit DIFFÉRENT au sein d'une conversation
+    // déjà en cours — jamais si le même produit est simplement re-signalé
+    // (ex. l'acheteur rouvre le même fil sans changer de sujet).
+    final listingChanged =
+        newListingId != null &&
+        newListingId.isNotEmpty &&
+        newListingId != existingListingId;
+
+    var data = {...?doc.data()};
+
     if ((listingTitle?.trim().isNotEmpty == true) ||
-        (listingId?.trim().isNotEmpty == true)) {
-      await _chats.doc(id).set({
-        if (listingId?.trim().isNotEmpty == true) 'listingId': listingId,
+        (newListingId?.isNotEmpty == true)) {
+      final updates = <String, dynamic>{
+        if (newListingId?.isNotEmpty == true) 'listingId': listingId,
         if (listingTitle?.trim().isNotEmpty == true)
           'listingTitle': listingTitle,
         'participants': [buyerId, sellerId],
-      }, SetOptions(merge: true));
+      };
+      await _chats.doc(id).set(updates, SetOptions(merge: true));
+      // Reflète immédiatement ce qui vient d'être écrit dans la valeur
+      // renvoyée — sans quoi l'appelant recevrait l'ancien listingId le
+      // temps que son propre flux temps réel rattrape le changement.
+      data = {...data, ...updates};
+
+      if (listingChanged) {
+        try {
+          await _db.collection('annonces').doc(newListingId).update({
+            'messagesCount': FieldValue.increment(1),
+          });
+        } catch (_) {
+          // Best-effort, même garde que la création d'un nouveau fil.
+        }
+      }
     }
 
-    return Chat.fromMap({...?doc.data(), 'id': doc.id});
+    return Chat.fromMap({...data, 'id': doc.id});
   }
 
   /// Nombre de conversations les plus récentes écoutées en temps réel — pas

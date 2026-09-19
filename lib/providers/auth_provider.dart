@@ -230,7 +230,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final compressed = await ImageCompressionService.compressXFile(
         image,
         maxWidth: 1024,
-        quality: 82,
+        quality: 90,
       );
       final ref = _storage.ref().child(
         'profiles/${firebaseUser.uid}/profile.${compressed.extension}',

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,7 +17,14 @@ import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
-  const StatusFeedScreen({super.key});
+  const StatusFeedScreen({super.key, this.isVisible = true});
+
+  /// L'onglet Feed est-il celui actuellement affiché ? `BuyerNav` garde cet
+  /// écran monté en permanence dans un `IndexedStack` en changeant
+  /// d'onglet (Profil, Messages...) — sans ce signal, la vidéo en cours
+  /// continue de jouer (son compris) même invisible, faute de tout autre
+  /// mécanisme de cycle de vie réagissant à un changement d'onglet.
+  final bool isVisible;
 
   @override
   ConsumerState<StatusFeedScreen> createState() => _StatusFeedScreenState();
@@ -90,8 +99,9 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                   itemBuilder: (context, index) {
                     final status = visibleStatuses[index];
                     return _StatusPage(
+                      key: ValueKey(status.id),
                       status: status,
-                      isActive: index == _currentPage,
+                      isActive: index == _currentPage && widget.isVisible,
                       currentUserId: currentUser?.id ?? '',
                     );
                   },
@@ -139,6 +149,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
 
 class _StatusPage extends StatefulWidget {
   const _StatusPage({
+    super.key,
     required this.status,
     required this.isActive,
     required this.currentUserId,
@@ -155,6 +166,8 @@ class _StatusPage extends StatefulWidget {
 class _StatusPageState extends State<_StatusPage> {
   VideoPlayerController? _video;
   bool _videoError = false;
+  bool _isInitializing = false;
+  Timer? _watchdog;
 
   @override
   void initState() {
@@ -164,28 +177,87 @@ class _StatusPageState extends State<_StatusPage> {
     }
   }
 
-  void _initVideo() {
+  /// Au-delà de ce délai, l'initialisation ne doit plus jamais laisser
+  /// l'utilisateur face à un spinner indéfini (ex. connexion instable en
+  /// plein streaming) — bascule sur l'état d'échec avec "Réessayer" plutôt
+  /// que d'attendre sans fin une réponse qui ne viendra peut-être jamais.
+  ///
+  /// Implémenté avec un `Timer` brut plutôt que `Future.timeout()` : ce
+  /// dernier chaîne timeout → catch → dispose() → setState, plusieurs
+  /// maillons où un problème d'implémentation du plugin vidéo pourrait
+  /// empêcher la mise à jour d'état de se produire. Un `Timer` indépendant
+  /// qui force directement `setState` ne dépend d'aucun de ces maillons.
+  static const _initTimeout = Duration(seconds: 15);
+
+  Future<void> _initVideo() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
     _videoError = false;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(widget.status.mediaUrl),
-    );
+
+    final url = widget.status.mediaUrl.trim();
+    if (!url.startsWith('http')) {
+      if (mounted) setState(() => _videoError = true);
+      _isInitializing = false;
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _video = controller;
-    controller
-        .initialize()
-        .then((_) {
-          if (!mounted) return;
-          setState(() {});
-          controller.setLooping(true);
-          if (widget.isActive) controller.play();
-        })
-        .catchError((Object error) {
-          if (!mounted) return;
-          setState(() => _videoError = true);
-        });
+
+    var settled = false;
+    _watchdog?.cancel();
+    _watchdog = Timer(_initTimeout, () {
+      if (settled) return;
+      settled = true;
+      _isInitializing = false;
+      if (mounted) setState(() => _videoError = true);
+    });
+
+    try {
+      await controller.initialize();
+      _watchdog?.cancel();
+      if (settled) {
+        // Le watchdog a déjà déclenché l'échec pendant l'attente : ne pas
+        // afficher une vidéo "réussie" par-dessus l'écran d'erreur déjà
+        // affiché.
+        _safeDispose(controller);
+        return;
+      }
+      settled = true;
+
+      if (!mounted) {
+        _safeDispose(controller);
+        return;
+      }
+      setState(() {});
+      controller.setLooping(true);
+      if (widget.isActive) controller.play();
+    } catch (_) {
+      _watchdog?.cancel();
+      if (!settled) {
+        settled = true;
+        if (mounted) setState(() => _videoError = true);
+      }
+      _safeDispose(controller);
+      _video = null;
+    } finally {
+      _isInitializing = false;
+    }
+  }
+
+  /// `dispose()` sur un contrôleur jamais complètement initialisé peut
+  /// échouer selon la plateforme — ça ne doit jamais empêcher la mise à
+  /// jour d'état (succès/échec) qui l'entoure.
+  void _safeDispose(VideoPlayerController controller) {
+    try {
+      controller.dispose();
+    } catch (_) {}
   }
 
   void _retryVideo() {
-    _video?.dispose();
+    _watchdog?.cancel();
+    final previous = _video;
+    if (previous != null) _safeDispose(previous);
     _video = null;
     setState(() => _videoError = false);
     _initVideo();
@@ -203,6 +275,7 @@ class _StatusPageState extends State<_StatusPage> {
 
   @override
   void dispose() {
+    _watchdog?.cancel();
     _video?.dispose();
     super.dispose();
   }
@@ -532,18 +605,36 @@ class _EmptyFeed extends StatelessWidget {
   }
 }
 
-class _ErrorFeed extends StatelessWidget {
+class _ErrorFeed extends ConsumerWidget {
   const _ErrorFeed();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final message =
+        ref.watch(statusNotifierProvider).error ??
+        'Impossible de charger le feed pour le moment.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(
-          'Impossible de charger le feed pour le moment.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white70),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: () =>
+                  ref.read(statusNotifierProvider.notifier).retryLoadFeed(),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white70),
+              ),
+              child: const Text('Réessayer'),
+            ),
+          ],
         ),
       ),
     );

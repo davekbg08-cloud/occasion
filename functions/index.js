@@ -1579,11 +1579,19 @@ async function verifiedItemTotals(items, getDoc) {
 
   return items.map((item, i) => {
     const snap = annonceSnaps[i];
-    if (!snap.exists) return { ...item, verifiedTotal: null, verifiedSellerId: null };
+    if (!snap.exists) {
+      return { ...item, verifiedTotal: null, verifiedSellerId: null };
+    }
     const data = snap.data();
-    const verifiedSellerId = data.sellerId ?? data.vendeurId ?? data.userId ?? null;
     const price = data.price;
     const quantity = Number(item.quantity) || 0;
+    // Vrai vendeur = celui qui possède réellement l'annonce, JAMAIS
+    // item.sellerId (100% contrôlé par le client, voir
+    // lib/screens/payment_screen.dart) — sans ça un acheteur peut
+    // rediriger paiement/stats/avis/points de fidélité vers un compte
+    // complice sans jamais avertir le vrai vendeur. Les trois alias
+    // possibles du propriétaire (voir validAnnonce côté règles Firestore).
+    const verifiedSellerId = data.sellerId ?? data.vendeurId ?? data.userId ?? null;
     if (typeof price !== "number" || quantity <= 0) {
       return { ...item, verifiedTotal: null, verifiedSellerId };
     }
@@ -1832,9 +1840,9 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
         // montant entre vendeurs d'une même commande multi-vendeur sans
         // changer le total.
         const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
-        // Jamais `order.sellerIds` (déclaré par le client, voir
-        // `verifiedSellerId`) : sans ça, un acheteur pouvait faire créditer
-        // une vente/notification à un tiers étranger à la commande.
+        // Jamais `order.sellerIds` (rempli par l'acheteur à la création de
+        // la commande, voir lib/screens/payment_screen.dart) : les vrais
+        // vendeurs sont dérivés des annonces réelles (`verifiedSellerId`).
         const sellerIds = [
           ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
         ];
@@ -2089,11 +2097,12 @@ exports.submitReview = onCall(async (request) => {
     if (!REVIEWABLE_ORDER_STATUSES.has(order.status)) {
       throw new HttpsError("failed-precondition", "La commande n'est pas encore complétée.");
     }
-    // Jamais `order.sellerIds` (déclaré par le client à la création de la
+    // Jamais `order.sellerIds` (rempli par l'acheteur à la création de la
     // commande, jamais recoupé avec les articles) : sans ça, un acheteur
     // pouvait mettre l'uid d'un tiers totalement étranger à la commande
     // dans `sellerIds` pour lui poster un faux avis (diffamatoire ou
-    // complaisant). Voir `verifiedSellerId`.
+    // complaisant), ou désigner un complice comme "vendeur" pour en
+    // recevoir un. Voir `verifiedSellerId`.
     const verifiedItems = await verifiedItemTotals(order.items ?? [], (ref) => tx.get(ref));
     const realSellerIds = new Set(
       verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
@@ -2254,15 +2263,14 @@ exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
 
   await Promise.all(
     snapshot.docs.map(async (doc) => {
-      // Jamais `order.sellerIds` (déclaré par le client) : sans ça,
-      // n'importe quel acheteur pouvait faire recevoir cette notification
-      // "fonds libérés" à un tiers étranger à la commande. Voir
-      // `verifiedSellerId`.
-      const verifiedItems = await verifiedItemTotals(doc.data().items ?? [], (ref) => ref.get());
+      const items = doc.data().items ?? [];
+      // Jamais `doc.data().sellerIds` (rempli par l'acheteur) : dérivé des
+      // annonces réelles, même principe que notifySettlement/onOrderCompleted.
+      const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
       const sellerIds = [
         ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
       ];
-      return Promise.all(
+      await Promise.all(
         sellerIds.map((sellerId) =>
           sendToUser({
             recipientId: sellerId,
@@ -2308,9 +2316,9 @@ exports.onOrderCompleted = onDocumentUpdated(
     // gonfler les points de fidélité d'un vendeur (ou les réduire) sans
     // changer le total de commande déjà validé à la confirmation.
     const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
-    // Jamais `order.sellerIds`/`item.sellerId` (déclarés par le client) :
-    // sans ça, un acheteur pouvait faire créditer les points de fidélité
-    // d'un tiers étranger à la commande. Voir `verifiedSellerId`.
+    // Jamais `after.sellerIds`/`item.sellerId` (rempli par l'acheteur à la
+    // création) : dérivé des annonces réelles, seule source de vérité pour
+    // savoir qui doit recevoir les points de fidélité.
     const sellerIds = [
       ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
     ];
@@ -2377,12 +2385,36 @@ exports.requestGiftRedemption = onCall(async (request) => {
   if (!itemId || typeof itemId !== "string") {
     throw new HttpsError("invalid-argument", "itemId manquant");
   }
+  const clientRequestId = request.data?.clientRequestId;
+  if (!isValidDocId(clientRequestId, 128)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "clientRequestId manquant/invalide"
+    );
+  }
 
   const itemRef = db.collection("giftCatalogItems").doc(itemId);
-  const redemptionRef = db.collection("giftRedemptions").doc();
+  // Id déterministe fourni par le client (même principe que
+  // clientMessageId pour les messages de chat) : une relance après
+  // timeout/coupure réseau retombe sur le MÊME document plutôt que d'en
+  // créer un second, ce qui débiterait les points deux fois pour une
+  // seule demande logique.
+  const redemptionRef = db.collection("giftRedemptions").doc(clientRequestId);
 
-  const { sellerId, itemTitle, pointsCost } = await db.runTransaction(
-    async (tx) => {
+  const { sellerId, itemTitle, pointsCost, status, alreadyExisted } =
+    await db.runTransaction(async (tx) => {
+      const existingSnap = await tx.get(redemptionRef);
+      if (existingSnap.exists) {
+        const existing = existingSnap.data();
+        return {
+          sellerId: existing.sellerId,
+          itemTitle: existing.itemTitle,
+          pointsCost: existing.pointsCost,
+          status: existing.status,
+          alreadyExisted: true,
+        };
+      }
+
       const itemSnap = await tx.get(itemRef);
       if (!itemSnap.exists || itemSnap.data().isActive !== true) {
         throw new HttpsError(
@@ -2429,23 +2461,30 @@ exports.requestGiftRedemption = onCall(async (request) => {
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      return { sellerId, itemTitle: item.title ?? "", pointsCost };
-    }
-  );
+      return {
+        sellerId,
+        itemTitle: item.title ?? "",
+        pointsCost,
+        status: "pending",
+        alreadyExisted: false,
+      };
+    });
 
-  await sendToUser({
-    recipientId: sellerId,
-    notificationId: `gift_redemption_${redemptionRef.id}_request`,
-    type: "order",
-    title: "🎁 Demande d'échange de cadeau",
-    body: `Un acheteur demande "${itemTitle}" contre ${pointsCost} points.`,
-    route: "/gift-redemptions",
-    data: { redemptionId: redemptionRef.id },
-  }).catch((err) =>
-    console.error("Erreur notif requestGiftRedemption :", err)
-  );
+  if (!alreadyExisted) {
+    await sendToUser({
+      recipientId: sellerId,
+      notificationId: `gift_redemption_${redemptionRef.id}_request`,
+      type: "order",
+      title: "🎁 Demande d'échange de cadeau",
+      body: `Un acheteur demande "${itemTitle}" contre ${pointsCost} points.`,
+      route: "/gift-redemptions",
+      data: { redemptionId: redemptionRef.id },
+    }).catch((err) =>
+      console.error("Erreur notif requestGiftRedemption :", err)
+    );
+  }
 
-  return { status: "pending", redemptionId: redemptionRef.id };
+  return { status, redemptionId: redemptionRef.id };
 });
 
 /**
@@ -2695,18 +2734,32 @@ exports.ensureReferralCode = onCall(async (request) => {
  * uid et incrémente le compteur du parrain. Ne bloque jamais la création
  * du compte elle-même (déjà faite avant que ce trigger s'exécute) : un
  * code invalide ou introuvable est simplement ignoré.
+ *
+ * Les triggers Cloud Functions livrent "au moins une fois" : `event.data`
+ * reflète toujours le document tel qu'il était À LA CRÉATION, identique à
+ * chaque redélivrance — il faut donc relire l'état COURANT du document
+ * pour savoir si ce trigger a déjà fait son travail, sans quoi une
+ * redélivrance régénérerait `referralCode` (invalidant un code déjà
+ * partagé/utilisé) et réincrémenterait `referralCount` du parrain une
+ * seconde fois. Même précaution que `ensureReferralCode` ci-dessus.
  */
 exports.onUserCreated = onDocumentCreated(
   "users/{userId}",
   async (event) => {
     const userId = event.params.userId;
     const data = event.data.data() ?? {};
+    const userRef = db.collection("users").doc(userId);
 
-    const referralCode = await generateUniqueReferralCode();
-    const updates = { referralCode };
+    const currentSnap = await userRef.get();
+    const current = currentSnap.data() ?? {};
+
+    const updates = {};
+    if (!current.referralCode) {
+      updates.referralCode = await generateUniqueReferralCode();
+    }
 
     const enteredCode = (data.referredByCode ?? "").trim().toUpperCase();
-    if (enteredCode) {
+    if (enteredCode && !current.referredBy) {
       try {
         const match = await db
           .collection("users")
@@ -2725,7 +2778,9 @@ exports.onUserCreated = onDocumentCreated(
       }
     }
 
-    await db.collection("users").doc(userId).update(updates);
+    if (Object.keys(updates).length > 0) {
+      await userRef.update(updates);
+    }
   }
 );
 
