@@ -1560,6 +1560,15 @@ const SUBSCRIPTION_PLANS = {
  * un autre vendeur de la même commande sans changer le total validé).
  * `verifiedTotal` vaut `null` pour un article dont l'annonce est
  * introuvable/invalide.
+ *
+ * `verifiedSellerId` : propriétaire RÉEL de l'annonce (`sellerId`/
+ * `vendeurId`/`userId` du document `annonces`), jamais `item.sellerId`
+ * déclaré par le client (même origine non fiable que `item.totalPrice` —
+ * écrit directement depuis le panier local). Sans ça, un acheteur pouvait
+ * mettre n'importe quel uid dans `item.sellerId`/`order.sellerIds` pour
+ * faire créditer les ventes/avis d'un article à un tiers totalement
+ * étranger à l'annonce. Vaut `null` si l'annonce est introuvable/invalide
+ * ou n'expose aucun des trois champs propriétaire.
  */
 async function verifiedItemTotals(items, getDoc) {
   if (!Array.isArray(items) || items.length === 0) return [];
@@ -1570,13 +1579,15 @@ async function verifiedItemTotals(items, getDoc) {
 
   return items.map((item, i) => {
     const snap = annonceSnaps[i];
-    if (!snap.exists) return { ...item, verifiedTotal: null };
-    const price = snap.data().price;
+    if (!snap.exists) return { ...item, verifiedTotal: null, verifiedSellerId: null };
+    const data = snap.data();
+    const verifiedSellerId = data.sellerId ?? data.vendeurId ?? data.userId ?? null;
+    const price = data.price;
     const quantity = Number(item.quantity) || 0;
     if (typeof price !== "number" || quantity <= 0) {
-      return { ...item, verifiedTotal: null };
+      return { ...item, verifiedTotal: null, verifiedSellerId };
     }
-    return { ...item, verifiedTotal: price * quantity };
+    return { ...item, verifiedTotal: price * quantity, verifiedSellerId };
   });
 }
 
@@ -1812,7 +1823,6 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
       if (isPaid) {
         const orderSnap = await db.collection("orders").doc(intent.orderId).get();
         const order = orderSnap.data() ?? {};
-        const sellerIds = order.sellerIds ?? [];
         const items = order.items ?? [];
         const currency = order.currency ?? "FC";
         // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
@@ -1822,6 +1832,12 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
         // montant entre vendeurs d'une même commande multi-vendeur sans
         // changer le total.
         const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
+        // Jamais `order.sellerIds` (déclaré par le client, voir
+        // `verifiedSellerId`) : sans ça, un acheteur pouvait faire créditer
+        // une vente/notification à un tiers étranger à la commande.
+        const sellerIds = [
+          ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
+        ];
 
         await Promise.all(
           sellerIds.map(async (sellerId) => {
@@ -1829,7 +1845,7 @@ async function notifySettlement({ transactionId, intent, isPaid }) {
             // (panier multi-vendeur) : on ne crédite chacun que de son
             // propre sous-total, pas du total de la commande.
             const sellerSubtotal = verifiedItems
-              .filter((item) => item.sellerId === sellerId)
+              .filter((item) => item.verifiedSellerId === sellerId)
               .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
 
             await Promise.all([
@@ -2073,8 +2089,16 @@ exports.submitReview = onCall(async (request) => {
     if (!REVIEWABLE_ORDER_STATUSES.has(order.status)) {
       throw new HttpsError("failed-precondition", "La commande n'est pas encore complétée.");
     }
-    const sellerIds = order.sellerIds ?? [];
-    if (!sellerIds.includes(sellerId)) {
+    // Jamais `order.sellerIds` (déclaré par le client à la création de la
+    // commande, jamais recoupé avec les articles) : sans ça, un acheteur
+    // pouvait mettre l'uid d'un tiers totalement étranger à la commande
+    // dans `sellerIds` pour lui poster un faux avis (diffamatoire ou
+    // complaisant). Voir `verifiedSellerId`.
+    const verifiedItems = await verifiedItemTotals(order.items ?? [], (ref) => tx.get(ref));
+    const realSellerIds = new Set(
+      verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)
+    );
+    if (!realSellerIds.has(sellerId)) {
       throw new HttpsError("failed-precondition", "Ce vendeur ne fait pas partie de cette commande.");
     }
 
@@ -2229,19 +2253,28 @@ exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
   console.log(`autoReleaseEscrow: ${snapshot.size} commande(s) libérée(s).`);
 
   await Promise.all(
-    snapshot.docs.flatMap((doc) => {
-      const sellerIds = doc.data().sellerIds ?? [];
-      return sellerIds.map((sellerId) =>
-        sendToUser({
-          recipientId: sellerId,
-          notificationId: `escrow_${doc.id}_${sellerId}`,
-          type: "order",
-          title: "💰 Fonds libérés",
-          body: "Le séquestre de votre commande a été libéré automatiquement.",
-          route: "/seller-orders",
-          data: { orderId: doc.id },
-        }).catch((err) =>
-          console.error(`Erreur notif escrow ${doc.id} -> ${sellerId} :`, err)
+    snapshot.docs.map(async (doc) => {
+      // Jamais `order.sellerIds` (déclaré par le client) : sans ça,
+      // n'importe quel acheteur pouvait faire recevoir cette notification
+      // "fonds libérés" à un tiers étranger à la commande. Voir
+      // `verifiedSellerId`.
+      const verifiedItems = await verifiedItemTotals(doc.data().items ?? [], (ref) => ref.get());
+      const sellerIds = [
+        ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
+      ];
+      return Promise.all(
+        sellerIds.map((sellerId) =>
+          sendToUser({
+            recipientId: sellerId,
+            notificationId: `escrow_${doc.id}_${sellerId}`,
+            type: "order",
+            title: "💰 Fonds libérés",
+            body: "Le séquestre de votre commande a été libéré automatiquement.",
+            route: "/seller-orders",
+            data: { orderId: doc.id },
+          }).catch((err) =>
+            console.error(`Erreur notif escrow ${doc.id} -> ${sellerId} :`, err)
+          )
         )
       );
     })
@@ -2270,17 +2303,22 @@ exports.onOrderCompleted = onDocumentUpdated(
     const buyerId = after.buyerId;
     const items = after.items ?? [];
     const currency = after.currency ?? "FC";
-    const sellerIds = after.sellerIds ?? [];
     // Prix réels (annonces), jamais `item.totalPrice` déclaré par le
     // client — voir `verifiedItemTotals`. Sans ça, un acheteur pouvait
     // gonfler les points de fidélité d'un vendeur (ou les réduire) sans
     // changer le total de commande déjà validé à la confirmation.
     const verifiedItems = await verifiedItemTotals(items, (ref) => ref.get());
+    // Jamais `order.sellerIds`/`item.sellerId` (déclarés par le client) :
+    // sans ça, un acheteur pouvait faire créditer les points de fidélité
+    // d'un tiers étranger à la commande. Voir `verifiedSellerId`.
+    const sellerIds = [
+      ...new Set(verifiedItems.map((item) => item.verifiedSellerId).filter(Boolean)),
+    ];
 
     await Promise.all(
       sellerIds.map(async (sellerId) => {
         const sellerSubtotal = verifiedItems
-          .filter((item) => item.sellerId === sellerId)
+          .filter((item) => item.verifiedSellerId === sellerId)
           .reduce((sum, item) => sum + (item.verifiedTotal ?? 0), 0);
         const points = pointsForAmount(currency, sellerSubtotal);
         if (points <= 0 || !buyerId) return;

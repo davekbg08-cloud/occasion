@@ -1750,9 +1750,11 @@ test("onAnnonceUpdated : une redélivrance du même évènement n'écrit jamais 
 });
 
 test("submitReview : l'acheteur note le vendeur d'une commande complétée, met à jour publicProfiles et marque la commande", async () => {
+  await db.collection("annonces").doc("annonce-review-1").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order1").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-1", quantity: 1 }],
     status: "completed",
   });
 
@@ -1779,9 +1781,11 @@ test("submitReview : l'acheteur note le vendeur d'une commande complétée, met 
 });
 
 test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens inverse)", async () => {
+  await db.collection("annonces").doc("annonce-review-2").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order2").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-2", quantity: 1 }],
     status: "completed",
   });
 
@@ -1805,9 +1809,11 @@ test("submitReview : le vendeur note l'acheteur d'une commande complétée (sens
 });
 
 test("submitReview : un second appel sur le même triplet (orderId, sellerId, direction) ne réécrit jamais l'avis ni les stats", async () => {
+  await db.collection("annonces").doc("annonce-review-3").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order3").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-3", quantity: 1 }],
     status: "completed",
   });
 
@@ -1831,14 +1837,17 @@ test("submitReview : un second appel sur le même triplet (orderId, sellerId, di
 });
 
 test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", async () => {
+  await db.collection("annonces").doc("annonce-review-4").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order4").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-4", quantity: 1 }],
     status: "completed",
   });
   await db.collection("orders").doc("order5").set({
     buyerId: "buyer2",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-4", quantity: 1 }],
     status: "completed",
   });
 
@@ -1858,14 +1867,18 @@ test("submitReview : la moyenne se recalcule correctement sur plusieurs avis", a
 });
 
 test("submitReview : rejette une commande pas encore complétée, un tiers hors commande, une note invalide et un vendeur hors commande", async () => {
+  await db.collection("annonces").doc("annonce-review-paid").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order-paid").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-paid", quantity: 1 }],
     status: "paid",
   });
+  await db.collection("annonces").doc("annonce-review-completed").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order-completed").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-completed", quantity: 1 }],
     status: "completed",
   });
 
@@ -1942,10 +1955,40 @@ test("submitReview : rejette une commande pas encore complétée, un tiers hors 
   );
 });
 
+test("submitReview : un `order.sellerIds` falsifié (tiers étranger à l'annonce réelle) ne permet jamais de lui poster un avis", async () => {
+  // L'acheteur a réellement acheté chez seller1 (l'annonce référencée par
+  // `items` le confirme), mais a mis "victim" dans `sellerIds` — jamais
+  // recoupé avec les articles avant ce correctif.
+  await db.collection("annonces").doc("annonce-review-spoof").set({ sellerId: "seller1", price: 100 });
+  await db.collection("orders").doc("order-spoofed-seller").set({
+    buyerId: "buyer1",
+    sellerIds: ["victim"],
+    items: [{ sellerId: "victim", productId: "annonce-review-spoof", quantity: 1 }],
+    status: "completed",
+  });
+
+  await assert.rejects(
+    () =>
+      functions.submitReview.run({
+        data: { orderId: "order-spoofed-seller", sellerId: "victim", rating: 1, comment: "faux avis" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+
+  const profileSnap = await db.collection("publicProfiles").doc("victim").get();
+  assert.equal(profileSnap.exists, false, "aucun profil ne doit être créé/modifié pour la victime");
+});
+
 test("submitReview : accepte aussi une commande déjà reversée (payout_sent), pas seulement completed", async () => {
+  await db.collection("annonces").doc("annonce-review-payout").set({ sellerId: "seller1", price: 100 });
   await db.collection("orders").doc("order-payout").set({
     buyerId: "buyer1",
     sellerIds: ["seller1"],
+    items: [{ sellerId: "seller1", productId: "annonce-review-payout", quantity: 1 }],
     status: "payout_sent",
   });
 

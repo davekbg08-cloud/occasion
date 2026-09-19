@@ -147,6 +147,44 @@ service cloud.firestore {
       && (!( 'dateModification' in data) || data.dateModification == null || data.dateModification is timestamp);
     }
 
+    // `diff()` sur un document annonce (~30 champs, alias FR/EN compris) est
+    // déjà coûteux à évaluer pour l'émulateur Firestore (limite à 1000
+    // sous-expressions) : la branche propriétaire compare directement les
+    // compteurs (quelques `.get()` ciblés) plutôt que d'ajouter un second
+    // `.diff()` sur tout le document, qui faisait dépasser cette limite.
+    function annonceUpdateAllowed(before, afterData) {
+      return (
+        (
+          isSeller()
+          && (
+            before.sellerId == request.auth.uid
+            || before.vendeurId == request.auth.uid
+            || before.userId == request.auth.uid
+          )
+          // validAnnonce() ne fait que type-vérifier ces compteurs : sans
+          // cette égalité, le vendeur propriétaire pourrait leur donner
+          // n'importe quelle valeur à chaque modification de son annonce
+          // (faux signal de popularité), y compris `views`/`vues`, en
+          // principe serveur-only (voir `viewers` plus bas).
+          && afterData.get('views', null) == before.get('views', null)
+          && afterData.get('vues', null) == before.get('vues', null)
+          && afterData.get('favoritesCount', null) == before.get('favoritesCount', null)
+          && afterData.get('favoris', null) == before.get('favoris', null)
+          && afterData.get('messagesCount', null) == before.get('messagesCount', null)
+        )
+        // `messagesCount` (jamais `favoris`, qu'aucun code client n'écrit
+        // réellement — l'ancienne règle l'autorisait à tort pour N'IMPORTE
+        // QUEL utilisateur connecté, à N'IMPORTE QUELLE valeur, sur
+        // N'IMPORTE QUELLE annonce) : incrément de +1 exactement, par
+        // n'importe quel participant qui démarre une conversation (voir
+        // `ChatService.getOrCreateChat`), jamais une valeur arbitraire.
+        || (
+          afterData.diff(before).affectedKeys().hasOnly(['messagesCount', 'dateModification'])
+          && afterData.messagesCount == before.messagesCount + 1
+        )
+      );
+    }
+
     function validFavori(data) {
       return hasOnly(data, ['id', 'utilisateurId', 'annonceId', 'dateAjout'])
         && stringField(data, 'utilisateurId', 128)
@@ -236,26 +274,7 @@ service cloud.firestore {
         && validAnnonce(request.resource.data);
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
-        && (
-          (
-            isSeller()
-            && (
-              resource.data.sellerId == request.auth.uid
-              || resource.data.vendeurId == request.auth.uid
-              || resource.data.userId == request.auth.uid
-            )
-          )
-          // `messagesCount` (jamais `favoris`, qu'aucun code client
-          // n'écrit réellement — l'ancienne règle l'autorisait à tort pour
-          // N'IMPORTE QUEL utilisateur connecté, à N'IMPORTE QUELLE valeur,
-          // sur N'IMPORTE QUELLE annonce) : incrément de +1 exactement, par
-          // n'importe quel participant qui démarre une conversation (voir
-          // `ChatService.getOrCreateChat`), jamais une valeur arbitraire.
-          || (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messagesCount', 'dateModification'])
-            && request.resource.data.messagesCount == resource.data.messagesCount + 1
-          )
-        );
+        && annonceUpdateAllowed(resource.data, request.resource.data);
       allow delete: if signedIn()
         && isSeller()
         && (
@@ -464,40 +483,24 @@ service cloud.firestore {
         && resource.data.sellerId == request.auth.uid;
     }
 
+    // Collections héritées, remplacées par `chats`/`chats/{id}/messages`
+    // (aucun écran de l'app n'y lit/écrit — voir chat_service.dart) :
+    // écriture désactivée pour éviter toute altération de contenu/expéditeur
+    // après coup (validMessage() ne fige que les types/tailles de champs,
+    // jamais l'immutabilité de expediteurId/contenu/dateEnvoi une fois créé).
     match /messages/{messageId} {
       allow read: if signedIn()
         && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.expediteurId == request.auth.uid
-        && validMessage(request.resource.data);
-      allow update: if signedIn()
-        && validMessage(request.resource.data)
-        && (resource.data.expediteurId == request.auth.uid || resource.data.destinataireId == request.auth.uid);
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /conversations/{conversationId} {
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
-      allow create: if signedIn()
-        && request.auth.uid in request.resource.data.participants
-        && validConversation(request.resource.data);
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.participants
-        && validConversation(request.resource.data);
-      allow delete: if false;
+      allow create, update, delete: if false;
 
       match /messages/{messageId} {
         allow read: if isConversationParticipant(conversationId);
-        allow create: if isConversationParticipant(conversationId)
-          && request.resource.data.expediteurId == request.auth.uid
-          && validMessage(request.resource.data);
-        allow update: if isConversationParticipant(conversationId)
-          && validMessage(request.resource.data)
-          && (
-            resource.data.expediteurId == request.auth.uid
-            || resource.data.destinataireId == request.auth.uid
-          );
-        allow delete: if false;
+        allow create, update, delete: if false;
       }
     }
 
@@ -629,6 +632,10 @@ service cloud.firestore {
       // 'paid'/'failed' reste réservé au serveur.
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
+        // Uniquement avant règlement final : une fois 'paid'/'failed' posé
+        // par le serveur (Admin SDK, contourne ces règles), le client ne
+        // doit plus pouvoir repasser l'intent en vérification manuelle.
+        && resource.data.status in ['pending', 'awaiting_manual_verification']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'manualPaymentMethod', 'manualPaymentReference', 'updatedAt'
         ])
@@ -657,14 +664,27 @@ service cloud.firestore {
           (
             resource.data.buyerId == request.auth.uid
             && (
+              // Avant tout paiement confirmé uniquement : une fois 'paid'
+              // (fonds captés), seules les branches séquestre ci-dessous
+              // (elles-mêmes gardées par resource.data.status == 'paid')
+              // peuvent faire évoluer la commande — sinon l'acheteur
+              // pourrait annuler une commande déjà payée/livrée/en litige
+              // et garder à la fois l'article et l'argent.
               (
-                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                resource.data.status in [
+                  'pending_payment', 'processing_payment',
+                  'awaiting_manual_verification', 'payment_failed'
+                ]
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                   'status', 'updatedAt'
                 ])
                 && request.resource.data.status in ['processing_payment', 'cancelled']
               )
               || (
-                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                resource.data.status in [
+                  'pending_payment', 'processing_payment', 'payment_failed'
+                ]
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                   'status', 'updatedAt', 'manualPaymentMethod', 'manualPaymentReference'
                 ])
                 && request.resource.data.status == 'awaiting_manual_verification'

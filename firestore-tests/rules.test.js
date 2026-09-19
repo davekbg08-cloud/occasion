@@ -177,6 +177,85 @@ test("un client ne peut pas passer une commande à 'paid' directement", async ()
   );
 });
 
+test("un acheteur peut annuler une commande tant qu'elle n'a pas encore été payée", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("orders").doc("order-cancel-early").set({
+      buyerId: "buyer1",
+      status: "pending_payment",
+    });
+  });
+  await assertSucceeds(
+    buyer.collection("orders").doc("order-cancel-early").update({ status: "cancelled" })
+  );
+});
+
+test("régression : un acheteur ne peut plus annuler une commande déjà payée (il garderait l'article ET l'argent)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("orders").doc("order-cancel-paid").set({
+      buyerId: "buyer1",
+      status: "paid",
+    });
+  });
+  await assertFails(
+    buyer.collection("orders").doc("order-cancel-paid").update({ status: "cancelled" })
+  );
+});
+
+test("régression : un acheteur ne peut plus annuler une commande déjà complétée (contourne le reversement au vendeur)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("orders").doc("order-cancel-completed").set({
+      buyerId: "buyer1",
+      status: "completed",
+    });
+  });
+  await assertFails(
+    buyer.collection("orders").doc("order-cancel-completed").update({ status: "cancelled" })
+  );
+});
+
+test("régression : un acheteur ne peut plus renvoyer une commande en litige vers 'cancelled' lui-même (contourne la résolution admin)", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("orders").doc("order-cancel-disputed").set({
+      buyerId: "buyer1",
+      status: "disputed",
+    });
+  });
+  await assertFails(
+    buyer.collection("orders").doc("order-cancel-disputed").update({ status: "cancelled" })
+  );
+});
+
+test("régression : les collections `messages`/`conversations` héritées (remplacées par `chats`) sont désormais en lecture seule", async () => {
+  const sender = testEnv.authenticatedContext("buyer1").firestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("messages").doc("msg1").set({
+      expediteurId: "buyer1",
+      destinataireId: "seller1",
+      contenu: "Bonjour",
+    });
+    await ctx.firestore().collection("conversations").doc("conv1").set({
+      participants: ["buyer1", "seller1"],
+    });
+  });
+  await assertFails(
+    sender.collection("messages").doc("msg2").set({
+      expediteurId: "buyer1",
+      destinataireId: "seller1",
+      contenu: "Nouveau message",
+    })
+  );
+  await assertFails(
+    sender.collection("messages").doc("msg1").update({ contenu: "Message modifié après coup" })
+  );
+  await assertFails(
+    sender.collection("conversations").doc("conv1").update({ participants: ["buyer1", "seller1", "attacker"] })
+  );
+});
+
 test("un client ne peut pas passer un paymentIntent à 'paid' directement", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertSucceeds(
@@ -830,6 +909,32 @@ test("un utilisateur ne peut plus incrémenter directement les vues d'une annonc
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertFails(
     buyer.collection("annonces").doc("annonce1").update({ vues: 1 })
+  );
+});
+
+test("régression : le vendeur propriétaire ne peut plus non plus gonfler vues/favoris/favoritesCount sur sa propre annonce", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("annonce1")
+      .set(validAnnonceSeed());
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("annonces").doc("annonce1").update({ vues: 999999 })
+  );
+  await assertFails(
+    seller.collection("annonces").doc("annonce1").update({ favoris: 999999 })
+  );
+  await assertFails(
+    seller.collection("annonces").doc("annonce1").update({ favoritesCount: 999999 })
+  );
+  // Le reste de l'annonce (titre, prix, ...) reste bien modifiable par son
+  // propriétaire — seuls les compteurs de popularité sont gelés.
+  await assertSucceeds(
+    seller.collection("annonces").doc("annonce1").update({ title: "Titre modifié" })
   );
 });
 
