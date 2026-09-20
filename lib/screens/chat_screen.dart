@@ -76,7 +76,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
-    ref.read(chatNotifierProvider.notifier).clearMessages();
+    try {
+      ref.read(chatNotifierProvider.notifier).clearMessages();
+    } catch (_) {
+      // Best-effort : si le ProviderScope est déjà en cours de démontage
+      // (ex. relance abrupte de l'app), l'état en mémoire disparaît de
+      // toute façon avec lui — pas la peine de faire planter l'app pour
+      // un nettoyage qui n'a plus d'effet observable.
+    }
     super.dispose();
   }
 
