@@ -152,10 +152,14 @@ function androidChannelIdForType(type) {
     case "subscription":
     case "subscription_request":
       return "occasion_orders";
+    case "status":
+    case "search_alert":
+      return "occasion_listings";
     default:
       return "occasion_general";
   }
 }
+exports.androidChannelIdForType = androidChannelIdForType;
 
 /**
  * Jetons FCM actifs d'un utilisateur, un par appareil connecté
@@ -1388,7 +1392,7 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
         statusId: event.params.statusId,
       },
       android: {
-        priority: "normal",
+        priority: "high",
         notification: { channelId: androidChannelIdForType("status") },
       },
       apns: {

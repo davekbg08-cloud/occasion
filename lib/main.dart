@@ -16,6 +16,7 @@ import 'models/annonce.dart';
 import 'models/chat.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/notification_provider.dart';
 import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
@@ -48,6 +49,7 @@ import 'screens/simple_placeholder_screen.dart';
 import 'screens/status_feed_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'search/screens/search_screen.dart';
+import 'services/app_badge_service.dart';
 import 'services/notification_service.dart';
 import 'services/chat_service.dart';
 import 'services/firestore_bootstrap.dart';
@@ -618,6 +620,7 @@ class _BuyerNavState extends ConsumerState<BuyerNav> {
 
     _listenChats(user.id);
     final unreadCount = _unreadCount(ref, user.id);
+    _watchAppBadge(ref, user.id);
 
     // Ne peut plus être `const` : StatusFeedScreen a besoin de savoir si
     // son onglet est actuellement affiché (voir isVisible) pour couper le
@@ -707,6 +710,7 @@ class _SellerNavState extends ConsumerState<SellerNav> {
 
     _listenChats(user.id);
     final unreadCount = _unreadCount(ref, user.id);
+    _watchAppBadge(ref, user.id);
 
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
@@ -770,6 +774,15 @@ int _unreadCount(WidgetRef ref, String userId) {
       ),
     ),
   );
+}
+
+/// Met à jour le badge numérique de l'icône de l'app (comme WhatsApp) à
+/// chaque changement du total messages + notifications non lus, tant que
+/// l'app tourne (foreground/arrière-plan actif) — voir `AppBadgeService`.
+void _watchAppBadge(WidgetRef ref, String userId) {
+  ref.listen<int>(appBadgeTotalProvider(userId), (previous, next) {
+    AppBadgeService.update(next);
+  });
 }
 
 class _OpenChatScreen extends ConsumerStatefulWidget {

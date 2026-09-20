@@ -79,10 +79,21 @@ class NotificationService {
     vibrationPattern: Int64List.fromList([0, 400, 200, 400, 200, 400]),
   );
 
+  static final _listingsChannel = AndroidNotificationChannel(
+    'occasion_listings',
+    'Annonces et feed',
+    description:
+        'Nouvelles annonces correspondant à vos alertes, nouvelles publications du feed',
+    importance: Importance.high,
+    playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList([0, 400, 200, 400, 200, 400]),
+  );
+
   static final _generalChannel = AndroidNotificationChannel(
     'occasion_general',
     'Autres notifications',
-    description: 'Nouveaux statuts et autres notifications',
+    description: 'Autres notifications',
     importance: Importance.high,
     playSound: true,
     enableVibration: true,
@@ -92,6 +103,7 @@ class NotificationService {
   static List<AndroidNotificationChannel> get _channels => [
     _messagesChannel,
     _ordersChannel,
+    _listingsChannel,
     _generalChannel,
   ];
 
@@ -105,6 +117,9 @@ class NotificationService {
       case 'subscription':
       case 'subscription_request':
         return _ordersChannel;
+      case 'status':
+      case 'search_alert':
+        return _listingsChannel;
       default:
         return _generalChannel;
     }

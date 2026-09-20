@@ -2406,3 +2406,16 @@ test("régression : onUserCreated tolère une redélivrance du trigger sans rég
     "le compteur du parrain ne doit jamais être réincrémenté sur redélivrance"
   );
 });
+
+test("androidChannelIdForType : annonces (alertes de recherche) et feed routées vers le canal dédié occasion_listings", () => {
+  assert.equal(functions.androidChannelIdForType("status"), "occasion_listings");
+  assert.equal(functions.androidChannelIdForType("search_alert"), "occasion_listings");
+});
+
+test("androidChannelIdForType : les autres types ne sont jamais affectés par l'ajout du canal occasion_listings", () => {
+  assert.equal(functions.androidChannelIdForType("message"), "occasion_messages");
+  assert.equal(functions.androidChannelIdForType("order"), "occasion_orders");
+  assert.equal(functions.androidChannelIdForType("subscription"), "occasion_orders");
+  assert.equal(functions.androidChannelIdForType("price_drop"), "occasion_general");
+  assert.equal(functions.androidChannelIdForType("gift"), "occasion_general");
+});
