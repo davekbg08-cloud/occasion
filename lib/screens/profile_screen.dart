@@ -2,22 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/occasion_image.dart';
-
-const _privacyPolicyUrl =
-    'https://davekbg08-cloud.github.io/occasion/privacy.html';
-
-Future<void> _openPrivacyPolicy() => launchUrl(
-  Uri.parse(_privacyPolicyUrl),
-  mode: LaunchMode.externalApplication,
-);
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -49,7 +41,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isSeller ? 'Mon compte vendeur' : 'Mon compte acheteur'),
+        title: const Text('Profil'),
         centerTitle: true,
         actions: [
           IconButton(
@@ -63,65 +55,48 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
-            _ProfileAvatar(
-              imageUrl: user?.profileImageUrl,
-              fallbackIcon: isSeller ? Icons.storefront : Icons.person,
-              color: isSeller ? Colors.blue : Colors.green,
-            ),
-            const SizedBox(height: 12),
-            if (user != null)
-              OutlinedButton.icon(
-                onPressed: authState.isLoading ? null : _choosePhotoSource,
-                icon: authState.isLoading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.photo_camera_outlined),
-                label: const Text('Modifier la photo'),
-              ),
-            const SizedBox(height: 16),
-            Text(
-              authState.isAuthenticated
-                  ? user?.name ?? 'Bienvenue'
-                  : 'Non connecté',
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              authState.isAuthenticated
-                  ? user?.phone.isNotEmpty == true
-                        ? user!.phone
-                        : 'Numéro non renseigné'
-                  : 'Connecte-toi pour accéder à ton compte.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 17, color: Colors.grey),
-            ),
-            const SizedBox(height: 30),
-            const Divider(),
-            if (authState.isAuthenticated && user != null) const _AdminEntry(),
-            if (authState.isAuthenticated && user != null)
-              if (isSeller)
-                _SellerOptions(
-                  userId: user.id,
-                  subscriptionSubtitle: subscriptionSubtitle,
-                  onLogout: () => _logout(context, user.id),
-                )
-              else
-                _BuyerOptions(
-                  userId: user.id,
-                  onLogout: () => _logout(context, user.id),
-                )
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        children: [
+          _ProfileHeader(
+            imageUrl: user?.profileImageUrl,
+            name: authState.isAuthenticated
+                ? user?.name ?? 'Bienvenue'
+                : 'Non connecté',
+            details: authState.isAuthenticated
+                ? (user?.phone.isNotEmpty == true
+                      ? user!.phone
+                      : 'Numéro non renseigné')
+                : 'Connecte-toi pour accéder à ton compte.',
+            roleLabel: isSeller ? 'Vendeur' : 'Acheteur',
+            isSeller: isSeller,
+            isLoading: authState.isLoading,
+            onEditPhoto: user == null ? null : _choosePhotoSource,
+          ),
+          const SizedBox(height: 8),
+          if (authState.isAuthenticated && user != null) ...[
+            const _AdminSection(),
+            if (isSeller)
+              _SellerSections(
+                userId: user.id,
+                subscriptionSubtitle: subscriptionSubtitle,
+              )
             else
-              const _SignedOutOptions(),
-          ],
-        ),
+              const _BuyerSections(),
+            _Section(
+              title: 'Compte',
+              children: [
+                _ProfileTile(
+                  icon: Icons.settings_outlined,
+                  title: 'Paramètres et confidentialité',
+                  onTap: () => context.push('/account-settings'),
+                ),
+                _LogoutTile(onTap: () => _logout(context, user.id)),
+              ],
+            ),
+          ] else
+            const _SignedOutOptions(),
+        ],
       ),
     );
   }
@@ -190,37 +165,163 @@ class _ProfileAvatar extends StatelessWidget {
     required this.imageUrl,
     required this.fallbackIcon,
     required this.color,
+    this.size = 110,
   });
 
   final String? imageUrl;
   final IconData fallbackIcon;
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final url = imageUrl?.trim();
     if (url == null || url.isEmpty) {
       return CircleAvatar(
-        radius: 55,
+        radius: size / 2,
         backgroundColor: color,
-        child: Icon(fallbackIcon, size: 62, color: Colors.white),
+        child: Icon(fallbackIcon, size: size * 0.56, color: Colors.white),
       );
     }
 
     return ClipOval(
       child: OccasionImage.thumbnail(
         url,
-        width: 110,
-        height: 110,
-        cacheWidth: 220,
-        cacheHeight: 220,
+        width: size,
+        height: size,
+        cacheWidth: (size * 2).round(),
+        cacheHeight: (size * 2).round(),
       ),
     );
   }
 }
 
-class _AdminEntry extends StatelessWidget {
-  const _AdminEntry();
+class _ProfileHeader extends StatelessWidget {
+  const _ProfileHeader({
+    required this.imageUrl,
+    required this.name,
+    required this.details,
+    required this.roleLabel,
+    required this.isSeller,
+    required this.isLoading,
+    required this.onEditPhoto,
+  });
+
+  final String? imageUrl;
+  final String name;
+  final String details;
+  final String roleLabel;
+  final bool isSeller;
+  final bool isLoading;
+  final VoidCallback? onEditPhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            _ProfileAvatar(
+              imageUrl: imageUrl,
+              fallbackIcon: isSeller ? Icons.storefront : Icons.person,
+              color: isSeller ? AppColors.primary : Colors.green,
+              size: 64,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(details, style: TextStyle(color: Colors.grey[400])),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      roleLabel,
+                      style: TextStyle(color: accent, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onEditPhoto != null)
+              IconButton(
+                tooltip: 'Modifier la photo',
+                onPressed: isLoading ? null : onEditPhoto,
+                icon: isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.photo_camera_outlined),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              title,
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Card(
+            margin: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: children),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Outils d'administration : séparés du menu vendeur/acheteur, visibles
+/// uniquement pour un administrateur (le routeur les protège aussi).
+class _AdminSection extends StatelessWidget {
+  const _AdminSection();
 
   @override
   Widget build(BuildContext context) {
@@ -228,27 +329,22 @@ class _AdminEntry extends StatelessWidget {
       future: PaymentSettlementService().isCurrentUserAdmin(),
       builder: (context, snapshot) {
         if (snapshot.data != true) return const SizedBox.shrink();
-        return Column(
+        return _Section(
+          title: 'Administration',
           children: [
-            ListTile(
-              leading: const Icon(
-                Icons.verified_user_outlined,
-                color: Colors.orange,
-              ),
-              title: const Text('Paiements Orange Money à vérifier'),
-              trailing: const Icon(Icons.chevron_right),
+            _ProfileTile(
+              icon: Icons.verified_user_outlined,
+              title: 'Paiements Orange Money à vérifier',
               onTap: () => context.push('/admin/orders'),
             ),
-            ListTile(
-              leading: const Icon(Icons.flag_outlined, color: Colors.orange),
-              title: const Text('Signalements'),
-              trailing: const Icon(Icons.chevron_right),
+            _ProfileTile(
+              icon: Icons.flag_outlined,
+              title: 'Signalements',
               onTap: () => context.push('/admin/reports'),
             ),
-            ListTile(
-              leading: const Icon(Icons.stars_outlined, color: Colors.orange),
-              title: const Text('Remise à zéro des points (exceptionnelle)'),
-              trailing: const Icon(Icons.chevron_right),
+            _ProfileTile(
+              icon: Icons.stars_outlined,
+              title: 'Remise à zéro des points',
               onTap: () => context.push('/admin/loyalty'),
             ),
           ],
@@ -258,151 +354,102 @@ class _AdminEntry extends StatelessWidget {
   }
 }
 
-class _BuyerOptions extends StatelessWidget {
-  const _BuyerOptions({required this.userId, required this.onLogout});
-
-  final String userId;
-  final VoidCallback onLogout;
+class _BuyerSections extends StatelessWidget {
+  const _BuyerSections();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _ProfileTile(
-          icon: Icons.shopping_cart_outlined,
-          title: 'Mon panier',
-          onTap: () => context.push('/cart'),
+        _Section(
+          title: 'Mes achats',
+          children: [
+            _ProfileTile(
+              icon: Icons.shopping_cart_outlined,
+              title: 'Mon panier',
+              onTap: () => context.push('/cart'),
+            ),
+            _ProfileTile(
+              icon: Icons.receipt_long_outlined,
+              title: 'Mes commandes',
+              onTap: () => context.push('/orders'),
+            ),
+            _ProfileTile(
+              icon: Icons.credit_card,
+              title: 'Moyens de paiement',
+              onTap: () => context.push('/payment'),
+            ),
+          ],
         ),
-        _ProfileTile(
-          icon: Icons.receipt_long_outlined,
-          title: 'Mes commandes',
-          onTap: () => context.push('/orders'),
+        _Section(
+          title: 'Récompenses',
+          children: [
+            _ProfileTile(
+              icon: Icons.stars_outlined,
+              title: 'Mes points de fidélité',
+              onTap: () => context.push('/loyalty-points'),
+            ),
+            _ProfileTile(
+              icon: Icons.group_add_outlined,
+              title: 'Parrainage',
+              onTap: () => context.push('/referral'),
+            ),
+          ],
         ),
-        _ProfileTile(
-          icon: Icons.credit_card,
-          title: 'Moyens de paiement',
-          onTap: () => context.push('/payment'),
-        ),
-        _ProfileTile(
-          icon: Icons.stars_outlined,
-          title: 'Mes points de fidélité',
-          onTap: () => context.push('/loyalty-points'),
-        ),
-        _ProfileTile(
-          icon: Icons.card_giftcard,
-          title: 'Parrainage',
-          onTap: () => context.push('/referral'),
-        ),
-        _ProfileTile(
-          icon: Icons.notifications_active_outlined,
-          title: 'Mes alertes de recherche',
-          onTap: () => context.push('/search-alerts'),
-        ),
-        _ProfileTile(
-          icon: Icons.chat_bubble_outline,
-          title: 'Messages',
-          onTap: () => context.push('/buyer-messages'),
-        ),
-        _ProfileTile(
-          icon: Icons.block,
-          title: 'Utilisateurs bloqués',
-          onTap: () => context.push('/blocked-users', extra: userId),
-        ),
-        _ProfileTile(
-          icon: Icons.privacy_tip_outlined,
-          title: 'Politique de confidentialité',
-          onTap: _openPrivacyPolicy,
-        ),
-        _ProfileTile(
-          icon: Icons.delete_outline,
-          title: 'Supprimer mon compte',
-          onTap: () => context.push('/delete-account', extra: userId),
-        ),
-        const Divider(),
-        _LogoutTile(onTap: onLogout),
       ],
     );
   }
 }
 
-class _SellerOptions extends StatelessWidget {
-  const _SellerOptions({
+class _SellerSections extends StatelessWidget {
+  const _SellerSections({
     required this.userId,
     required this.subscriptionSubtitle,
-    required this.onLogout,
   });
 
   final String userId;
   final String subscriptionSubtitle;
-  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _ProfileTile(
-          icon: Icons.storefront_outlined,
-          title: 'Profil vendeur',
-          onTap: () => context.go('/seller-dashboard'),
+        _Section(
+          title: 'Ma boutique',
+          children: [
+            _ProfileTile(
+              icon: Icons.workspace_premium_outlined,
+              title: 'Abonnement vendeur',
+              subtitle: subscriptionSubtitle,
+              onTap: () => context.push('/subscription'),
+            ),
+            _ProfileTile(
+              icon: Icons.storefront_outlined,
+              title: 'Voir ma page vendeur',
+              onTap: () => context.push('/seller/$userId'),
+            ),
+          ],
         ),
-        _ProfileTile(
-          icon: Icons.add_box_outlined,
-          title: 'Publier une annonce',
-          onTap: () => context.push('/publish-product'),
+        _Section(
+          title: 'Récompenses',
+          children: [
+            _ProfileTile(
+              icon: Icons.card_giftcard_outlined,
+              title: 'Mon catalogue de cadeaux',
+              onTap: () => context.push('/gift-catalog'),
+            ),
+            _ProfileTile(
+              icon: Icons.redeem_outlined,
+              title: 'Demandes d\'échange',
+              onTap: () => context.push('/gift-redemptions'),
+            ),
+            _ProfileTile(
+              icon: Icons.group_add_outlined,
+              title: 'Parrainage',
+              onTap: () => context.push('/referral'),
+            ),
+          ],
         ),
-        _ProfileTile(
-          icon: Icons.list_alt_outlined,
-          title: 'Mes annonces',
-          onTap: () => context.push('/my-listings'),
-        ),
-        _ProfileTile(
-          icon: Icons.local_shipping_outlined,
-          title: 'Commandes reçues',
-          onTap: () => context.push('/seller-orders'),
-        ),
-        _ProfileTile(
-          icon: Icons.bar_chart_outlined,
-          title: 'Statistiques',
-          onTap: () => context.push('/seller-statistics'),
-        ),
-        _ProfileTile(
-          icon: Icons.card_giftcard_outlined,
-          title: 'Mon catalogue de cadeaux',
-          onTap: () => context.push('/gift-catalog'),
-        ),
-        _ProfileTile(
-          icon: Icons.redeem_outlined,
-          title: 'Demandes d\'échange',
-          onTap: () => context.push('/gift-redemptions'),
-        ),
-        _ProfileTile(
-          icon: Icons.card_membership,
-          title: 'Abonnement vendeur',
-          subtitle: subscriptionSubtitle,
-          onTap: () => context.push('/subscription'),
-        ),
-        _ProfileTile(
-          icon: Icons.card_giftcard,
-          title: 'Parrainage',
-          onTap: () => context.push('/referral'),
-        ),
-        _ProfileTile(
-          icon: Icons.chat_bubble_outline,
-          title: 'Messages',
-          onTap: () => context.push('/seller-messages'),
-        ),
-        _ProfileTile(
-          icon: Icons.privacy_tip_outlined,
-          title: 'Politique de confidentialité',
-          onTap: _openPrivacyPolicy,
-        ),
-        _ProfileTile(
-          icon: Icons.delete_outline,
-          title: 'Supprimer mon compte',
-          onTap: () => context.push('/delete-account', extra: userId),
-        ),
-        const Divider(),
-        _LogoutTile(onTap: onLogout),
       ],
     );
   }
@@ -461,7 +508,7 @@ class _ProfileTile extends StatelessWidget {
       leading: Icon(icon),
       title: Text(title),
       subtitle: subtitle == null ? null : Text(subtitle!),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 18),
+      trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
   }

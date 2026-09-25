@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'annonce/screens/create_annonce_screen.dart';
+import 'screens/account_settings_screen.dart';
+import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
@@ -100,6 +102,16 @@ class OccasionApp extends StatelessWidget {
         path: '/seller-dashboard',
         builder: (context, state) =>
             const _RoleGuard(role: UserRole.seller, child: SellerNav()),
+      ),
+      GoRoute(
+        path: '/statuts',
+        builder: (context, state) =>
+            const _AuthGuard(child: StatusFeedScreen()),
+      ),
+      GoRoute(
+        path: '/account-settings',
+        builder: (context, state) =>
+            const _AuthGuard(child: AccountSettingsScreen()),
       ),
       GoRoute(
         path: '/scan',
@@ -280,24 +292,13 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/buyer-messages',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: ChatListScreen(
-            title: 'Messages privés',
-            emptySubtitle: 'Contactez un vendeur depuis une annonce.',
-          ),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.buyer, child: ChatListScreen()),
       ),
       GoRoute(
         path: '/seller-messages',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.seller,
-          child: ChatListScreen(
-            title: 'Messages acheteurs',
-            emptySubtitle:
-                'Les conversations avec les acheteurs apparaîtront ici.',
-          ),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.seller, child: ChatListScreen()),
       ),
       GoRoute(
         path: '/chat-room',
@@ -393,14 +394,7 @@ class OccasionApp extends StatelessWidget {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Occasion',
-      theme: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(primary: Colors.blue),
-        scaffoldBackgroundColor: Colors.black,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.grey[900],
-          elevation: 0,
-        ),
-      ),
+      theme: AppTheme.dark(),
       routerConfig: _router,
     );
   }
@@ -593,152 +587,94 @@ class MainNav extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authNotifierProvider).currentUser;
     if (user == null) return const _AuthPage();
-    return user.isSeller ? const SellerNav() : const BuyerNav();
+    return const AppShell();
   }
 }
 
-class BuyerNav extends ConsumerStatefulWidget {
+/// Anciennes entrées acheteur/vendeur : conservées pour les routes et
+/// liens existants (`/buyer-home`, `/seller-dashboard`), elles affichent
+/// désormais la même navigation unifiée [AppShell].
+class BuyerNav extends StatelessWidget {
   const BuyerNav({super.key});
 
   @override
-  ConsumerState<BuyerNav> createState() => _BuyerNavState();
+  Widget build(BuildContext context) => const AppShell();
 }
 
-class _BuyerNavState extends ConsumerState<BuyerNav> {
-  int _index = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(authNotifierProvider).currentUser;
-    if (user == null) return const _AuthPage();
-    if (!user.isBuyer) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) context.go('/seller-dashboard');
-      });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    _listenChats(user.id);
-    final unreadCount = _unreadCount(ref, user.id);
-    _watchAppBadge(ref, user.id);
-
-    // Ne peut plus être `const` : StatusFeedScreen a besoin de savoir si
-    // son onglet est actuellement affiché (voir isVisible) pour couper le
-    // son d'une vidéo en cours quand on bascule vers un autre onglet — un
-    // IndexedStack garde tous ses enfants montés en permanence, il ne les
-    // détruit jamais en changeant d'onglet. Ça n'affecte pas la
-    // préservation d'état des autres onglets (basée sur position/type
-    // dans l'arbre, pas sur la constness du widget).
-    final pages = [
-      StatusFeedScreen(isVisible: _index == 0),
-      const ProductListScreen(),
-      const ChatListScreen(
-        title: 'Messages privés',
-        emptySubtitle: 'Contactez un vendeur depuis une annonce.',
-      ),
-      const ProfileScreen(),
-    ];
-
-    return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.play_circle_outline),
-            selectedIcon: Icon(Icons.play_circle),
-            label: 'Feed',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront),
-            label: 'Produits',
-          ),
-          NavigationDestination(
-            icon: _MessageBadge(unreadCount: unreadCount),
-            selectedIcon: const Icon(Icons.chat_bubble),
-            label: 'Messages',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Compte',
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _listenChats(String userId) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(chatNotifierProvider.notifier).listenChats(userId);
-    });
-  }
-}
-
-class SellerNav extends ConsumerStatefulWidget {
+class SellerNav extends StatelessWidget {
   const SellerNav({super.key});
 
   @override
-  ConsumerState<SellerNav> createState() => _SellerNavState();
+  Widget build(BuildContext context) => const AppShell();
 }
 
-class _SellerNavState extends ConsumerState<SellerNav> {
-  int _index = 0;
+/// Navigation unique (refonte) : Accueil, Chercher, Vendre (vendeurs
+/// uniquement), Messages, Profil — au lieu de deux applications séparées
+/// acheteur/vendeur avec des menus en double. Aucune fonction n'est
+/// retirée : les écrans secondaires sont rangés dans Vendre et Profil.
+class AppShell extends ConsumerStatefulWidget {
+  const AppShell({super.key});
 
-  static const _pages = [
-    SellerDashboardScreen(),
-    MyListingsScreen(),
-    ChatListScreen(
-      title: 'Messages acheteurs',
-      emptySubtitle: 'Les conversations avec les acheteurs apparaîtront ici.',
-    ),
-    ProfileScreen(),
-  ];
+  @override
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  int _index = 0;
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authNotifierProvider).currentUser;
     if (user == null) return const _AuthPage();
-    if (!user.isSeller) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) context.go('/buyer-home');
-      });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
 
     _listenChats(user.id);
     final unreadCount = _unreadCount(ref, user.id);
     _watchAppBadge(ref, user.id);
 
+    final isSeller = user.isSeller;
+    final pages = <Widget>[
+      const ProductListScreen(),
+      const SearchScreen(),
+      if (isSeller) const SellerDashboardScreen(),
+      const ChatListScreen(),
+      const ProfileScreen(),
+    ];
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: 'Accueil',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.search),
+        selectedIcon: Icon(Icons.manage_search),
+        label: 'Chercher',
+      ),
+      if (isSeller)
+        const NavigationDestination(
+          icon: Icon(Icons.add_circle_outline),
+          selectedIcon: Icon(Icons.add_circle),
+          label: 'Vendre',
+        ),
+      NavigationDestination(
+        icon: _MessageBadge(unreadCount: unreadCount),
+        selectedIcon: const Icon(Icons.chat_bubble),
+        label: 'Messages',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.person_outline),
+        selectedIcon: Icon(Icons.person),
+        label: 'Profil',
+      ),
+    ];
+    final index = _index.clamp(0, pages.length - 1);
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
+        selectedIndex: index,
         onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.list_alt_outlined),
-            selectedIcon: Icon(Icons.list_alt),
-            label: 'Annonces',
-          ),
-          NavigationDestination(
-            icon: _MessageBadge(unreadCount: unreadCount),
-            selectedIcon: const Icon(Icons.chat_bubble),
-            label: 'Messages',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront),
-            label: 'Profil',
-          ),
-        ],
+        destinations: destinations,
       ),
     );
   }

@@ -4,11 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../annonce/providers/annonce_provider.dart';
+import '../models/annonce.dart';
 import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
+import '../theme/app_theme.dart';
+import '../utils/currencies.dart';
 import '../utils/loyalty_points_estimate.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
@@ -83,7 +86,18 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
     final annonceAsync = ref.watch(annonceByIdProvider(widget.annonceId));
     final currentUser = ref.watch(authNotifierProvider).currentUser;
 
+    final loadedAnnonce = annonceAsync.valueOrNull;
+    final showStickyActions =
+        loadedAnnonce != null && (currentUser == null || currentUser.isBuyer);
+
     return Scaffold(
+      bottomNavigationBar: showStickyActions
+          ? _DetailActions(
+              annonce: loadedAnnonce,
+              onContact: _contactSeller,
+              onAddToCart: _addToCart,
+            )
+          : null,
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -123,13 +137,23 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        formatPrice(annonce.price, annonce.currency),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.price,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Text(
                               annonce.title,
                               style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w600,
                                 fontSize: 20,
                               ),
                             ),
@@ -149,128 +173,58 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${annonce.price.toInt()} ${annonce.currency}',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (annonce.location != null &&
+                              annonce.location!.trim().isNotEmpty)
+                            _InfoPill(
+                              icon: Icons.place_outlined,
+                              label: annonce.location!,
+                            ),
+                          if (annonce.category.trim().isNotEmpty)
+                            _InfoPill(
+                              icon: Icons.sell_outlined,
+                              label: annonce.category,
+                            ),
+                          if (showBuyerActions && loyaltyPoints > 0)
+                            _InfoPill(
+                              icon: Icons.card_giftcard,
+                              label: '+$loyaltyPoints points',
+                              highlighted: true,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Description',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (showBuyerActions && loyaltyPoints > 0) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.card_giftcard,
-                              size: 16,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Gagnez $loyaltyPoints points en achetant',
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 6),
+                      Text(
+                        annonce.description,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 15,
+                          height: 1.4,
                         ),
-                      ],
-                      const SizedBox(height: 12),
-                      Text(annonce.description),
-                      const SizedBox(height: 12),
-                      if (annonce.location != null) ...[
-                        Row(
-                          children: [
-                            const Icon(Icons.place_outlined, size: 16),
-                            const SizedBox(width: 4),
-                            Text(annonce.location!),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(annonce.category),
                       ),
                       productAsync.maybeWhen(
                         data: (product) => product.sellerId == null
                             ? const SizedBox.shrink()
                             : Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: InkWell(
-                                  onTap: () => context.push(
-                                    '/seller/${product.sellerId}',
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.storefront_outlined,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Vendeur : ${product.sellerName}',
-                                        style: const TextStyle(
-                                          decoration: TextDecoration.underline,
-                                        ),
-                                      ),
-                                      if (product.isSellerVerified) ...[
-                                        const SizedBox(width: 4),
-                                        const Icon(
-                                          Icons.verified,
-                                          color: Colors.blue,
-                                          size: 16,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
+                                padding: const EdgeInsets.only(top: 20),
+                                child: _SellerCard(product: product),
                               ),
                         orElse: () => const SizedBox.shrink(),
                       ),
                       _PriceHistorySection(annonceId: annonce.id),
-                      if (showBuyerActions) ...[
-                        const SizedBox(height: 20),
-                        productAsync.maybeWhen(
-                          data: (product) => Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _contactSeller(product),
-                                  icon: const Icon(Icons.chat_bubble_outline),
-                                  label: const Text('Contacter'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: () => _addToCart(product),
-                                  icon: const Icon(
-                                    Icons.shopping_cart_outlined,
-                                  ),
-                                  label: const Text('Ajouter'),
-                                ),
-                              ),
-                            ],
-                          ),
-                          orElse: () => const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(8),
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                        ),
-                      ],
+                      const SizedBox(height: 24),
                     ],
                   ),
                 ),
@@ -278,6 +232,176 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({
+    required this.icon,
+    required this.label,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlighted ? AppColors.primary : AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? AppColors.primary.withValues(alpha: 0.12)
+            : AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 13, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Carte vendeur : met la personne en avant pour inspirer confiance.
+class _SellerCard extends StatelessWidget {
+  const _SellerCard({required this.product});
+
+  final ProductModel product;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (product.sellerName ?? 'Vendeur').trim();
+    final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
+    final since = product.sellerCreatedAt;
+    final details = <String>[
+      if (product.isSellerVerified) 'Vendeur vérifié',
+      if (product.isSellerPhoneVerified) 'Téléphone vérifié',
+      if (since != null && since.millisecondsSinceEpoch > 0)
+        'Membre depuis ${DateFormat('MM/yyyy').format(since)}',
+    ];
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: () => context.push('/seller/${product.sellerId}'),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: AppColors.primary,
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: AppColors.onPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        if (product.isSellerVerified) ...[
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.verified,
+                            color: AppColors.primary,
+                            size: 16,
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (details.isNotEmpty)
+                      Text(
+                        details.join(' · '),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Text(
+                'Boutique',
+                style: TextStyle(color: AppColors.primary, fontSize: 13),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.primary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Actions fixées en bas de l'écran : toujours à portée de pouce, même en
+/// lisant une longue description.
+class _DetailActions extends ConsumerWidget {
+  const _DetailActions({
+    required this.annonce,
+    required this.onContact,
+    required this.onAddToCart,
+  });
+
+  final Annonce annonce;
+  final void Function(ProductModel product) onContact;
+  final void Function(ProductModel product) onAddToCart;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final productAsync = ref.watch(productFromAnnonceProvider(annonce));
+    final product = productAsync.valueOrNull;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.outline, width: 0.5)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: product == null ? null : () => onContact(product),
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Contacter'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: product == null ? null : () => onAddToCart(product),
+                icon: const Icon(Icons.shopping_cart_outlined),
+                label: const Text('Au panier'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,7 @@ import '../models/app_notification.dart';
 import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
 import '../services/notification_service.dart';
+import '../theme/app_theme.dart';
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
@@ -75,7 +76,7 @@ class NotificationsScreen extends ConsumerWidget {
                           _iconFor(notification.type),
                           color: notification.isRead
                               ? Colors.grey
-                              : Colors.blue,
+                              : AppColors.primary,
                         ),
                         title: Text(
                           notification.title,

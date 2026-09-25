@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models/review.dart';
 import '../providers/product_provider.dart';
 import '../providers/review_provider.dart';
+import '../theme/app_theme.dart';
 
 class SellerPublicProfileScreen extends ConsumerWidget {
   const SellerPublicProfileScreen({super.key, required this.sellerId});
@@ -60,7 +61,11 @@ class SellerPublicProfileScreen extends ConsumerWidget {
                   ),
                   if (seller.isVerifiedSeller) ...[
                     const SizedBox(width: 6),
-                    const Icon(Icons.verified, color: Colors.blue, size: 20),
+                    const Icon(
+                      Icons.verified,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
                   ],
                 ],
               ),

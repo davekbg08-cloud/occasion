@@ -1,7 +1,7 @@
 name: occasion
 description: "Marketplace Flutter Occasion pour acheteurs, vendeurs, produits, paiement et messagerie."
 publish_to: 'none'
-version: 1.1.3+10
+version: 1.2.0+11
 
 environment:
   sdk: ^3.12.1
