@@ -1,4 +1,4 @@
-commit: 4d70f1b
+commit: 62f4dc5
 == ANALYZE
   fluttertoast 8.2.14 (10.0.0 available)
   get_it 7.7.0 (9.3.0 available)
@@ -79,7 +79,7 @@ Got dependencies!
 135 packages have newer versions incompatible with dependency constraints.
 Try `flutter pub outdated` for more information.
 Analyzing occasion...                                           
-No issues found! (ran in 16.8s)
+No issues found! (ran in 17.9s)
 analyze_exit=0
 == TEST
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlert label honnête si aucun critère renseigné
@@ -90,16 +90,17 @@ analyze_exit=0
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlertService create refuse un utilisateur non connecté
 ✅ /home/runner/work/occasion/occasion/test/gift_redemption_test.dart: GiftRedemption.fromFirestore statut absent retombe sur pending
 ✅ /home/runner/work/occasion/occasion/test/gift_redemption_test.dart: GiftRedemption.fromFirestore lit un statut connu
+✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil réellement absent (jamais trouvé après 3 tentatives sans erreur) déconnecte bien l'utilisateur
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) appelle onQueued (persistance locale confirmée) avant même la résolution du futur complet, avec la bulle déjà visible
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) ne vide jamais le champ (n'appelle jamais onQueued) si le contenu est vide
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) un instantané Firestore portant le même id remplace la bulle locale (jamais de doublon)
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) une erreur d'envoi fait passer la bulle locale à failed (jamais dans state.error)
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) retryMessage réutilise le même clientMessageId (jamais de nouvel id, jamais de doublon)
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_optimistic_test.dart: ChatNotifier.sendMessage (envoi optimiste) un double appui réel sur le bouton Envoyer (deux appels sans attendre le premier) ne crée jamais deux messages
-✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil réellement absent (jamais trouvé après 3 tentatives sans erreur) déconnecte bien l'utilisateur
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) vide entièrement chats/messages/erreur en mémoire de l'ancien compte
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) permet de réécouter le même userId après reset (le nouveau compte n'est jamais bloqué par la garde de l'ancien)
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) la boîte d'envoi locale d'un utilisateur reste intacte après le reset d'un autre compte (isolation par clé de stockage)
+✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil trouvé dès la première tentative authentifie normalement
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.unreadCountFor retourne le compteur de l'acheteur pour l'acheteur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.unreadCountFor retourne le compteur du vendeur pour le vendeur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.clearUnreadFor ne remet à zéro que le compteur de l'acheteur
@@ -113,7 +114,6 @@ analyze_exit=0
 ✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) un numéro trop court ou trop long est refusé
 ✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) aucun doublon de code pays
 ✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) le paiement Mobile Money reste limité aux 5 pays détaillés
-✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil trouvé dès la première tentative authentifie normalement
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService anonymise le profil (nom, téléphone, photo) et le marque isDeleted
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService supprime les annonces du vendeur dans la collection annonces (régression : ne doit plus interroger l'ancienne collection "products", qui n'est jamais écrite par le reste de l'app)
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService vide blockedUsers et devices du compte supprimé
