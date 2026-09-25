@@ -7,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/subscription_provider.dart';
 import '../../services/phone_number_validator.dart';
 import '../../shared/models/annonce.dart';
+import '../../utils/currencies.dart';
 import '../providers/annonce_provider.dart';
 import '../../widgets/occasion_image.dart';
 
@@ -32,6 +33,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
   String _category = 'Divers';
   String _condition = 'occasion';
   String _currency = 'USD';
+  bool _currencyTouched = false;
   String _publicationStatus = 'published';
   String _phoneCountryIso = PhoneNumberValidator.defaultCountryIso;
   List<XFile> _selectedImages = [];
@@ -56,7 +58,6 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     'a_reparer': 'À réparer',
   };
 
-  static const _currencies = <String>['FC', 'USD'];
 
   static const _publicationStatuses = <String, String>{
     'published': 'Publié',
@@ -85,9 +86,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     _condition = _conditions.containsKey(annonce.condition)
         ? annonce.condition
         : 'occasion';
-    _currency = _currencies.contains(annonce.currency)
-        ? annonce.currency
-        : 'USD';
+    _currencyTouched = true;
+    _currency = currencyByCode(annonce.currency)?.code ?? 'USD';
     _publicationStatus = _publicationStatuses.containsKey(annonce.status)
         ? annonce.status
         : (annonce.isActive ? 'published' : 'draft');
@@ -359,18 +359,27 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                           labelText: 'Devise',
                           border: OutlineInputBorder(),
                         ),
-                        items: _currencies
+                        isExpanded: true,
+                        items: appCurrencies
                             .map(
                               (currency) => DropdownMenuItem(
-                                value: currency,
-                                child: Text(currency),
+                                value: currency.code,
+                                child: Text(
+                                  '${currency.code} · ${currency.name}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),
+                        selectedItemBuilder: (context) => appCurrencies
+                            .map((currency) => Text(currency.code))
+                            .toList(),
                         onChanged: createState.isLoading
                             ? null
-                            : (value) =>
-                                  setState(() => _currency = value ?? 'USD'),
+                            : (value) => setState(() {
+                                _currency = value ?? 'USD';
+                                _currencyTouched = true;
+                              }),
                       ),
                     ),
                   ],
@@ -416,10 +425,17 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                       .toList(),
                   onChanged: createState.isLoading
                       ? null
-                      : (value) => setState(
-                          () => _phoneCountryIso =
-                              value ?? PhoneNumberValidator.defaultCountryIso,
-                        ),
+                      : (value) => setState(() {
+                          _phoneCountryIso =
+                              value ?? PhoneNumberValidator.defaultCountryIso;
+                          // Devise proposée selon le pays, tant que le
+                          // vendeur ne l'a pas choisie lui-même.
+                          if (!_currencyTouched) {
+                            _currency = defaultCurrencyForCountry(
+                              _phoneCountryIso,
+                            );
+                          }
+                        }),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(

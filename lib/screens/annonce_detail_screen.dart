@@ -11,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/currencies.dart';
 import '../utils/loyalty_points_estimate.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
@@ -137,7 +138,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _formatPrice(annonce.price, annonce.currency),
+                        formatPrice(annonce.price, annonce.currency),
                         style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.w800,
@@ -234,15 +235,6 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
       ),
     );
   }
-}
-
-/// Prix lisible : séparateur de milliers, sans décimales inutiles.
-String _formatPrice(double price, String currency) {
-  final formatter = NumberFormat.decimalPattern('fr');
-  final value = price == price.roundToDouble()
-      ? formatter.format(price.round())
-      : formatter.format(price);
-  return '$value $currency';
 }
 
 class _InfoPill extends StatelessWidget {

@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
+import '../utils/currencies.dart';
 import '../utils/loyalty_points_estimate.dart';
 import '../theme/app_theme.dart';
 import 'photo_carousel.dart';
@@ -113,7 +114,7 @@ class ProductCard extends ConsumerWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: () => context.push('/annonce/${product.id}'),
                   child: Text(
-                    _formatPrice(product.price, product.currency),
+                    formatPrice(product.price, product.currency),
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       color: AppColors.price,
@@ -301,15 +302,6 @@ class ProductCard extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  /// Prix lisible : séparateur de milliers, sans décimales inutiles.
-  String _formatPrice(double price, String currency) {
-    final formatter = NumberFormat.decimalPattern('fr');
-    final value = price == price.roundToDouble()
-        ? formatter.format(price.round())
-        : formatter.format(price);
-    return '$value $currency';
   }
 
   String _sellerLine(ProductModel product) {

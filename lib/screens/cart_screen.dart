@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/cart_provider.dart';
+import '../utils/currencies.dart';
 
 class CartScreen extends ConsumerWidget {
   const CartScreen({super.key});
@@ -35,7 +36,7 @@ class CartScreen extends ConsumerWidget {
                 return ListTile(
                   title: Text(item.product.name),
                   subtitle: Text(
-                    '${item.product.price.toInt()} ${item.product.currency} '
+                    '${formatPrice(item.product.price, item.product.currency)} '
                     '× ${item.quantity}',
                   ),
                   trailing: Row(
@@ -93,7 +94,7 @@ class CartScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          '${total.toInt()} $currency',
+                          formatPrice(total, currency),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -101,12 +102,24 @@ class CartScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    if (!isOnlinePaymentCurrency(currency)) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Le paiement en ligne n'est pas encore disponible "
+                        'pour cette devise. Contactez le vendeur pour '
+                        'convenir du paiement.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: FilledButton(
-                        onPressed: () => context.push('/payment'),
+                        onPressed: isOnlinePaymentCurrency(currency)
+                            ? () => context.push('/payment')
+                            : null,
                         child: const Text('Passer à la caisse'),
                       ),
                     ),
