@@ -8,6 +8,7 @@ import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../utils/loyalty_points_estimate.dart';
+import '../theme/app_theme.dart';
 import 'photo_carousel.dart';
 import 'report_block_sheet.dart';
 
@@ -87,7 +88,7 @@ class ProductCard extends ConsumerWidget {
     );
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,6 +109,19 @@ class ProductCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => context.push('/annonce/${product.id}'),
+                  child: Text(
+                    _formatPrice(product.price, product.currency),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.price,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
                 Row(
                   children: [
                     Expanded(
@@ -116,8 +130,10 @@ class ProductCard extends ConsumerWidget {
                         onTap: () => context.push('/annonce/${product.id}'),
                         child: Text(
                           product.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             fontSize: 15,
                           ),
                         ),
@@ -128,7 +144,7 @@ class ProductCard extends ConsumerWidget {
                         message: 'Vendeur vérifié',
                         child: Icon(
                           Icons.verified,
-                          color: Colors.blue,
+                          color: AppColors.primary,
                           size: 16,
                         ),
                       ),
@@ -161,15 +177,9 @@ class ProductCard extends ConsumerWidget {
                         product.description,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${product.price.toInt()} ${product.currency}',
                         style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                          fontSize: 14,
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -179,7 +189,10 @@ class ProductCard extends ConsumerWidget {
                   const SizedBox(height: 2),
                   Text(
                     _sellerLine(product),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 6),
@@ -216,12 +229,15 @@ class ProductCard extends ConsumerWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
+                      color: AppColors.surfaceHigh,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       product.category!,
-                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ),
                 ],
@@ -287,6 +303,15 @@ class ProductCard extends ConsumerWidget {
     );
   }
 
+  /// Prix lisible : séparateur de milliers, sans décimales inutiles.
+  String _formatPrice(double price, String currency) {
+    final formatter = NumberFormat.decimalPattern('fr');
+    final value = price == price.roundToDouble()
+        ? formatter.format(price.round())
+        : formatter.format(price);
+    return '$value $currency';
+  }
+
   String _sellerLine(ProductModel product) {
     final sellerName = product.sellerName ?? 'Vendeur';
     final createdAt = product.sellerCreatedAt;
@@ -337,9 +362,8 @@ class _TrustChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.grey[850],
+        color: AppColors.surfaceHigh,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

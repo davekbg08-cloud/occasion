@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 
 import 'annonce/screens/create_annonce_screen.dart';
 import 'screens/account_settings_screen.dart';
+import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
@@ -393,14 +394,7 @@ class OccasionApp extends StatelessWidget {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Occasion',
-      theme: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(primary: Colors.blue),
-        scaffoldBackgroundColor: Colors.black,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.grey[900],
-          elevation: 0,
-        ),
-      ),
+      theme: AppTheme.dark(),
       routerConfig: _router,
     );
   }
