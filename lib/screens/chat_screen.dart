@@ -594,11 +594,7 @@ class _Bubble extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.shortcut,
-                        size: 12,
-                        color: metaColor,
-                      ),
+                      Icon(Icons.shortcut, size: 12, color: metaColor),
                       const SizedBox(width: 3),
                       Text(
                         'Transféré',
@@ -732,11 +728,7 @@ class _StatusIcon extends StatelessWidget {
         return Icon(Icons.done_all, size: 13, color: color);
       case MessageStatus.read:
         // Lu : coche pleine et opaque (contraste sur la bulle turquoise).
-        return const Icon(
-          Icons.done_all,
-          size: 14,
-          color: AppColors.onPrimary,
-        );
+        return const Icon(Icons.done_all, size: 14, color: AppColors.onPrimary);
       case MessageStatus.failed:
         return Icon(Icons.error_outline, size: 13, color: color);
     }
@@ -930,9 +922,7 @@ class _InputBar extends StatelessWidget {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
-                        borderSide: const BorderSide(
-                          color: AppColors.primary,
-                        ),
+                        borderSide: const BorderSide(color: AppColors.primary),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
