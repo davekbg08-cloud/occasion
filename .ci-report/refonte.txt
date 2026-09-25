@@ -1,4 +1,4 @@
-commit: e3d4aec
+commit: 6d1ca23
 == ANALYZE
   fluttertoast 8.2.14 (10.0.0 available)
   get_it 7.7.0 (9.3.0 available)
@@ -79,7 +79,7 @@ Got dependencies!
 135 packages have newer versions incompatible with dependency constraints.
 Try `flutter pub outdated` for more information.
 Analyzing occasion...                                           
-No issues found! (ran in 16.8s)
+No issues found! (ran in 13.6s)
 analyze_exit=0
 == TEST
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlert label honnête si aucun critère renseigné
