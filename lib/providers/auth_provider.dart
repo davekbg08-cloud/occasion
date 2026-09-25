@@ -218,102 +218,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Connexion / inscription avec Google (refonte : ouverture
-  /// internationale, sans mot de passe ni SMS).
-  ///
-  /// - Compte Occasion déjà existant : simple connexion.
-  /// - Nouveau compte : créé seulement si [role] est connu (écran
-  ///   d'inscription acheteur/vendeur) ; le nom vient du compte Google et
-  ///   le téléphone pourra être ajouté plus tard.
-  /// - Depuis l'écran de connexion sans compte Occasion : on déconnecte et
-  ///   on invite à choisir Acheteur ou Vendeur.
-  Future<void> signInWithGoogle({UserRole? role, String? referralCode}) async {
-    state = state.copyWith(isLoading: true, clearError: true);
-    _isRegistering = true;
-    try {
-      final provider = firebase_auth.GoogleAuthProvider()
-        ..setCustomParameters({'prompt': 'select_account'});
-      final credential = kIsWeb
-          ? await _auth.signInWithPopup(provider)
-          : await _auth.signInWithProvider(provider);
-      final firebaseUser = credential.user;
-      if (firebaseUser == null) {
-        throw StateError('Connexion Google sans identifiant utilisateur.');
-      }
-
-      final existing = await _users
-          .doc(firebaseUser.uid)
-          .get()
-          .timeout(const Duration(seconds: 10));
-      if (existing.exists) {
-        await _restoreSession(firebaseUser);
-        return;
-      }
-
-      if (role == null) {
-        await _auth.signOut();
-        throw StateError(
-          "Aucun compte Occasion n'est lié à ce compte Google. "
-          "Choisis Acheteur ou Vendeur pour t'inscrire.",
-        );
-      }
-
-      final email = firebaseUser.email?.trim() ?? '';
-      final googleName = firebaseUser.displayName?.trim() ?? '';
-      final name = googleName.isNotEmpty
-          ? googleName
-          : (email.contains('@') ? email.split('@').first : 'Utilisateur');
-      final user = UserModel(
-        id: firebaseUser.uid,
-        name: name,
-        phone: '',
-        role: role,
-        createdAt: DateTime.now(),
-        phoneVerified: false,
-        identityStatus: SellerIdentityStatus.unverified,
-      );
-      final trimmedReferralCode = referralCode?.trim() ?? '';
-
-      await _users.doc(firebaseUser.uid).set({
-        ...user.toMap(),
-        if (email.isNotEmpty) 'email': email,
-        'signInProvider': 'google',
-        'updatedAt': FieldValue.serverTimestamp(),
-        if (trimmedReferralCode.isNotEmpty)
-          'referredByCode': trimmedReferralCode,
-      }, SetOptions(merge: true));
-      await _firestore.collection('publicProfiles').doc(firebaseUser.uid).set({
-        'id': firebaseUser.uid,
-        'name': name,
-        'role': role.name,
-        'identityStatus': SellerIdentityStatus.unverified.firestoreValue,
-        'sellerStatus': SellerIdentityStatus.unverified.firestoreValue,
-        'phoneVerified': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      state = state.copyWith(
-        isAuthenticated: true,
-        isLoading: false,
-        clearSelectedRole: true,
-        clearError: true,
-        user: user,
-      );
-    } on firebase_auth.FirebaseAuthException catch (error) {
-      _fail(_authMessage(error));
-      rethrow;
-    } catch (error) {
-      final message = error is StateError
-          ? error.message
-          : 'Connexion Google impossible. Réessaie dans un instant.';
-      _fail(message);
-      rethrow;
-    } finally {
-      _isRegistering = false;
-    }
-  }
-
   Future<void> updateProfilePhoto(XFile image) async {
     final firebaseUser = _auth.currentUser;
     final currentUser = state.currentUser;
@@ -533,15 +437,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return 'Le mot de passe doit contenir au moins 6 caractères.';
       case 'network-request-failed':
         return 'Connexion réseau indisponible. Réessaie dans un instant.';
-      case 'web-context-canceled':
-      case 'web-context-cancelled':
-      case 'popup-closed-by-user':
-      case 'canceled':
-        return 'Connexion Google annulée.';
-      case 'account-exists-with-different-credential':
-        return 'Un compte existe déjà avec cet e-mail. Connecte-toi avec ton mot de passe.';
-      case 'operation-not-allowed':
-        return "La connexion Google n'est pas encore activée. Utilise ton e-mail.";
       default:
         return error.message ?? 'Authentification Firebase impossible.';
     }

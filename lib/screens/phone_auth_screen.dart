@@ -72,26 +72,6 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
     }
   }
 
-  Future<void> _continueWithGoogle() async {
-    try {
-      await ref
-          .read(authNotifierProvider.notifier)
-          .signInWithGoogle(
-            role: widget.role,
-            referralCode: _referralCodeController.text,
-          );
-      if (!mounted) return;
-      context.go('/home');
-    } catch (error) {
-      if (!mounted) return;
-      final stateMessage = ref.read(authNotifierProvider).errorMessage;
-      final message = stateMessage ?? _friendlyError(error);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authNotifierProvider);
@@ -268,32 +248,6 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                           ? 'Créer le compte'
                           : 'Se connecter',
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Row(
-                  children: [
-                    Expanded(child: Divider()),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('ou'),
-                    ),
-                    Expanded(child: Divider()),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 52,
-                  child: OutlinedButton.icon(
-                    onPressed: auth.isLoading ? null : _continueWithGoogle,
-                    icon: const Text(
-                      'G',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    label: const Text('Continuer avec Google'),
                   ),
                 ),
                 const SizedBox(height: 12),
