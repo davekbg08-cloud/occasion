@@ -291,17 +291,13 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/buyer-messages',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.buyer,
-          child: ChatListScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.buyer, child: ChatListScreen()),
       ),
       GoRoute(
         path: '/seller-messages',
-        builder: (context, state) => const _RoleGuard(
-          role: UserRole.seller,
-          child: ChatListScreen(),
-        ),
+        builder: (context, state) =>
+            const _RoleGuard(role: UserRole.seller, child: ChatListScreen()),
       ),
       GoRoute(
         path: '/chat-room',

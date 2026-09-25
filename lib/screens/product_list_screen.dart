@@ -100,35 +100,35 @@ class ProductListScreen extends ConsumerWidget {
     Set<String> blockedIds,
   ) {
     return productsAsync.when(
-        data: (products) {
-          final visibleProducts = products
-              .where(
-                (product) =>
-                    product.sellerId == null ||
-                    !blockedIds.contains(product.sellerId),
-              )
-              .toList();
+      data: (products) {
+        final visibleProducts = products
+            .where(
+              (product) =>
+                  product.sellerId == null ||
+                  !blockedIds.contains(product.sellerId),
+            )
+            .toList();
 
-          if (visibleProducts.isEmpty) {
-            return const Center(child: Text('Aucun contenu pour le moment.'));
-          }
+        if (visibleProducts.isEmpty) {
+          return const Center(child: Text('Aucun contenu pour le moment.'));
+        }
 
-          return RefreshIndicator(
-            onRefresh: () => ref.refresh(productNotifierProvider.future),
-            child: _ResponsiveProductGrid(products: visibleProducts),
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'Impossible de charger les produits pour le moment.',
-              textAlign: TextAlign.center,
-            ),
+        return RefreshIndicator(
+          onRefresh: () => ref.refresh(productNotifierProvider.future),
+          child: _ResponsiveProductGrid(products: visibleProducts),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, stack) => const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Impossible de charger les produits pour le moment.',
+            textAlign: TextAlign.center,
           ),
         ),
-      );
+      ),
+    );
   }
 }
 
