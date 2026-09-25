@@ -87,7 +87,7 @@ class ProductListScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          const StatusStrip(),
+          StatusStrip(blockedIds: blockedIds),
           Expanded(child: _productsBody(ref, productsAsync, blockedIds)),
         ],
       ),

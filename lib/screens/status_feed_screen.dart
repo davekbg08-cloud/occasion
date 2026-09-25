@@ -17,7 +17,11 @@ import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
-  const StatusFeedScreen({super.key, this.isVisible = true});
+  const StatusFeedScreen({
+    super.key,
+    this.isVisible = true,
+    this.initialSellerId,
+  });
 
   /// L'onglet Feed est-il celui actuellement affiché ? `BuyerNav` garde cet
   /// écran monté en permanence dans un `IndexedStack` en changeant
@@ -26,6 +30,12 @@ class StatusFeedScreen extends ConsumerStatefulWidget {
   /// mécanisme de cycle de vie réagissant à un changement d'onglet.
   final bool isVisible;
 
+  /// Vendeur dont la bulle « stories » a été touchée dans `StatusStrip` —
+  /// ouvre le fil directement sur son premier statut visible au lieu de
+  /// toujours démarrer au tout premier statut du fil, quel que soit le
+  /// vendeur réellement choisi.
+  final String? initialSellerId;
+
   @override
   ConsumerState<StatusFeedScreen> createState() => _StatusFeedScreenState();
 }
@@ -33,6 +43,7 @@ class StatusFeedScreen extends ConsumerStatefulWidget {
 class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
+  bool _didInitialSellerJump = false;
 
   @override
   void initState() {
@@ -72,6 +83,27 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
     final visibleStatuses = statusState.statuses
         .where((status) => !blockedIds.contains(status.sellerId))
         .toList();
+
+    if (!_didInitialSellerJump &&
+        widget.initialSellerId != null &&
+        visibleStatuses.isNotEmpty) {
+      _didInitialSellerJump = true;
+      final index = visibleStatuses.indexWhere(
+        (status) => status.sellerId == widget.initialSellerId,
+      );
+      if (index != -1) {
+        // Pris en compte dès ce build (pas de setState) : la première page
+        // active est la bonne sans flash de la page 0 au premier frame.
+        // Le PageController lui-même ne peut être positionné qu'une fois
+        // attaché au PageView, donc après ce build (jumpToPage sans saut
+        // visible, page jamais réellement affichée à l'index 0).
+        _currentPage = index;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_pageController.hasClients) return;
+          _pageController.jumpToPage(index);
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,

@@ -9,9 +9,16 @@ import 'occasion_image.dart';
 
 /// Bandeau horizontal des statuts (façon « stories ») affiché en haut de
 /// l'accueil. Remplace l'ancien onglet « Feed » : un appui ouvre le fil
-/// plein écran existant (`/statuts`), sans rien retirer de la fonction.
+/// plein écran existant (`/statuts`) directement sur le statut du vendeur
+/// dont la bulle a été touchée, sans rien retirer de la fonction.
 class StatusStrip extends ConsumerStatefulWidget {
-  const StatusStrip({super.key});
+  const StatusStrip({super.key, this.blockedIds = const {}});
+
+  /// Vendeurs bloqués par l'utilisateur courant — mêmes ids que ceux déjà
+  /// exclus du fil plein écran (`status_feed_screen.dart`) : sans ce
+  /// filtre ici, une bulle « stories » pouvait afficher un vendeur bloqué
+  /// que le fil lui-même masque une fois ouvert.
+  final Set<String> blockedIds;
 
   @override
   ConsumerState<StatusStrip> createState() => _StatusStripState();
@@ -39,6 +46,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
     final seen = <String>{};
     final sellers = <Status>[];
     for (final status in statuses) {
+      if (widget.blockedIds.contains(status.sellerId)) continue;
       if (seen.add(status.sellerId)) sellers.add(status);
       if (sellers.length >= 12) break;
     }
@@ -61,7 +69,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
             _StatusBubble(
               label: status.sellerName,
               highlighted: true,
-              onTap: () => context.push('/statuts'),
+              onTap: () => context.push('/statuts', extra: status.sellerId),
               child: _Avatar(
                 url: status.sellerProfileImageUrl,
                 name: status.sellerName,

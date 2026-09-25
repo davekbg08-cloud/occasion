@@ -105,8 +105,9 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/statuts',
-        builder: (context, state) =>
-            const _AuthGuard(child: StatusFeedScreen()),
+        builder: (context, state) => _AuthGuard(
+          child: StatusFeedScreen(initialSellerId: state.extra as String?),
+        ),
       ),
       GoRoute(
         path: '/account-settings',
