@@ -22,7 +22,7 @@ class SellerDashboardScreen extends ConsumerWidget {
     final annoncesAsync = ref.watch(sellerAnnoncesProvider(user.id));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tableau de bord vendeur')),
+      appBar: AppBar(title: const Text('Vendre')),
       body: annoncesAsync.when(
         data: (annonces) => _DashboardContent(
           annonces: annonces,
@@ -118,8 +118,28 @@ class _DashboardContent extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => context.push('/publish-product'),
+                  icon: const Icon(Icons.add_box_outlined),
+                  label: const Text('Publier une annonce'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.push('/add-status'),
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                  label: const Text('Publier un statut'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
           Text(
-            'Gestion vendeur',
+            'Ma boutique',
             style: Theme.of(
               context,
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
@@ -136,34 +156,9 @@ class _DashboardContent extends ConsumerWidget {
             route: '/seller-orders',
           ),
           _DashboardAction(
-            icon: Icons.add_box_outlined,
-            title: 'Publier une annonce',
-            route: '/publish-product',
-          ),
-          _DashboardAction(
-            icon: Icons.auto_awesome_outlined,
-            title: 'Publier un statut',
-            route: '/add-status',
-          ),
-          _DashboardAction(
-            icon: Icons.chat_bubble_outline,
-            title: 'Messages acheteurs',
-            route: '/seller-messages',
-          ),
-          _DashboardAction(
             icon: Icons.bar_chart_outlined,
             title: 'Statistiques',
             route: '/seller-statistics',
-          ),
-          _DashboardAction(
-            icon: Icons.card_membership_outlined,
-            title: 'Abonnement vendeur',
-            route: '/subscription',
-          ),
-          _DashboardAction(
-            icon: Icons.storefront_outlined,
-            title: 'Profil vendeur',
-            route: '/profile',
           ),
         ],
       ),

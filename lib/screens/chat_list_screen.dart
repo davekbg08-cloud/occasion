@@ -23,7 +23,13 @@ class ChatListScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
 }
 
+/// Filtre de la boîte unique : toutes les conversations, celles où je suis
+/// l'acheteur, ou celles où je suis le vendeur.
+enum _ChatFilter { all, purchases, sales }
+
 class _ChatListScreenState extends ConsumerState<ChatListScreen> {
+  _ChatFilter _filter = _ChatFilter.all;
+
   @override
   void initState() {
     super.initState();
@@ -44,10 +50,27 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         : ref
               .watch(blockedUserIdsProvider(me.id))
               .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
-    final visibleChats = me == null
+    final unblockedChats = me == null
         ? chatState.chats
         : chatState.chats
               .where((chat) => !blockedIds.contains(chat.otherUserId(me.id)))
+              .toList();
+    // Les filtres n'apparaissent que si l'utilisateur a réellement les deux
+    // types de conversations (acheteur ET vendeur).
+    final myId = me?.id;
+    final hasPurchases =
+        myId != null && unblockedChats.any((chat) => chat.buyerId == myId);
+    final hasSales =
+        myId != null && unblockedChats.any((chat) => chat.sellerId == myId);
+    final showFilters = hasPurchases && hasSales;
+    final visibleChats = !showFilters || _filter == _ChatFilter.all
+        ? unblockedChats
+        : unblockedChats
+              .where(
+                (chat) => _filter == _ChatFilter.purchases
+                    ? chat.buyerId == myId
+                    : chat.sellerId == myId,
+              )
               .toList();
 
     return Scaffold(
@@ -62,8 +85,36 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ),
         ),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Divider(height: 1, color: Colors.grey[800]),
+          preferredSize: Size.fromHeight(showFilters ? 49 : 1),
+          child: Column(
+            children: [
+              if (showFilters)
+                SizedBox(
+                  height: 48,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      for (final entry in const {
+                        _ChatFilter.all: 'Tout',
+                        _ChatFilter.purchases: 'Achats',
+                        _ChatFilter.sales: 'Ventes',
+                      }.entries)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(entry.value),
+                            selected: _filter == entry.key,
+                            onSelected: (_) =>
+                                setState(() => _filter = entry.key),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              Divider(height: 1, color: Colors.grey[800]),
+            ],
+          ),
         ),
       ),
       body: chatState.isLoading && visibleChats.isEmpty

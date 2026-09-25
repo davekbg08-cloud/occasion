@@ -10,6 +10,7 @@ import '../providers/moderation_provider.dart';
 import '../providers/product_provider.dart';
 import '../widgets/occasion_logo.dart';
 import '../widgets/product_card.dart';
+import '../widgets/status_strip.dart';
 
 class ProductListScreen extends ConsumerWidget {
   const ProductListScreen({super.key});
@@ -38,17 +39,14 @@ class ProductListScreen extends ConsumerWidget {
           children: [
             OccasionLogo(size: 34),
             SizedBox(width: 8),
-            Text('Nos Produits'),
+            Text('Occasion'),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, size: 28),
-            onPressed: () => context.push('/search'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_outline, size: 28),
-            onPressed: () => context.push('/profile'),
+            tooltip: 'Notifications',
+            icon: const Icon(Icons.notifications_outlined, size: 28),
+            onPressed: () => context.push('/notifications'),
           ),
           if (isBuyer)
             Stack(
@@ -87,7 +85,21 @@ class ProductListScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: productsAsync.when(
+      body: Column(
+        children: [
+          const StatusStrip(),
+          Expanded(child: _productsBody(ref, productsAsync, blockedIds)),
+        ],
+      ),
+    );
+  }
+
+  Widget _productsBody(
+    WidgetRef ref,
+    AsyncValue<List<ProductModel>> productsAsync,
+    Set<String> blockedIds,
+  ) {
+    return productsAsync.when(
         data: (products) {
           final visibleProducts = products
               .where(
@@ -116,8 +128,7 @@ class ProductListScreen extends ConsumerWidget {
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
