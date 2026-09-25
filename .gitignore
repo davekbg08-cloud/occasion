@@ -71,3 +71,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Binaires Android : jamais dans le dépôt (Play Console / GitHub Releases)
+*.apk
+*.aab
