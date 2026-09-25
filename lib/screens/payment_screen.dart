@@ -309,7 +309,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.public_outlined),
               ),
-              items: PhoneNumberValidator.countries
+              items: PhoneNumberValidator.mobileMoneyCountries
                   .map(
                     (country) => DropdownMenuItem(
                       value: country.isoCode,
