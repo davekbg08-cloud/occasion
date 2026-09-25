@@ -250,7 +250,7 @@ class PhoneNumberValidator {
       dialCode: dialCode,
       subscriberLength: 0,
       pattern: RegExp(r'^\d{6,12}$'),
-      example: '${dialCode}...',
+      example: '$dialCode...',
     );
   }
 
