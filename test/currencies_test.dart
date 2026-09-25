@@ -8,10 +8,7 @@ void main() {
       expect(formatPrice(45, 'USD'), startsWith('45'));
       expect(formatPrice(20, 'EUR'), '20 €');
       expect(formatPrice(10000, 'XAF'), contains('FCFA'));
-      expect(
-        formatPrice(1250, 'USD').replaceAll(RegExp(r'\s'), ''),
-        r'1250$',
-      );
+      expect(formatPrice(1250, 'USD').replaceAll(RegExp(r'\s'), ''), r'1250$');
     });
 
     test('code inconnu : affiché tel quel, jamais d’exception', () {

@@ -58,7 +58,6 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     'a_reparer': 'À réparer',
   };
 
-
   static const _publicationStatuses = <String, String>{
     'published': 'Publié',
     'draft': 'Brouillon',
