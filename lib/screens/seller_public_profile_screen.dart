@@ -61,7 +61,11 @@ class SellerPublicProfileScreen extends ConsumerWidget {
                   ),
                   if (seller.isVerifiedSeller) ...[
                     const SizedBox(width: 6),
-                    const Icon(Icons.verified, color: AppColors.primary, size: 20),
+                    const Icon(
+                      Icons.verified,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
                   ],
                 ],
               ),
