@@ -10,11 +10,17 @@ void main() {
 
     test('les règles détaillées RDC sont conservées', () {
       expect(
-        PhoneNumberValidator.validate('+243812345678', countryIso: 'CD').isValid,
+        PhoneNumberValidator.validate(
+          '+243812345678',
+          countryIso: 'CD',
+        ).isValid,
         isTrue,
       );
       expect(
-        PhoneNumberValidator.validate('+243712345678', countryIso: 'CD').isValid,
+        PhoneNumberValidator.validate(
+          '+243712345678',
+          countryIso: 'CD',
+        ).isValid,
         isFalse,
       );
     });
@@ -29,7 +35,10 @@ void main() {
         isTrue,
       );
       expect(
-        PhoneNumberValidator.validate('+254712345678', countryIso: 'KE').isValid,
+        PhoneNumberValidator.validate(
+          '+254712345678',
+          countryIso: 'KE',
+        ).isValid,
         isTrue,
       );
     });
@@ -64,10 +73,13 @@ void main() {
     });
 
     test('le paiement Mobile Money reste limité aux 5 pays détaillés', () {
-      expect(
-        PhoneNumberValidator.mobileMoneyCountries.map((c) => c.isoCode),
-        ['CD', 'CI', 'SN', 'CM', 'CG'],
-      );
+      expect(PhoneNumberValidator.mobileMoneyCountries.map((c) => c.isoCode), [
+        'CD',
+        'CI',
+        'SN',
+        'CM',
+        'CG',
+      ]);
     });
   });
 }

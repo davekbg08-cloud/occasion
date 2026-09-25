@@ -280,9 +280,8 @@ class PhoneNumberValidator {
     }
 
     final candidates = countryIso == null
-        ? ([...countries]..sort(
-            (a, b) => b.dialCode.length.compareTo(a.dialCode.length),
-          ))
+        ? ([...countries]
+            ..sort((a, b) => b.dialCode.length.compareTo(a.dialCode.length)))
         : <PhoneCountry>[countryByIso(countryIso)];
 
     for (final country in candidates) {

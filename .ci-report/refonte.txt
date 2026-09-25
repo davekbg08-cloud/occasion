@@ -1,8 +1,5 @@
-commit: a26e881
+commit: 56cfdb5
 == ANALYZE
-  fluttertoast 8.2.14 (10.0.0 available)
-  get_it 7.7.0 (9.3.0 available)
-  glob 2.1.3 (2.2.0 available)
   go_router 14.8.1 (18.0.1 available)
   google_mlkit_commons 0.11.1 (0.13.0 available)
   google_mlkit_text_recognition 0.15.1 (0.17.1 available)
@@ -79,16 +76,12 @@ Got dependencies!
 135 packages have newer versions incompatible with dependency constraints.
 Try `flutter pub outdated` for more information.
 Analyzing occasion...                                           
-No issues found! (ran in 17.2s)
-analyze_exit=0
+
+   info • Unnecessary braces in a string interpolation. Try removing the braces • lib/services/phone_number_validator.dart:253:17 • unnecessary_brace_in_string_interps
+
+1 issue found. (ran in 17.2s)
+analyze_exit=1
 == TEST
-✅ /home/runner/work/occasion/occasion/test/loyalty_points_estimate_test.dart: estimateLoyaltyPoints prix nul ou négatif : retourne 0
-✅ /home/runner/work/occasion/occasion/test/gift_catalog_item_test.dart: GiftCatalogItem.fromFirestore valeurs par défaut si champs absents
-✅ /home/runner/work/occasion/occasion/test/gift_catalog_item_test.dart: GiftCatalogItem.fromFirestore lit tous les champs
-✅ /home/runner/work/occasion/occasion/test/gift_catalog_item_test.dart: GiftCatalogItem.fromFirestore toFirestore ne réécrit pas id/createdAt
-✅ /home/runner/work/occasion/occasion/test/gift_catalog_item_test.dart: GiftCatalogItem.fromFirestore toFirestore omet imageUrl si absent (jamais null explicite)
-✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: une erreur réseau persistante ne déconnecte pas l'utilisateur et ne force pas isAuthenticated à false de façon permanente
-✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlert label combine mot-clé/ville/catégorie renseignés
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlert label honnête si aucun critère renseigné
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlert toJson omet les champs vides
 ✅ /home/runner/work/occasion/occasion/test/search_alert_test.dart: SearchAlertService create puis watchForUser retrouve l'alerte créée
@@ -107,13 +100,20 @@ analyze_exit=0
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) vide entièrement chats/messages/erreur en mémoire de l'ancien compte
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) permet de réécouter le même userId après reset (le nouveau compte n'est jamais bloqué par la garde de l'ancien)
 ✅ /home/runner/work/occasion/occasion/test/chat_provider_account_switch_test.dart: ChatNotifier.resetForUserChange (isolation entre comptes) la boîte d'envoi locale d'un utilisateur reste intacte après le reset d'un autre compte (isolation par clé de stockage)
+✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil trouvé dès la première tentative authentifie normalement
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.unreadCountFor retourne le compteur de l'acheteur pour l'acheteur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.unreadCountFor retourne le compteur du vendeur pour le vendeur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.clearUnreadFor ne remet à zéro que le compteur de l'acheteur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.clearUnreadFor ne remet à zéro que le compteur du vendeur
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.fromMap compatibilité ancien champ unreadCount retombe sur unreadCount tant que buyerUnreadCount/sellerUnreadCount absents
 ✅ /home/runner/work/occasion/occasion/test/chat_model_test.dart: Chat.fromMap compatibilité ancien champ unreadCount utilise les nouveaux champs par participant une fois migrés
-✅ /home/runner/work/occasion/occasion/test/auth_provider_restore_session_test.dart: un profil trouvé dès la première tentative authentifie normalement
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) la RDC reste le pays par défaut et le premier de la liste
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) les règles détaillées RDC sont conservées
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) un numéro français, belge ou kényan est accepté
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) sans pays choisi, le pays est déduit de l’indicatif
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) un numéro trop court ou trop long est refusé
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) aucun doublon de code pays
+✅ /home/runner/work/occasion/occasion/test/phone_number_validator_test.dart: PhoneNumberValidator (ouverture internationale) le paiement Mobile Money reste limité aux 5 pays détaillés
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService anonymise le profil (nom, téléphone, photo) et le marque isDeleted
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService supprime les annonces du vendeur dans la collection annonces (régression : ne doit plus interroger l'ancienne collection "products", qui n'est jamais écrite par le reste de l'app)
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService vide blockedUsers et devices du compte supprimé
@@ -121,5 +121,5 @@ analyze_exit=0
 ✅ /home/runner/work/occasion/occasion/test/account_deletion_service_test.dart: AccountDeletionService supprime le compte Firebase Auth sans lever d'exception
 ✅ /home/runner/work/occasion/occasion/test/notification_provider_test.dart: notificationsProvider / unreadNotificationsCountProvider régression : les notifications de type message sont exclues de la cloche (déjà suivies par le badge fiable de l'onglet Messages, ne plus les compter en double comme "non lues" indéfiniment)
 
-🎉 135 tests passed.
+🎉 142 tests passed.
 test_exit=0
