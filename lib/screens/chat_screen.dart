@@ -10,6 +10,7 @@ import '../models/report.dart';
 import '../models/status.dart' show StatusType;
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../theme/app_theme.dart';
 import '../widgets/forward_message_sheet.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/fullscreen_video_viewer.dart';
@@ -342,20 +343,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ? '?'
         : otherName.characters.first.toUpperCase();
 
+    final listingTitle = chat.listingTitle?.trim();
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.grey[900],
+        backgroundColor: AppColors.surface,
         leadingWidth: 30,
         title: Row(
           children: [
             (otherImage == null || otherImage.isEmpty)
                 ? CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.grey[700],
+                    backgroundColor: AppColors.surfaceHigh,
                     child: Text(
                       initial,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   )
                 : ClipOval(
@@ -370,14 +377,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                otherName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    otherName,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (listingTitle != null && listingTitle.isNotEmpty)
+                    Text(
+                      listingTitle,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ),
             ),
           ],
@@ -393,7 +415,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 targetUserName: otherName,
                 targetType: ReportTargetType.user,
               ),
-              icon: const Icon(Icons.more_vert, color: Colors.white),
+              icon: const Icon(Icons.more_vert),
             ),
         ],
       ),
@@ -417,11 +439,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 }
 
                 if (messages.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Démarrez la conversation',
-                      style: TextStyle(color: Colors.grey),
-                    ),
+                  return _ConversationStarter(
+                    otherName: otherName,
+                    onSuggestion: (text) {
+                      _inputController.text = text;
+                      _inputController.selection = TextSelection.collapsed(
+                        offset: text.length,
+                      );
+                    },
                   );
                 }
 
@@ -530,6 +555,11 @@ class _Bubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failed = message.status == MessageStatus.failed;
+    // Texte sombre sur la bulle turquoise (lisibilité), clair ailleurs.
+    final textColor = isMe && !failed
+        ? AppColors.onPrimary
+        : AppColors.textPrimary;
+    final metaColor = textColor.withValues(alpha: 0.6);
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -540,14 +570,14 @@ class _Bubble extends StatelessWidget {
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.72,
+            maxWidth: MediaQuery.of(context).size.width * 0.75,
           ),
           decoration: BoxDecoration(
             color: failed
                 ? Colors.red[900]
                 : isMe
-                ? Colors.blue[700]
-                : Colors.grey[800],
+                ? AppColors.primary
+                : AppColors.surfaceHigh,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(18),
               topRight: const Radius.circular(18),
@@ -567,13 +597,13 @@ class _Bubble extends StatelessWidget {
                       Icon(
                         Icons.shortcut,
                         size: 12,
-                        color: Colors.white.withValues(alpha: 0.6),
+                        color: metaColor,
                       ),
                       const SizedBox(width: 3),
                       Text(
                         'Transféré',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
+                          color: metaColor,
                           fontSize: 11,
                           fontStyle: FontStyle.italic,
                         ),
@@ -587,7 +617,7 @@ class _Bubble extends StatelessWidget {
                   padding: EdgeInsets.only(top: message.hasMedia ? 6 : 0),
                   child: Text(
                     message.content,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    style: TextStyle(color: textColor, fontSize: 15),
                   ),
                 ),
               const SizedBox(height: 3),
@@ -608,14 +638,11 @@ class _Bubble extends StatelessWidget {
                   ] else ...[
                     Text(
                       DateFormat('HH:mm').format(message.sentAt),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.55),
-                        fontSize: 10,
-                      ),
+                      style: TextStyle(color: metaColor, fontSize: 10),
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 3),
-                      _StatusIcon(status: message.status),
+                      _StatusIcon(status: message.status, color: metaColor),
                     ],
                   ],
                 ],
@@ -689,28 +716,105 @@ class _MediaContent extends StatelessWidget {
 /// `failed` est géré séparément par `_Bubble` (bulle rouge + texte),
 /// jamais affiché ici.
 class _StatusIcon extends StatelessWidget {
-  const _StatusIcon({required this.status});
+  const _StatusIcon({required this.status, required this.color});
 
   final MessageStatus status;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     switch (status) {
       case MessageStatus.sending:
-        return const Icon(Icons.access_time, size: 12, color: Colors.white54);
+        return Icon(Icons.access_time, size: 12, color: color);
       case MessageStatus.sent:
-        return const Icon(Icons.done, size: 13, color: Colors.white54);
+        return Icon(Icons.done, size: 13, color: color);
       case MessageStatus.delivered:
-        return const Icon(Icons.done_all, size: 13, color: Colors.white54);
+        return Icon(Icons.done_all, size: 13, color: color);
       case MessageStatus.read:
+        // Lu : coche pleine et opaque (contraste sur la bulle turquoise).
         return const Icon(
           Icons.done_all,
-          size: 13,
-          color: Colors.lightBlueAccent,
+          size: 14,
+          color: AppColors.onPrimary,
         );
       case MessageStatus.failed:
-        return const Icon(Icons.error_outline, size: 13, color: Colors.white54);
+        return Icon(Icons.error_outline, size: 13, color: color);
     }
+  }
+}
+
+/// Conversation vide : suggestions de premiers messages pour lancer
+/// l'échange en un appui (le texte est placé dans le champ, jamais envoyé
+/// automatiquement).
+class _ConversationStarter extends StatelessWidget {
+  const _ConversationStarter({
+    required this.otherName,
+    required this.onSuggestion,
+  });
+
+  final String otherName;
+  final ValueChanged<String> onSuggestion;
+
+  static const _suggestions = [
+    'Bonjour, est-ce toujours disponible ?',
+    'Quel est votre dernier prix ?',
+    'Où peut-on se rencontrer ?',
+    'Pouvez-vous envoyer plus de photos ?',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.waving_hand_outlined,
+                color: AppColors.primary,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Dites bonjour à $otherName',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Choisissez un message pour commencer :',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final text in _suggestions)
+                  ActionChip(
+                    label: Text(text),
+                    onPressed: () => onSuggestion(text),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -734,12 +838,15 @@ class _DateDivider extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.grey[850],
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
             label,
-            style: const TextStyle(color: Colors.grey, fontSize: 12),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
           ),
         ),
       ),
@@ -768,8 +875,8 @@ class _InputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.grey[900],
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: AppColors.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: SafeArea(
         top: false,
         child: Column(
@@ -783,7 +890,7 @@ class _InputBar extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: uploadProgress > 0 ? uploadProgress : null,
                     minHeight: 3,
-                    backgroundColor: Colors.grey[800],
+                    backgroundColor: AppColors.surfaceHigh,
                   ),
                 ),
               ),
@@ -794,23 +901,38 @@ class _InputBar extends StatelessWidget {
                   tooltip: 'Envoyer une photo ou une vidéo',
                   icon: Icon(
                     Icons.attach_file,
-                    color: onAttach == null ? Colors.grey[600] : Colors.white,
+                    color: onAttach == null
+                        ? AppColors.outline
+                        : AppColors.textSecondary,
                   ),
                 ),
                 Expanded(
                   child: TextField(
                     controller: controller,
-                    style: const TextStyle(color: Colors.white),
-                    maxLines: null,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    minLines: 1,
+                    maxLines: 5,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: 'Écrire un message...',
-                      hintStyle: TextStyle(color: Colors.grey[600]),
+                      hintStyle: const TextStyle(
+                        color: AppColors.textSecondary,
+                      ),
                       filled: true,
-                      fillColor: Colors.grey[800],
+                      fillColor: AppColors.surfaceHigh,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: const BorderSide(
+                          color: AppColors.primary,
+                        ),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -825,12 +947,12 @@ class _InputBar extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(11),
                     decoration: const BoxDecoration(
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.send,
-                      color: Colors.white,
+                      Icons.send_rounded,
+                      color: AppColors.onPrimary,
                       size: 20,
                     ),
                   ),
