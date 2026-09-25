@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/user.dart';
+import '../theme/app_theme.dart';
 import '../widgets/occasion_logo.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
@@ -39,7 +40,7 @@ class RoleSelectionScreen extends StatelessWidget {
                 title: 'Vendeur',
                 description:
                     "Créez gratuitement votre compte vendeur et parcourez l'application.",
-                accentColor: Colors.blue,
+                accentColor: AppColors.primary,
                 onTap: () =>
                     context.push('/phone-auth', extra: UserRole.seller),
               ),
@@ -65,7 +66,7 @@ class RoleSelectionScreen extends StatelessWidget {
                     child: const Text(
                       'Se connecter',
                       style: TextStyle(
-                        color: Colors.blue,
+                        color: AppColors.primary,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

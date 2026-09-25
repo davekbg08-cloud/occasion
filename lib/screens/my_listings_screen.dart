@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 import '../widgets/photo_carousel.dart';
 
 class MyListingsScreen extends ConsumerWidget {
@@ -132,7 +133,7 @@ class _ListingCard extends ConsumerWidget {
                 Text(
                   '${annonce.price.toStringAsFixed(0)} ${annonce.currency}',
                   style: const TextStyle(
-                    color: Colors.blue,
+                    color: AppColors.primary,
                     fontWeight: FontWeight.bold,
                   ),
                 ),

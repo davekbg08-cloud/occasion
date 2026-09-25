@@ -8,6 +8,7 @@ import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/occasion_image.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -226,7 +227,7 @@ class _ProfileHeader extends StatelessWidget {
             _ProfileAvatar(
               imageUrl: imageUrl,
               fallbackIcon: isSeller ? Icons.storefront : Icons.person,
-              color: isSeller ? Colors.blue : Colors.green,
+              color: isSeller ? AppColors.primary : Colors.green,
               size: 64,
             ),
             const SizedBox(width: 14),

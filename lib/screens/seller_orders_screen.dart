@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 import '../widgets/leave_review_sheet.dart';
 
 class SellerOrdersScreen extends ConsumerWidget {
@@ -42,13 +43,13 @@ class SellerOrdersScreen extends ConsumerWidget {
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha: 0.1),
+              color: AppColors.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.withValues(alpha: 0.4)),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
             ),
             child: const Row(
               children: [
-                Icon(Icons.shield_outlined, color: Colors.blue, size: 20),
+                Icon(Icons.shield_outlined, color: AppColors.primary, size: 20),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(

@@ -8,6 +8,7 @@ import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
 import '../providers/seller_statistics_provider.dart';
+import '../theme/app_theme.dart';
 
 class SellerDashboardScreen extends ConsumerWidget {
   const SellerDashboardScreen({super.key});
@@ -190,7 +191,7 @@ class _MetricCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: Colors.blue),
+              Icon(icon, color: AppColors.primary),
               const Spacer(),
               Text(
                 value,

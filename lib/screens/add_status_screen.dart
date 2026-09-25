@@ -11,6 +11,7 @@ import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
 import '../services/status_service.dart';
+import '../theme/app_theme.dart';
 
 class AddStatusScreen extends ConsumerStatefulWidget {
   const AddStatusScreen({super.key});
@@ -154,13 +155,13 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.blue,
+                      color: AppColors.primary,
                     ),
                   )
                 : const Text(
                     'Publier',
                     style: TextStyle(
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -411,7 +412,7 @@ class _UploadProgressBanner extends StatelessWidget {
               value: value?.clamp(0, 1),
               minHeight: 4,
               backgroundColor: Colors.grey[800],
-              color: Colors.blue,
+              color: AppColors.primary,
             ),
           ),
         ],
