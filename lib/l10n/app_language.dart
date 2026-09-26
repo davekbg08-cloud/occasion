@@ -56,6 +56,18 @@ String tr(String french) {
 Map<String, String> get englishTranslations => _english;
 
 const _english = <String, String>{
+  "Paiements et reversements": "Payments and payouts",
+  "À reverser": "To pay out",
+  "Paiements manuels": "Manual payments",
+  "Litiges": "Disputes",
+  "Historique": "History",
+  "Aucun reversement pour le moment.": "No payouts yet.",
+  "Commissions gagnées (4 %)": "Commissions earned (4%)",
+  "Aucune commission pawaPay pour le moment.": "No pawaPay commissions yet.",
+  "ventes reversées": "sales paid out",
+  "Manuel": "Manual",
+  "versé": "paid",
+  "commission": "commission",
   "Numéro de reversement": "Payout number",
   "Indique le nom du titulaire du compte.": "Enter the account holder's name.",
   "Numéro de reversement enregistré.": "Payout number saved.",
