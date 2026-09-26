@@ -1,0 +1,120 @@
+name: Publier l'app Android (Google Play)
+
+# Construit, signe et envoie l'AAB sur la Play Console, sans passer par un
+# PC. Lancement MANUEL uniquement (onglet Actions → ce workflow → Run).
+#
+# Secrets requis (Settings → Secrets and variables → Actions) :
+#   ANDROID_KEYSTORE_BASE64    fichier .jks encodé en base64
+#   ANDROID_KEYSTORE_PASSWORD  mot de passe du keystore (storePassword)
+#   ANDROID_KEY_ALIAS          alias de la clé (keyAlias)
+#   ANDROID_KEY_PASSWORD       mot de passe de la clé (keyPassword)
+#   PLAY_SERVICE_ACCOUNT_JSON  clé JSON du compte de service invité dans
+#                              la Play Console (droits « Versions »)
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Canal Google Play"
+        type: choice
+        options:
+          - alpha
+          - internal
+          - production
+        default: alpha
+      status:
+        description: "completed = publiée tout de suite ; draft = brouillon à valider dans la Play Console"
+        type: choice
+        options:
+          - completed
+          - draft
+        default: completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Vérifier les secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          missing=""
+          [ -n "$KS" ] || missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -n "$KSP" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$KA" ] || missing="$missing ANDROID_KEY_ALIAS"
+          [ -n "$KP" ] || missing="$missing ANDROID_KEY_PASSWORD"
+          [ -n "$PLAY" ] || missing="$missing PLAY_SERVICE_ACCOUNT_JSON"
+          if [ -n "$missing" ]; then echo "::error::Secrets manquants :$missing"; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.1"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Installer la clé de signature
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KS" | base64 --decode > android/app/upload-keystore.jks
+          {
+            echo "storePassword=$KSP"
+            echo "keyPassword=$KP"
+            echo "keyAlias=$KA"
+            echo "storeFile=upload-keystore.jks"
+          } > android/key.properties
+
+      - name: Construire l'AAB
+        run: flutter build appbundle --release
+
+      - name: Refuser un AAB signé avec la clé de debug
+        run: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          keytool -printcert -jarfile "$AAB" > cert.txt
+          grep -E "Owner|Propriétaire" cert.txt | head -1
+          if grep -q "CN=Android Debug" cert.txt; then
+            echo "::error::AAB signé avec la clé de debug : publication refusée."
+            exit 1
+          fi
+
+      - name: Conserver une copie de l'AAB (30 jours)
+        uses: actions/upload-artifact@v4
+        with:
+          name: occasion-aab-${{ github.run_number }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      - name: Envoyer sur Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.occasion.app
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.track }}
+          status: ${{ inputs.status }}
+
+      - name: Effacer la clé
+        if: always()
+        run: rm -f android/app/upload-keystore.jks android/key.properties cert.txt
