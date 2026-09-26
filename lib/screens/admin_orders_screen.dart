@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_language.dart';
 import '../services/payment_settlement_service.dart';
+import '../utils/currencies.dart';
 
 class AdminOrdersScreen extends StatelessWidget {
   const AdminOrdersScreen({super.key});
@@ -56,6 +58,10 @@ class _PendingVerificationTab extends StatefulWidget {
 class _PendingVerificationTabState extends State<_PendingVerificationTab> {
   final _settlement = PaymentSettlementService();
   final Set<String> _processing = {};
+
+  /// Paiements réglés dans cette session : masqués aussitôt, sans attendre
+  /// que le flux Firestore (parfois lent sur le web) retire la carte.
+  final Set<String> _settled = {};
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream;
 
   @override
@@ -73,17 +79,18 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
     try {
       await _settlement.confirmManualPayment(transactionId);
       if (!mounted) return;
+      setState(() => _settled.add(transactionId));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(tr('Paiement confirmé.')),
           backgroundColor: Colors.green,
         ),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(tr('Échec de la confirmation.')),
+          content: Text(_errorMessage(error, tr('Échec de la confirmation.'))),
           backgroundColor: Colors.red,
         ),
       );
@@ -97,20 +104,31 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
     try {
       await _settlement.rejectManualPayment(transactionId);
       if (!mounted) return;
+      setState(() => _settled.add(transactionId));
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(tr('Paiement rejeté.'))));
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(tr('Échec du rejet.')),
+          content: Text(_errorMessage(error, tr('Échec du rejet.'))),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
       if (mounted) setState(() => _processing.remove(transactionId));
     }
+  }
+
+  /// Message précis du serveur (ex. « Montant incohérent… ») plutôt qu'un
+  /// échec générique : l'administrateur sait pourquoi rien ne bouge.
+  String _errorMessage(Object error, String fallback) {
+    if (error is FirebaseFunctionsException) {
+      final message = error.message?.trim();
+      if (message != null && message.isNotEmpty) return message;
+    }
+    return fallback;
   }
 
   @override
@@ -124,7 +142,9 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
         if (snapshot.hasError) {
           return Center(child: Text(tr('Accès refusé ou erreur.')));
         }
-        final docs = snapshot.data?.docs ?? const [];
+        final docs = (snapshot.data?.docs ?? const [])
+            .where((doc) => !_settled.contains(doc.id))
+            .toList();
         if (docs.isEmpty) {
           return Center(child: Text(tr('Aucun paiement à vérifier.')));
         }
@@ -139,6 +159,7 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
             final isBusy = _processing.contains(transactionId);
             final type = data['type'] as String? ?? 'order';
             final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+            final currency = data['currency'] as String? ?? 'FC';
             final reference = data['manualPaymentReference'] as String?;
             final planName = data['planName'] as String?;
             final date = _toDate(data['updatedAt']);
@@ -168,7 +189,13 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text('${amount.toInt()} FC'),
+                    Text(
+                      formatPrice(amount, currency),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text('Référence : ${reference ?? "non fournie"}'),
                     if (date != null) ...[
