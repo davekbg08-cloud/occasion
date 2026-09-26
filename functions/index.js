@@ -3043,6 +3043,23 @@ async function reconcilePawapayDeposit(depositId) {
 exports.startPawapayPayment = onCall(
   { secrets: [PAWAPAY_API_TOKEN] },
   async (request) => {
+    try {
+      return await startPawapayPaymentImpl(request);
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      // Erreur inattendue : message réel renvoyé à l'app (au lieu d'un
+      // « internal » muet) et journalisé pour le diagnostic.
+      console.error("startPawapayPayment", error);
+      throw new HttpsError(
+        "internal",
+        `Paiement Mobile Money impossible : ${error?.message || error}`
+      );
+    }
+  }
+);
+
+async function startPawapayPaymentImpl(request) {
+  {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Connexion requise.");
     if (pawapayIsSandbox()) {
@@ -3172,7 +3189,7 @@ exports.startPawapayPayment = onCall(
     await intentRef.set({ pawapayStatus: "ACCEPTED" }, { merge: true });
     return { depositId, status: "pending" };
   }
-);
+}
 
 /** Interrogation par l'app (repli si le callback tarde). data : { transactionId } */
 exports.checkPawapayPayment = onCall(
