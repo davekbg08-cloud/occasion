@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/currencies.dart';
 import '../widgets/leave_review_sheet.dart';
 
 class SellerOrdersScreen extends ConsumerWidget {
@@ -109,6 +110,7 @@ class SellerOrdersScreen extends ConsumerWidget {
                     final data = docs[index].data();
                     final status = data['status'] as String? ?? '';
                     final total = (data['total'] as num?)?.toDouble() ?? 0;
+                    final currency = data['currency'] as String? ?? 'FC';
                     final buyerName =
                         data['buyerName'] as String? ?? 'Acheteur';
                     final date = _toDate(data['createdAt']);
@@ -141,7 +143,7 @@ class SellerOrdersScreen extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 4),
-                            Text('${total.toInt()} FC'),
+                            Text(formatPrice(total, currency)),
                             if (date != null) ...[
                               const SizedBox(height: 4),
                               Text(
@@ -188,13 +190,20 @@ class SellerOrdersScreen extends ConsumerWidget {
       'completed' => Colors.amber,
       'payout_sent' => Colors.green,
       'disputed' => Colors.red,
+      'awaiting_manual_verification' || 'pending_payment' => Colors.orange,
+      'payment_failed' || 'cancelled' || 'refunded' => Colors.redAccent,
       _ => Colors.grey,
     };
     final label = switch (status) {
-      'paid' => "Payée · à livrer",
-      'completed' => 'Livrée · reversement en attente',
-      'payout_sent' => 'Reversée',
-      'disputed' => 'Litige',
+      'paid' => tr('Payée · à livrer'),
+      'completed' => tr('Livrée · reversement en attente'),
+      'payout_sent' => tr('Reversée'),
+      'disputed' => tr('Litige'),
+      'awaiting_manual_verification' => tr('Paiement en vérification'),
+      'pending_payment' => tr('En attente de paiement'),
+      'payment_failed' => tr('Paiement échoué'),
+      'cancelled' => tr('Annulée'),
+      'refunded' => tr('Remboursée'),
       _ => status,
     };
     return Chip(

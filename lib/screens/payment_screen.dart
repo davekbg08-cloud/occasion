@@ -55,10 +55,17 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           .collection('appConfig')
           .doc('payments')
           .get();
-      final mode = snap.data()?['pawapayMode'];
+      final data = snap.data();
+      final mode = data?['pawapayMode'];
       var available = mode == 'live';
       if (mode == 'sandbox') {
-        available = await PaymentSettlementService().isCurrentUserAdmin();
+        // Mode test : administrateurs et comptes testeurs uniquement.
+        final testers = data?['pawapayTesterUids'];
+        final uid = ref.read(authNotifierProvider).currentUser?.id;
+        final isTester =
+            testers is List && uid != null && testers.contains(uid);
+        available =
+            isTester || await PaymentSettlementService().isCurrentUserAdmin();
       }
       if (!mounted) return;
       setState(() {
