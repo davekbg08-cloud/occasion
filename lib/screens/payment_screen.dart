@@ -62,7 +62,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         // Mode test : administrateurs et comptes testeurs uniquement.
         final testers = data?['pawapayTesterUids'];
         final uid = ref.read(authNotifierProvider).currentUser?.id;
-        final isTester = testers is List && uid != null && testers.contains(uid);
+        final isTester =
+            testers is List && uid != null && testers.contains(uid);
         available =
             isTester || await PaymentSettlementService().isCurrentUserAdmin();
       }
