@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
+import '../utils/currencies.dart';
 import '../widgets/leave_review_sheet.dart';
 
 class OrdersScreen extends ConsumerWidget {
@@ -189,6 +190,7 @@ class _OrderCardState extends State<_OrderCard> {
     final data = widget.data;
     final status = data['status'] as String? ?? 'pending_payment';
     final total = (data['total'] as num?)?.toDouble() ?? 0;
+    final currency = data['currency'] as String? ?? 'FC';
     final date = _toDate(data['createdAt']);
     final items = data['items'] as List<dynamic>? ?? const [];
 
@@ -214,8 +216,8 @@ class _OrderCardState extends State<_OrderCard> {
             const SizedBox(height: 6),
             Text(
               date == null
-                  ? '${total.toInt()} FC'
-                  : '${total.toInt()} FC - ${DateFormat('dd/MM/yyyy HH:mm').format(date)}',
+                  ? formatPrice(total, currency)
+                  : '${formatPrice(total, currency)} - ${DateFormat('dd/MM/yyyy HH:mm').format(date)}',
               style: TextStyle(color: Colors.grey[400]),
             ),
             const SizedBox(height: 10),
@@ -229,7 +231,7 @@ class _OrderCardState extends State<_OrderCard> {
                 child: Row(
                   children: [
                     Expanded(child: Text('$name x$quantity')),
-                    Text('${lineTotal.toInt()} FC'),
+                    Text(formatPrice(lineTotal, currency)),
                   ],
                 ),
               );

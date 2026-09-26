@@ -56,6 +56,16 @@ String tr(String french) {
 Map<String, String> get englishTranslations => _english;
 
 const _english = <String, String>{
+  "Payée · à livrer": "Paid · to deliver",
+  "Livrée · reversement en attente": "Delivered · payout pending",
+  "Reversée": "Paid out",
+  "Litige": "Dispute",
+  "Paiement en vérification": "Payment being verified",
+  "En attente de paiement": "Awaiting payment",
+  "Paiement échoué": "Payment failed",
+  "Annulée": "Cancelled",
+  "Remboursée": "Refunded",
+  "acheteur": "buyer",
   "Abonnement vendeur": "Seller subscription",
   "Accueil": "Home",
   "Accès refusé ou erreur.": "Access denied or error.",

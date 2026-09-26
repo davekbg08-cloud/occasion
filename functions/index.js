@@ -3038,8 +3038,13 @@ exports.startPawapayPayment = onCall(
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Connexion requise.");
     if (pawapayIsSandbox()) {
-      // Mode test : aucun argent réel, réservé aux administrateurs.
-      await assertIsAdmin(uid);
+      // Mode test : aucun argent réel, réservé aux administrateurs et aux
+      // comptes testeurs listés dans appConfig/payments.pawapayTesterUids
+      // (ex. un compte acheteur de test).
+      const config = await db.collection("appConfig").doc("payments").get();
+      const testers = config.data()?.pawapayTesterUids;
+      const isTester = Array.isArray(testers) && testers.includes(uid);
+      if (!isTester) await assertIsAdmin(uid);
     }
 
     const transactionId = request.data?.transactionId;

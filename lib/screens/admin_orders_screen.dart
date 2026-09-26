@@ -334,6 +334,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
             final orderId = docs[index].id;
             final isBusy = _processing.contains(orderId);
             final total = (data['total'] as num?)?.toDouble() ?? 0;
+            final orderCurrency = data['currency'] as String? ?? 'FC';
             final buyerName = data['buyerName'] as String? ?? 'Acheteur';
             final sellerIds = (data['sellerIds'] as List<dynamic>? ?? const [])
                 .join(', ');
@@ -345,7 +346,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${total.toInt()} FC · acheteur $buyerName',
+                      '${formatPrice(total, orderCurrency)} · ${tr('acheteur')} $buyerName',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
@@ -464,6 +465,7 @@ class _DisputesTabState extends State<_DisputesTab> {
             final orderId = docs[index].id;
             final isBusy = _processing.contains(orderId);
             final total = (data['total'] as num?)?.toDouble() ?? 0;
+            final orderCurrency = data['currency'] as String? ?? 'FC';
             final buyerName = data['buyerName'] as String? ?? 'Acheteur';
             final reason = data['disputeReason'] as String? ?? '';
 
@@ -475,7 +477,7 @@ class _DisputesTabState extends State<_DisputesTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${total.toInt()} FC · $buyerName',
+                      '${formatPrice(total, orderCurrency)} · $buyerName',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 6),
