@@ -1,3 +1,4 @@
+import '../l10n/app_language.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -142,8 +143,8 @@ class _FullscreenVideoViewerState extends State<FullscreenVideoViewer> {
         children: [
           const Icon(Icons.error_outline, color: Colors.white, size: 48),
           const SizedBox(height: 12),
-          const Text(
-            'Impossible de lire cette vidéo.',
+          Text(
+            tr('Impossible de lire cette vidéo.'),
             style: TextStyle(color: Colors.white),
           ),
           const SizedBox(height: 12),
@@ -153,7 +154,7 @@ class _FullscreenVideoViewerState extends State<FullscreenVideoViewer> {
               foregroundColor: Colors.white,
               side: const BorderSide(color: Colors.white70),
             ),
-            child: const Text('Réessayer'),
+            child: Text(tr('Réessayer')),
           ),
         ],
       );

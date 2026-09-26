@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../l10n/app_language.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/subscription_provider.dart';
 import '../../services/phone_number_validator.dart';
@@ -129,7 +130,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     final currentUser = ref.read(authNotifierProvider).currentUser;
     if (currentUser == null || !currentUser.isSeller) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connecte-toi avec ton compte vendeur.')),
+        SnackBar(content: Text(tr('Connecte-toi avec ton compte vendeur.'))),
       );
       return;
     }
@@ -140,7 +141,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     if (price == null || price <= 0) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Prix invalide.')));
+      ).showSnackBar(SnackBar(content: Text(tr('Prix invalide.'))));
       return;
     }
 
@@ -157,7 +158,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
 
     if (!_isEditing && _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ajoutez au moins une photo.')),
+        SnackBar(content: Text(tr('Ajoutez au moins une photo.'))),
       );
       return;
     }
@@ -244,12 +245,12 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             _Section(
-              title: 'Informations produit',
+              title: tr('Informations produit'),
               children: [
                 TextFormField(
                   controller: _titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Titre',
+                  decoration: InputDecoration(
+                    labelText: tr('Titre'),
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) => value == null || value.trim().isEmpty
@@ -260,8 +261,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
+                  decoration: InputDecoration(
+                    labelText: tr('Description'),
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) => value == null || value.trim().isEmpty
@@ -271,8 +272,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
-                  decoration: const InputDecoration(
-                    labelText: 'Catégorie',
+                  decoration: InputDecoration(
+                    labelText: tr('Catégorie'),
                     border: OutlineInputBorder(),
                   ),
                   items: _categories
@@ -291,8 +292,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _condition,
-                  decoration: const InputDecoration(
-                    labelText: 'État',
+                  decoration: InputDecoration(
+                    labelText: tr('État'),
                     border: OutlineInputBorder(),
                   ),
                   items: _conditions.entries
@@ -311,7 +312,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
               ],
             ),
             _Section(
-              title: 'Photos',
+              title: tr('Photos'),
               children: [
                 OutlinedButton.icon(
                   onPressed: createState.isLoading ? null : _pickImages,
@@ -329,7 +330,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
               ],
             ),
             _Section(
-              title: 'Prix et localisation',
+              title: tr('Prix et localisation'),
               children: [
                 Row(
                   children: [
@@ -340,8 +341,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'Prix',
+                        decoration: InputDecoration(
+                          labelText: tr('Prix'),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) =>
@@ -354,8 +355,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         initialValue: _currency,
-                        decoration: const InputDecoration(
-                          labelText: 'Devise',
+                        decoration: InputDecoration(
+                          labelText: tr('Devise'),
                           border: OutlineInputBorder(),
                         ),
                         isExpanded: true,
@@ -386,8 +387,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _cityController,
-                  decoration: const InputDecoration(
-                    labelText: 'Ville',
+                  decoration: InputDecoration(
+                    labelText: tr('Ville'),
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) => value == null || value.trim().isEmpty
@@ -397,20 +398,20 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _districtController,
-                  decoration: const InputDecoration(
-                    labelText: 'Quartier',
+                  decoration: InputDecoration(
+                    labelText: tr('Quartier'),
                     border: OutlineInputBorder(),
                   ),
                 ),
               ],
             ),
             _Section(
-              title: 'Contact vendeur',
+              title: tr('Contact vendeur'),
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: _phoneCountryIso,
-                  decoration: const InputDecoration(
-                    labelText: 'Pays du numéro',
+                  decoration: InputDecoration(
+                    labelText: tr('Pays du numéro'),
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.public_outlined),
                   ),
@@ -440,8 +441,8 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 TextFormField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Numéro de contact',
+                  decoration: InputDecoration(
+                    labelText: tr('Numéro de contact'),
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
@@ -456,12 +457,12 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
               ],
             ),
             _Section(
-              title: 'Publication',
+              title: tr('Publication'),
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: _publicationStatus,
-                  decoration: const InputDecoration(
-                    labelText: 'Statut de publication',
+                  decoration: InputDecoration(
+                    labelText: tr('Statut de publication'),
                     border: OutlineInputBorder(),
                   ),
                   items: _publicationStatuses.entries

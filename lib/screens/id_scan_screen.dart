@@ -1,3 +1,4 @@
+import '../l10n/app_language.dart';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -248,17 +249,17 @@ class _IdScanScreenState extends ConsumerState<IdScanScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scanner document'),
+        title: Text(tr('Scanner document')),
         actions: [
           IconButton(
             onPressed: () => context.push('/profile'),
             icon: const Icon(Icons.account_circle),
-            tooltip: 'Mon compte',
+            tooltip: tr('Mon compte'),
           ),
           IconButton(
             onPressed: _isInitializing ? null : _initializeCamera,
             icon: const Icon(Icons.refresh),
-            tooltip: 'Relancer la camera',
+            tooltip: tr('Relancer la camera'),
           ),
         ],
       ),
@@ -342,13 +343,13 @@ class _GuideFrame extends StatelessWidget {
             border: Border.all(color: Colors.greenAccent, width: 4),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: const Center(
+          child: Center(
             child: DecoratedBox(
               decoration: BoxDecoration(color: Colors.black54),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Text(
-                  'Placez le document ici',
+                  tr('Placez le document ici'),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -407,8 +408,8 @@ class _ResultPanel extends StatelessWidget {
                 ),
               )
             else if (recognizedText.isEmpty)
-              const Text(
-                "CNI, passeport ou carte d'electeur: prenez une photo nette.",
+              Text(
+                tr("CNI, passeport ou carte d'electeur: prenez une photo nette."),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),
@@ -429,7 +430,7 @@ class _ResultPanel extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: isProcessing ? null : onSelfie,
               icon: const Icon(Icons.face_retouching_natural_outlined),
-              label: const Text('Envoyer un selfie'),
+              label: Text(tr('Envoyer un selfie')),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
               ),

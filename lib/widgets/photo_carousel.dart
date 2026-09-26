@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_language.dart';
 import 'fullscreen_image_viewer.dart';
 import 'occasion_image.dart';
 
@@ -187,13 +188,13 @@ class _SwipeHint extends StatelessWidget {
           color: Colors.black.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.swipe, size: 13, color: Colors.white),
             SizedBox(width: 4),
             Text(
-              'Balayez pour voir les autres photos',
+              tr('Balayez pour voir les autres photos'),
               style: TextStyle(color: Colors.white, fontSize: 11),
             ),
           ],

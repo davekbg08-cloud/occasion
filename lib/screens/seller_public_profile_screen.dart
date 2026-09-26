@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/review.dart';
 import '../providers/product_provider.dart';
 import '../providers/review_provider.dart';
@@ -25,16 +26,16 @@ class SellerPublicProfileScreen extends ConsumerWidget {
           onPressed: () =>
               context.canPop() ? context.pop() : context.go('/home'),
         ),
-        title: const Text('Profil du vendeur'),
+        title: Text(tr('Profil du vendeur')),
       ),
       body: sellerAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const Center(
-          child: Text('Impossible de charger ce profil pour le moment.'),
+        error: (error, stackTrace) => Center(
+          child: Text(tr('Impossible de charger ce profil pour le moment.')),
         ),
         data: (seller) {
           if (seller == null) {
-            return const Center(child: Text('Vendeur introuvable.'));
+            return Center(child: Text(tr('Vendeur introuvable.')));
           }
 
           return ListView(
@@ -88,19 +89,19 @@ class SellerPublicProfileScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Avis récents',
+              Text(
+                tr('Avis récents'),
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               const SizedBox(height: 8),
               reviewsAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, stackTrace) => const Text(
-                  "Impossible de charger les avis pour le moment.",
+                error: (error, stackTrace) => Text(
+                  tr("Impossible de charger les avis pour le moment."),
                 ),
                 data: (reviews) {
                   if (reviews.isEmpty) {
-                    return const Text('Aucun avis pour le moment.');
+                    return Text(tr('Aucun avis pour le moment.'));
                   }
                   return Column(
                     children: reviews

@@ -1,4 +1,5 @@
 import 'dart:io' as io;
+import '../l10n/app_language.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -140,8 +141,8 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text(
-          'Nouveau statut',
+        title: Text(
+          tr('Nouveau statut'),
           style: TextStyle(color: Colors.white),
         ),
         actions: [
@@ -158,8 +159,8 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
                       color: AppColors.primary,
                     ),
                   )
-                : const Text(
-                    'Publier',
+                : Text(
+                    tr('Publier'),
                     style: TextStyle(
                       color: AppColors.primary,
                       fontSize: 16,
@@ -214,7 +215,7 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
                       maxLines: 3,
                       minLines: 1,
                       decoration: InputDecoration(
-                        hintText: 'Ajouter une description...',
+                        hintText: tr('Ajouter une description...'),
                         hintStyle: TextStyle(color: Colors.grey[600]),
                         border: InputBorder.none,
                       ),
@@ -225,7 +226,7 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
                       enabled: !statusState.isUploading,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: 'ID produit lié (optionnel)',
+                        hintText: tr('ID produit lié (optionnel)'),
                         hintStyle: TextStyle(color: Colors.grey[600]),
                         border: InputBorder.none,
                       ),
@@ -235,13 +236,13 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
                       children: [
                         _QuickButton(
                           icon: Icons.image,
-                          label: 'Changer image',
+                          label: tr('Changer image'),
                           onTap: _pickImage,
                         ),
                         const SizedBox(width: 20),
                         _QuickButton(
                           icon: Icons.videocam,
-                          label: 'Changer vidéo',
+                          label: tr('Changer vidéo'),
                           onTap: _pickVideo,
                         ),
                       ],
@@ -278,8 +279,8 @@ class _PickerPlaceholder extends StatelessWidget {
             size: 72,
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Sélectionnez un média',
+          Text(
+            tr('Sélectionnez un média'),
             style: TextStyle(color: Colors.grey, fontSize: 16),
           ),
           const SizedBox(height: 36),
@@ -288,13 +289,13 @@ class _PickerPlaceholder extends StatelessWidget {
             children: [
               _MediaTypeButton(
                 icon: Icons.image,
-                label: 'Image',
+                label: tr('Image'),
                 onTap: onPickImage,
               ),
               const SizedBox(width: 24),
               _MediaTypeButton(
                 icon: Icons.videocam,
-                label: 'Vidéo',
+                label: tr('Vidéo'),
                 onTap: onPickVideo,
               ),
             ],

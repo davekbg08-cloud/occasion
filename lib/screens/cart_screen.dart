@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/cart_provider.dart';
 import '../utils/currencies.dart';
 
@@ -18,11 +19,11 @@ class CartScreen extends ConsumerWidget {
     final currency = cartItems.isEmpty ? '' : cartItems.first.product.currency;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mon Panier')),
+      appBar: AppBar(title: Text(tr('Mon Panier'))),
       body: cartItems.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
-                'Votre panier est vide',
+                tr('Votre panier est vide'),
                 style: TextStyle(fontSize: 18),
               ),
             )
@@ -86,8 +87,8 @@ class CartScreen extends ConsumerWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Total :',
+                        Text(
+                          tr('Total :'),
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -120,7 +121,7 @@ class CartScreen extends ConsumerWidget {
                         onPressed: isOnlinePaymentCurrency(currency)
                             ? () => context.push('/payment')
                             : null,
-                        child: const Text('Passer à la caisse'),
+                        child: Text(tr('Passer à la caisse')),
                       ),
                     ),
                   ],

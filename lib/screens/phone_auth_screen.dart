@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart' hide UserRole;
 import '../services/phone_number_validator.dart';
@@ -113,8 +114,8 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     controller: _nameController,
                     enabled: !auth.isLoading,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Nom',
+                    decoration: InputDecoration(
+                      labelText: tr('Nom'),
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.person_outline),
                     ),
@@ -125,8 +126,8 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     initialValue: _phoneCountryIso,
-                    decoration: const InputDecoration(
-                      labelText: 'Pays du numéro',
+                    decoration: InputDecoration(
+                      labelText: tr('Pays du numéro'),
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.public_outlined),
                     ),
@@ -153,8 +154,8 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     enabled: !auth.isLoading,
                     keyboardType: TextInputType.phone,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Téléphone',
+                    decoration: InputDecoration(
+                      labelText: tr('Téléphone'),
                       hintText: '+243812345678',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.phone_outlined),
@@ -173,8 +174,8 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     enabled: !auth.isLoading,
                     textCapitalization: TextCapitalization.characters,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Code de parrainage (optionnel)',
+                    decoration: InputDecoration(
+                      labelText: tr('Code de parrainage (optionnel)'),
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.card_giftcard_outlined),
                     ),
@@ -186,8 +187,8 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail',
+                  decoration: InputDecoration(
+                    labelText: tr('E-mail'),
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.mail_outline),
                   ),
@@ -205,7 +206,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                   obscureText: _obscurePassword,
                   autofillHints: const [AutofillHints.password],
                   decoration: InputDecoration(
-                    labelText: 'Mot de passe',
+                    labelText: tr('Mot de passe'),
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(

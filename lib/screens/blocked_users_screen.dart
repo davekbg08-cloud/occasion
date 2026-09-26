@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/moderation_provider.dart';
 
 class BlockedUsersScreen extends ConsumerWidget {
@@ -13,16 +14,16 @@ class BlockedUsersScreen extends ConsumerWidget {
     final blockedAsync = ref.watch(blockedUsersDetailedProvider(currentUserId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Utilisateurs bloqués')),
+      appBar: AppBar(title: Text(tr('Utilisateurs bloqués'))),
       body: currentUserId.isEmpty
-          ? const Center(child: Text('Connectez-vous pour voir cette liste.'))
+          ? Center(child: Text(tr('Connectez-vous pour voir cette liste.')))
           : blockedAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, _) => Center(child: Text('Erreur : $error')),
               data: (blocked) {
                 if (blocked.isEmpty) {
-                  return const Center(
-                    child: Text("Vous n'avez bloqué personne pour le moment."),
+                  return Center(
+                    child: Text(tr("Vous n'avez bloqué personne pour le moment.")),
                   );
                 }
 
@@ -49,13 +50,13 @@ class BlockedUsersScreen extends ConsumerWidget {
                               );
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Utilisateur débloqué'),
+                              SnackBar(
+                                content: Text(tr('Utilisateur débloqué')),
                               ),
                             );
                           }
                         },
-                        child: const Text('Débloquer'),
+                        child: Text(tr('Débloquer')),
                       ),
                     );
                   },

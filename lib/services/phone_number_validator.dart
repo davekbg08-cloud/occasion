@@ -1,3 +1,4 @@
+import '../l10n/app_language.dart';
 class PhoneCountry {
   const PhoneCountry({
     required this.isoCode,
@@ -264,10 +265,10 @@ class PhoneNumberValidator {
   static PhoneValidationResult validate(String raw, {String? countryIso}) {
     final normalized = normalize(raw);
     if (normalized.isEmpty) {
-      return const PhoneValidationResult(
+      return PhoneValidationResult(
         isValid: false,
         normalized: '',
-        message: 'Entre un numero de telephone.',
+        message: tr('Entre un numero de telephone.'),
       );
     }
 
@@ -275,7 +276,7 @@ class PhoneNumberValidator {
       return PhoneValidationResult(
         isValid: false,
         normalized: normalized,
-        message: "Ajoutez l'indicatif international, par exemple +243.",
+        message: tr("Ajoutez l'indicatif international, par exemple +243."),
       );
     }
 
@@ -322,7 +323,7 @@ class PhoneNumberValidator {
         isValid: true,
         normalized: normalized,
         country: country,
-        message: 'Numero valide.',
+        message: tr('Numero valide.'),
       );
     }
 
@@ -330,7 +331,7 @@ class PhoneNumberValidator {
       isValid: false,
       normalized: normalized,
       message:
-          "Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif.",
+          tr("Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif."),
     );
   }
 

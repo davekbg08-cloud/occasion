@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import '../l10n/app_language.dart';
 import '../models/cart_item.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
@@ -144,14 +145,14 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     }
     if (total <= 0) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Votre panier est vide')),
+        SnackBar(content: Text(tr('Votre panier est vide'))),
       );
       return;
     }
     final provider = _provider;
     if (provider == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Choisis ton opérateur Mobile Money.')),
+        SnackBar(content: Text(tr('Choisis ton opérateur Mobile Money.'))),
       );
       return;
     }
@@ -201,8 +202,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         cart.clearCart();
         _pendingTransactionId = null;
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Paiement reçu ! Ta commande est confirmée.'),
+          SnackBar(
+            content: Text(tr('Paiement reçu ! Ta commande est confirmée.')),
             backgroundColor: Colors.green,
           ),
         );
@@ -303,15 +304,15 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     if (total <= 0) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Votre panier est vide')));
+      ).showSnackBar(SnackBar(content: Text(tr('Votre panier est vide'))));
       return;
     }
     final reference = referenceController.text.trim();
     if (reference.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Colle la référence de transaction reçue par SMS Orange Money.',
+            tr('Colle la référence de transaction reçue par SMS Orange Money.'),
           ),
         ),
       );
@@ -437,7 +438,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         : cartItems.first.product.currency;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Paiement')),
+      appBar: AppBar(title: Text(tr('Paiement'))),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -449,7 +450,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Montant total', style: TextStyle(fontSize: 18)),
+                    Text(tr('Montant total'), style: TextStyle(fontSize: 18)),
                     Text(
                       formatPrice(totalAmount, cartCurrency),
                       style: const TextStyle(
@@ -490,7 +491,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             if (_mobileMoneyAvailable) ...[
               const SizedBox(height: 20),
               SegmentedButton<bool>(
-                segments: const [
+                segments: [
                   ButtonSegment(
                     value: true,
                     icon: Icon(Icons.bolt),
@@ -499,7 +500,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   ButtonSegment(
                     value: false,
                     icon: Icon(Icons.receipt_long_outlined),
-                    label: Text('Orange Money manuel'),
+                    label: Text(tr('Orange Money manuel')),
                   ),
                 ],
                 selected: {_useMobileMoney},
@@ -523,8 +524,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 20),
-        const Text(
-          'Ton opérateur',
+        Text(
+          tr('Ton opérateur'),
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
@@ -547,8 +548,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           controller: phoneController,
           enabled: !isProcessing,
           keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(
-            labelText: 'Numéro Mobile Money',
+          decoration: InputDecoration(
+            labelText: tr('Numéro Mobile Money'),
             hintText: '+243 8xx xxx xxx',
             prefixIcon: Icon(Icons.phone_android),
           ),
@@ -605,8 +606,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Comment payer',
+              Text(
+                tr('Comment payer'),
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               const SizedBox(height: 8),
@@ -661,15 +662,15 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         ),
       ),
       const SizedBox(height: 24),
-      const Text(
-        'Numéro de téléphone',
+      Text(
+        tr('Numéro de téléphone'),
         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       ),
       const SizedBox(height: 8),
       DropdownButtonFormField<String>(
         initialValue: phoneCountryIso,
-        decoration: const InputDecoration(
-          labelText: 'Pays du numéro',
+        decoration: InputDecoration(
+          labelText: tr('Pays du numéro'),
           border: OutlineInputBorder(),
           prefixIcon: Icon(Icons.public_outlined),
         ),
@@ -703,8 +704,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       TextField(
         controller: referenceController,
         enabled: !isProcessing,
-        decoration: const InputDecoration(
-          labelText: 'Référence de transaction (SMS Orange Money)',
+        decoration: InputDecoration(
+          labelText: tr('Référence de transaction (SMS Orange Money)'),
           border: OutlineInputBorder(),
           prefixIcon: Icon(Icons.receipt_long_outlined),
         ),
@@ -728,8 +729,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                     strokeWidth: 2.5,
                   ),
                 )
-              : const Text(
-                  "J'AI ENVOYÉ L'ARGENT",
+              : Text(
+                  tr("J'AI ENVOYÉ L'ARGENT"),
                   style: TextStyle(fontSize: 18),
                 ),
         ),

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../annonce/providers/annonce_provider.dart';
+import '../l10n/app_language.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
 import '../providers/seller_statistics_provider.dart';
@@ -23,7 +24,7 @@ class SellerDashboardScreen extends ConsumerWidget {
     final annoncesAsync = ref.watch(sellerAnnoncesProvider(user.id));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Vendre')),
+      appBar: AppBar(title: Text(tr('Vendre'))),
       body: annoncesAsync.when(
         data: (annonces) => _DashboardContent(
           annonces: annonces,
@@ -79,17 +80,17 @@ class _DashboardContent extends ConsumerWidget {
             children: [
               _MetricCard(
                 icon: Icons.inventory_2_outlined,
-                label: 'Annonces',
+                label: tr('Annonces'),
                 value: '${annonces.length}',
               ),
               _MetricCard(
                 icon: Icons.public,
-                label: 'En ligne',
+                label: tr('En ligne'),
                 value: '$active',
               ),
               _MetricCard(
                 icon: Icons.visibility_outlined,
-                label: 'Vues',
+                label: tr('Vues'),
                 value: '$views',
               ),
               _MetricCard(
@@ -100,19 +101,19 @@ class _DashboardContent extends ConsumerWidget {
                 // "Messages" pour ne pas laisser croire au nombre de
                 // messages échangés (voir sellerStatistics.totalMessages
                 // sur l'écran statistiques pour ce chiffre-là).
-                label: 'Conversations',
+                label: tr('Conversations'),
                 value: '$messages',
               ),
               _MetricCard(
                 icon: Icons.pending_actions_outlined,
                 // `pending` = annonces non publiées/inactives, pas des
                 // commandes en attente.
-                label: 'Annonces inactives',
+                label: tr('Annonces inactives'),
                 value: '$pending',
               ),
               _MetricCard(
                 icon: Icons.query_stats,
-                label: 'Ventes',
+                label: tr('Ventes'),
                 value: totalSales == null ? '…' : '$totalSales',
                 onTap: () => context.push('/seller-statistics'),
               ),
@@ -125,7 +126,7 @@ class _DashboardContent extends ConsumerWidget {
                 child: FilledButton.icon(
                   onPressed: () => context.push('/publish-product'),
                   icon: const Icon(Icons.add_box_outlined),
-                  label: const Text('Publier une annonce'),
+                  label: Text(tr('Publier une annonce')),
                 ),
               ),
               const SizedBox(width: 12),
@@ -133,14 +134,14 @@ class _DashboardContent extends ConsumerWidget {
                 child: OutlinedButton.icon(
                   onPressed: () => context.push('/add-status'),
                   icon: const Icon(Icons.auto_awesome_outlined),
-                  label: const Text('Publier un statut'),
+                  label: Text(tr('Publier un statut')),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
           Text(
-            'Ma boutique',
+            tr('Ma boutique'),
             style: Theme.of(
               context,
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
@@ -148,17 +149,17 @@ class _DashboardContent extends ConsumerWidget {
           const SizedBox(height: 12),
           _DashboardAction(
             icon: Icons.list_alt_outlined,
-            title: 'Mes annonces',
+            title: tr('Mes annonces'),
             route: '/my-listings',
           ),
           _DashboardAction(
             icon: Icons.local_shipping_outlined,
-            title: 'Commandes reçues',
+            title: tr('Commandes reçues'),
             route: '/seller-orders',
           ),
           _DashboardAction(
             icon: Icons.bar_chart_outlined,
-            title: 'Statistiques',
+            title: tr('Statistiques'),
             route: '/seller-statistics',
           ),
         ],
@@ -242,11 +243,11 @@ class _DashboardError extends StatelessWidget {
       'Erreur chargement tableau de bord vendeur: $error',
       name: 'SellerDashboardScreen',
     );
-    return const Center(
+    return Center(
       child: Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          "Impossible de charger le tableau de bord vendeur.",
+          tr("Impossible de charger le tableau de bord vendeur."),
           textAlign: TextAlign.center,
         ),
       ),

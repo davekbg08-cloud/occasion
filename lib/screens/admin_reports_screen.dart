@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/report.dart';
 import '../providers/moderation_provider.dart';
 
@@ -21,7 +22,7 @@ class AdminReportsScreen extends StatelessWidget {
             onPressed: () =>
                 context.canPop() ? context.pop() : context.go('/profile'),
           ),
-          title: const Text('Signalements'),
+          title: Text(tr('Signalements')),
           bottom: const TabBar(
             isScrollable: true,
             tabs: [
@@ -79,8 +80,8 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec. Réessaie.'),
+        SnackBar(
+          content: Text(tr('Échec. Réessaie.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -100,11 +101,11 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Accès refusé ou erreur.'));
+          return Center(child: Text(tr('Accès refusé ou erreur.')));
         }
         final docs = snapshot.data ?? const [];
         if (docs.isEmpty) {
-          return const Center(child: Text('Aucun signalement ici.'));
+          return Center(child: Text(tr('Aucun signalement ici.')));
         }
 
         return ListView.separated(
@@ -166,7 +167,7 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
                               onPressed: isBusy
                                   ? null
                                   : () => _updateStatus(reportId, 'dismissed'),
-                              child: const Text('Rejeter'),
+                              child: Text(tr('Rejeter')),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -187,7 +188,7 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text('Résoudre'),
+                                  : Text(tr('Résoudre')),
                             ),
                           ),
                         ],

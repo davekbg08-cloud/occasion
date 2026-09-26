@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../services/payment_settlement_service.dart';
 
 class AdminOrdersScreen extends StatelessWidget {
@@ -19,7 +20,7 @@ class AdminOrdersScreen extends StatelessWidget {
             onPressed: () =>
                 context.canPop() ? context.pop() : context.go('/profile'),
           ),
-          title: const Text('Administration paiements'),
+          title: Text(tr('Administration paiements')),
           bottom: const TabBar(
             isScrollable: true,
             tabs: [
@@ -73,16 +74,16 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
       await _settlement.confirmManualPayment(transactionId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Paiement confirmé.'),
+        SnackBar(
+          content: Text(tr('Paiement confirmé.')),
           backgroundColor: Colors.green,
         ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec de la confirmation.'),
+        SnackBar(
+          content: Text(tr('Échec de la confirmation.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -98,12 +99,12 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Paiement rejeté.')));
+      ).showSnackBar(SnackBar(content: Text(tr('Paiement rejeté.'))));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec du rejet.'),
+        SnackBar(
+          content: Text(tr('Échec du rejet.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -121,11 +122,11 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Accès refusé ou erreur.'));
+          return Center(child: Text(tr('Accès refusé ou erreur.')));
         }
         final docs = snapshot.data?.docs ?? const [];
         if (docs.isEmpty) {
-          return const Center(child: Text('Aucun paiement à vérifier.'));
+          return Center(child: Text(tr('Aucun paiement à vérifier.')));
         }
 
         return ListView.separated(
@@ -185,7 +186,7 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                             onPressed: isBusy
                                 ? null
                                 : () => _reject(transactionId),
-                            child: const Text('Rejeter'),
+                            child: Text(tr('Rejeter')),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -206,7 +207,7 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text('Confirmer'),
+                                : Text(tr('Confirmer')),
                           ),
                         ),
                       ],
@@ -263,16 +264,16 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
       }, SetOptions(merge: true));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Marqué comme reversé.'),
+        SnackBar(
+          content: Text(tr('Marqué comme reversé.')),
           backgroundColor: Colors.green,
         ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec. Réessaie.'),
+        SnackBar(
+          content: Text(tr('Échec. Réessaie.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -290,11 +291,11 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Accès refusé ou erreur.'));
+          return Center(child: Text(tr('Accès refusé ou erreur.')));
         }
         final docs = snapshot.data?.docs ?? const [];
         if (docs.isEmpty) {
-          return const Center(child: Text('Aucun reversement en attente.'));
+          return Center(child: Text(tr('Aucun reversement en attente.')));
         }
 
         return ListView.separated(
@@ -342,7 +343,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text("J'ai envoyé l'argent au vendeur"),
+                            : Text(tr("J'ai envoyé l'argent au vendeur")),
                       ),
                     ),
                   ],
@@ -401,8 +402,8 @@ class _DisputesTabState extends State<_DisputesTab> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec. Réessaie.'),
+        SnackBar(
+          content: Text(tr('Échec. Réessaie.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -420,11 +421,11 @@ class _DisputesTabState extends State<_DisputesTab> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Accès refusé ou erreur.'));
+          return Center(child: Text(tr('Accès refusé ou erreur.')));
         }
         final docs = snapshot.data?.docs ?? const [];
         if (docs.isEmpty) {
-          return const Center(child: Text('Aucun litige en cours.'));
+          return Center(child: Text(tr('Aucun litige en cours.')));
         }
 
         return ListView.separated(
@@ -460,7 +461,7 @@ class _DisputesTabState extends State<_DisputesTab> {
                             onPressed: isBusy
                                 ? null
                                 : () => _resolve(orderId, 'cancelled'),
-                            child: const Text('Annuler / rembourser'),
+                            child: Text(tr('Annuler / rembourser')),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -472,7 +473,7 @@ class _DisputesTabState extends State<_DisputesTab> {
                             style: FilledButton.styleFrom(
                               backgroundColor: Colors.green,
                             ),
-                            child: const Text('Reverser au vendeur'),
+                            child: Text(tr('Reverser au vendeur')),
                           ),
                         ),
                       ],

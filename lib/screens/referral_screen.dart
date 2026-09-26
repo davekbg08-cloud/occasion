@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../providers/referral_provider.dart';
 
@@ -21,13 +22,13 @@ class ReferralScreen extends ConsumerWidget {
     final userAsync = ref.watch(currentUserDocProvider(userId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Parrainage')),
+      appBar: AppBar(title: Text(tr('Parrainage'))),
       body: userAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => const Center(
+        error: (error, _) => Center(
           child: Padding(
             padding: EdgeInsets.all(24),
-            child: Text('Impossible de charger votre code de parrainage.'),
+            child: Text(tr('Impossible de charger votre code de parrainage.')),
           ),
         ),
         data: (user) {
@@ -53,7 +54,7 @@ class ReferralScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(16),
             children: [
               Text(
-                'Invitez vos proches sur Occasion',
+                tr('Invitez vos proches sur Occasion'),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
@@ -73,7 +74,7 @@ class ReferralScreen extends ConsumerWidget {
                   Expanded(
                     child: _StatCard(
                       icon: Icons.group_outlined,
-                      label: 'Filleuls inscrits',
+                      label: tr('Filleuls inscrits'),
                       value: '${user?.referralCount ?? 0}',
                     ),
                   ),
@@ -81,7 +82,7 @@ class ReferralScreen extends ConsumerWidget {
                   Expanded(
                     child: _StatCard(
                       icon: Icons.stars_outlined,
-                      label: 'Points gagnés',
+                      label: tr('Points gagnés'),
                       value: '${user?.referralRewardPoints ?? 0}',
                     ),
                   ),
@@ -111,7 +112,7 @@ class _CodeCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Text('Votre code', style: Theme.of(context).textTheme.titleSmall),
+            Text(tr('Votre code'), style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 12),
             Text(
               code,
@@ -129,11 +130,11 @@ class _CodeCard extends StatelessWidget {
                       await Clipboard.setData(ClipboardData(text: code));
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Code copié.')),
+                        SnackBar(content: Text(tr('Code copié.'))),
                       );
                     },
                     icon: const Icon(Icons.copy_outlined),
-                    label: const Text('Copier'),
+                    label: Text(tr('Copier')),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -141,7 +142,7 @@ class _CodeCard extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: () => Share.share(_shareMessage),
                     icon: const Icon(Icons.share_outlined),
-                    label: const Text('Partager'),
+                    label: Text(tr('Partager')),
                   ),
                 ),
               ],

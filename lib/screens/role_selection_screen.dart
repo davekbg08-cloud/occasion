@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/user.dart';
 import '../theme/app_theme.dart';
 import '../widgets/occasion_logo.dart';
@@ -20,8 +21,8 @@ class RoleSelectionScreen extends StatelessWidget {
             children: [
               const OccasionLogo(size: 132),
               const SizedBox(height: 24),
-              const Text(
-                'Bienvenue !',
+              Text(
+                tr('Bienvenue !'),
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 30,
@@ -30,14 +31,14 @@ class RoleSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Créez votre compte en choisissant votre rôle',
+                tr('Créez votre compte en choisissant votre rôle'),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[400], fontSize: 15),
               ),
               const SizedBox(height: 56),
               _RoleCard(
                 icon: Icons.storefront_rounded,
-                title: 'Vendeur',
+                title: tr('Vendeur'),
                 description:
                     "Créez gratuitement votre compte vendeur et parcourez l'application.",
                 accentColor: AppColors.primary,
@@ -47,7 +48,7 @@ class RoleSelectionScreen extends StatelessWidget {
               const SizedBox(height: 20),
               _RoleCard(
                 icon: Icons.shopping_bag_rounded,
-                title: 'Acheteur',
+                title: tr('Acheteur'),
                 description:
                     'Parcourez les articles gratuitement, sans abonnement mensuel.',
                 accentColor: Colors.green,
@@ -58,13 +59,13 @@ class RoleSelectionScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'Déjà un compte ? ',
+                    tr('Déjà un compte ? '),
                     style: TextStyle(color: Colors.grey[500]),
                   ),
                   GestureDetector(
                     onTap: () => context.push('/login'),
-                    child: const Text(
-                      'Se connecter',
+                    child: Text(
+                      tr('Se connecter'),
                       style: TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.bold,

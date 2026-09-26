@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../providers/search_alert_provider.dart';
 
@@ -17,12 +18,12 @@ class SearchAlertsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          tooltip: 'Retour',
+          tooltip: tr('Retour'),
           icon: const Icon(Icons.arrow_back),
           onPressed: () =>
               context.canPop() ? context.pop() : context.go('/home'),
         ),
-        title: const Text('Mes alertes de recherche'),
+        title: Text(tr('Mes alertes de recherche')),
       ),
       body: alertsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -61,7 +62,7 @@ class SearchAlertsScreen extends ConsumerWidget {
                   leading: const Icon(Icons.notifications_active_outlined),
                   title: Text(alert.label),
                   trailing: IconButton(
-                    tooltip: 'Supprimer cette alerte',
+                    tooltip: tr('Supprimer cette alerte'),
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
                     onPressed: () =>
                         ref.read(searchAlertServiceProvider).delete(alert.id),

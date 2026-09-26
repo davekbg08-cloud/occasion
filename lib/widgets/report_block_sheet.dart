@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../models/report.dart';
 import '../providers/moderation_provider.dart';
 
@@ -90,7 +91,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Icons.close),
-              title: const Text('Annuler'),
+              title: Text(tr('Annuler')),
               onTap: () => Navigator.pop(context),
             ),
           ],
@@ -120,8 +121,8 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Pourquoi signalez-vous ce contenu ?',
+                  Text(
+                    tr('Pourquoi signalez-vous ce contenu ?'),
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
@@ -146,8 +147,8 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                   TextField(
                     controller: detailsController,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      hintText: 'Details supplementaires (facultatif)',
+                    decoration: InputDecoration(
+                      hintText: tr('Details supplementaires (facultatif)'),
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -190,7 +191,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                           );
                         }
                       },
-                      child: const Text('Envoyer le signalement'),
+                      child: Text(tr('Envoyer le signalement')),
                     ),
                   ),
                 ],
@@ -214,7 +215,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
+            child: Text(tr('Annuler')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -243,7 +244,7 @@ class _ReportOrBlockSheet extends ConsumerWidget {
                 );
               }
             },
-            child: const Text('Bloquer'),
+            child: Text(tr('Bloquer')),
           ),
         ],
       ),

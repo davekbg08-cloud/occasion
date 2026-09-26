@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
@@ -38,16 +39,16 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   Future<void> _submit() async {
     if (selectedPlan == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choisissez une formule vendeur.')),
+        SnackBar(content: Text(tr('Choisissez une formule vendeur.'))),
       );
       return;
     }
     final reference = referenceController.text.trim();
     if (reference.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Colle la référence de transaction reçue par SMS Orange Money.',
+            tr('Colle la référence de transaction reçue par SMS Orange Money.'),
           ),
         ),
       );
@@ -106,11 +107,11 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Abonnement vendeur'),
+        title: Text(tr('Abonnement vendeur')),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Vérifier mon abonnement',
+            tooltip: tr('Vérifier mon abonnement'),
             onPressed: () {
               ref
                   .read(subscriptionNotifierProvider.notifier)
@@ -135,19 +136,19 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             if (subscription != null) ...[
               _buildCurrentSubscriptionCard(subscription),
               const SizedBox(height: 20),
-              const Text(
-                'Renouvellement vendeur',
+              Text(
+                tr('Renouvellement vendeur'),
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
             ] else ...[
-              const Text(
-                'Abonnement vendeur',
+              Text(
+                tr('Abonnement vendeur'),
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
-                "Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées.",
+                tr("Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées."),
                 style: TextStyle(color: Colors.grey[400], fontSize: 14),
               ),
               const SizedBox(height: 16),
@@ -187,8 +188,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Comment payer',
+                    Text(
+                      tr('Comment payer'),
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -238,8 +239,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             TextField(
               controller: referenceController,
               enabled: !formDisabled,
-              decoration: const InputDecoration(
-                labelText: 'Référence de transaction (SMS Orange Money)',
+              decoration: InputDecoration(
+                labelText: tr('Référence de transaction (SMS Orange Money)'),
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.receipt_long_outlined),
               ),
@@ -263,8 +264,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                           strokeWidth: 2.5,
                         ),
                       )
-                    : const Text(
-                        "J'AI ENVOYÉ L'ARGENT",
+                    : Text(
+                        tr("J'AI ENVOYÉ L'ARGENT"),
                         style: TextStyle(fontSize: 18),
                       ),
               ),
@@ -283,7 +284,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
   Widget _buildBuyerFreeScaffold(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Compte acheteur')),
+      appBar: AppBar(title: Text(tr('Compte acheteur'))),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Center(
@@ -300,8 +301,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                     size: 48,
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Aucun abonnement pour les acheteurs',
+                  Text(
+                    tr('Aucun abonnement pour les acheteurs'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white,
@@ -311,7 +312,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    "Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel.",
+                    tr("Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel."),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey[400]),
                   ),
@@ -319,7 +320,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   FilledButton.icon(
                     onPressed: () => context.go('/home'),
                     icon: const Icon(Icons.home_outlined),
-                    label: const Text("Retour à l'accueil"),
+                    label: Text(tr("Retour à l'accueil")),
                   ),
                 ],
               ),

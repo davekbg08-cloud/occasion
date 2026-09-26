@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/report.dart';
@@ -106,8 +107,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final me = ref.read(authNotifierProvider).currentUser;
     if (me == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vous devez être connecté pour envoyer un message.'),
+        SnackBar(
+          content: Text(tr('Vous devez être connecté pour envoyer un message.')),
         ),
       );
     }
@@ -229,8 +230,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_outlined, color: Colors.white),
-                title: const Text(
-                  'Photo depuis la galerie',
+                title: Text(
+                  tr('Photo depuis la galerie'),
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
@@ -243,8 +244,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   Icons.camera_alt_outlined,
                   color: Colors.white,
                 ),
-                title: const Text(
-                  'Prendre une photo',
+                title: Text(
+                  tr('Prendre une photo'),
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
@@ -257,8 +258,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   Icons.videocam_outlined,
                   color: Colors.white,
                 ),
-                title: const Text(
-                  'Vidéo depuis la galerie',
+                title: Text(
+                  tr('Vidéo depuis la galerie'),
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
@@ -407,7 +408,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         actions: [
           if (me != null && otherId.isNotEmpty)
             IconButton(
-              tooltip: 'Signaler ou bloquer',
+              tooltip: tr('Signaler ou bloquer'),
               onPressed: () => showReportOrBlockSheet(
                 context,
                 currentUserId: me.id,
@@ -597,7 +598,7 @@ class _Bubble extends StatelessWidget {
                       Icon(Icons.shortcut, size: 12, color: metaColor),
                       const SizedBox(width: 3),
                       Text(
-                        'Transféré',
+                        tr('Transféré'),
                         style: TextStyle(
                           color: metaColor,
                           fontSize: 11,
@@ -621,8 +622,8 @@ class _Bubble extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (failed) ...[
-                    const Text(
-                      'Échec de l\'envoi — Réessayer',
+                    Text(
+                      tr('Échec de l\'envoi — Réessayer'),
                       style: TextStyle(color: Colors.white, fontSize: 10),
                     ),
                     const SizedBox(width: 3),
@@ -786,8 +787,8 @@ class _ConversationStarter extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Choisissez un message pour commencer :',
+            Text(
+              tr('Choisissez un message pour commencer :'),
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -890,7 +891,7 @@ class _InputBar extends StatelessWidget {
               children: [
                 IconButton(
                   onPressed: onAttach,
-                  tooltip: 'Envoyer une photo ou une vidéo',
+                  tooltip: tr('Envoyer une photo ou une vidéo'),
                   icon: Icon(
                     Icons.attach_file,
                     color: onAttach == null
@@ -906,7 +907,7 @@ class _InputBar extends StatelessWidget {
                     maxLines: 5,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
-                      hintText: 'Écrire un message...',
+                      hintText: tr('Écrire un message...'),
                       hintStyle: const TextStyle(
                         color: AppColors.textSecondary,
                       ),

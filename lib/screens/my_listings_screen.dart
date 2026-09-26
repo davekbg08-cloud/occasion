@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../annonce/providers/annonce_provider.dart';
+import '../l10n/app_language.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
@@ -27,7 +28,7 @@ class MyListingsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          tooltip: 'Retour',
+          tooltip: tr('Retour'),
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             if (context.canPop()) {
@@ -37,10 +38,10 @@ class MyListingsScreen extends ConsumerWidget {
             }
           },
         ),
-        title: const Text('Mes annonces'),
+        title: Text(tr('Mes annonces')),
         actions: [
           IconButton(
-            tooltip: 'Publier une annonce',
+            tooltip: tr('Publier une annonce'),
             onPressed: () => context.push('/publish-product'),
             icon: const Icon(Icons.add_box_outlined),
           ),
@@ -71,11 +72,11 @@ class MyListingsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const Center(
+        error: (error, stackTrace) => Center(
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              'Impossible de charger vos annonces pour le moment.',
+              tr('Impossible de charger vos annonces pour le moment.'),
               textAlign: TextAlign.center,
             ),
           ),
@@ -169,7 +170,7 @@ class _ListingCard extends ConsumerWidget {
                         onPressed: () =>
                             context.push('/publish-product', extra: annonce),
                         icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text('Modifier'),
+                        label: Text(tr('Modifier')),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -187,7 +188,7 @@ class _ListingCard extends ConsumerWidget {
                     ),
                     const SizedBox(width: 8),
                     IconButton.filledTonal(
-                      tooltip: 'Supprimer',
+                      tooltip: tr('Supprimer'),
                       onPressed: () => _confirmDelete(context, ref),
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                     ),
@@ -195,17 +196,17 @@ class _ListingCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 PopupMenuButton<String>(
-                  tooltip: 'État de la vente',
+                  tooltip: tr('État de la vente'),
                   onSelected: (value) => _updateSaleState(context, ref, value),
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
                       value: 'available',
-                      child: Text('Disponible'),
+                      child: Text(tr('Disponible')),
                     ),
-                    PopupMenuItem(value: 'sold', child: Text('Vendu')),
+                    PopupMenuItem(value: 'sold', child: Text(tr('Vendu'))),
                     PopupMenuItem(
                       value: 'negotiating',
-                      child: Text('En négociation'),
+                      child: Text(tr('En négociation')),
                     ),
                   ],
                   child: Container(
@@ -257,8 +258,8 @@ class _ListingCard extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Impossible de modifier le statut de l'annonce."),
+        SnackBar(
+          content: Text(tr("Impossible de modifier le statut de l'annonce.")),
         ),
       );
     }
@@ -285,8 +286,8 @@ class _ListingCard extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Impossible de modifier l'état de la vente."),
+        SnackBar(
+          content: Text(tr("Impossible de modifier l'état de la vente.")),
         ),
       );
     }
@@ -296,16 +297,16 @@ class _ListingCard extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer cette annonce ?'),
-        content: const Text('Cette action retirera l’annonce de la vente.'),
+        title: Text(tr('Supprimer cette annonce ?')),
+        content: Text(tr('Cette action retirera l’annonce de la vente.')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
+            child: Text(tr('Annuler')),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Supprimer'),
+            child: Text(tr('Supprimer')),
           ),
         ],
       ),
@@ -319,11 +320,11 @@ class _ListingCard extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Annonce supprimée.')));
+      ).showSnackBar(SnackBar(content: Text(tr('Annonce supprimée.'))));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Impossible de supprimer l'annonce.")),
+        SnackBar(content: Text(tr("Impossible de supprimer l'annonce."))),
       );
     }
   }
@@ -424,13 +425,13 @@ class _EmptyListings extends StatelessWidget {
           children: [
             const Icon(Icons.inventory_2_outlined, size: 64),
             const SizedBox(height: 16),
-            const Text(
-              'Aucune annonce',
+            Text(
+              tr('Aucune annonce'),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Vos annonces publiées apparaîtront ici.',
+              tr('Vos annonces publiées apparaîtront ici.'),
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey[400]),
             ),
@@ -438,7 +439,7 @@ class _EmptyListings extends StatelessWidget {
             FilledButton.icon(
               onPressed: onPublish,
               icon: const Icon(Icons.add),
-              label: const Text('Publier une annonce'),
+              label: Text(tr('Publier une annonce')),
             ),
           ],
         ),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
@@ -44,7 +45,7 @@ class ProductListScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'Notifications',
+            tooltip: tr('Notifications'),
             icon: const Icon(Icons.notifications_outlined, size: 28),
             onPressed: () => context.push('/notifications'),
           ),
@@ -110,7 +111,7 @@ class ProductListScreen extends ConsumerWidget {
             .toList();
 
         if (visibleProducts.isEmpty) {
-          return const Center(child: Text('Aucun contenu pour le moment.'));
+          return Center(child: Text(tr('Aucun contenu pour le moment.')));
         }
 
         return RefreshIndicator(
@@ -119,11 +120,11 @@ class ProductListScreen extends ConsumerWidget {
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => const Center(
+      error: (error, stack) => Center(
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Text(
-            'Impossible de charger les produits pour le moment.',
+            tr('Impossible de charger les produits pour le moment.'),
             textAlign: TextAlign.center,
           ),
         ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../models/gift_catalog_item.dart';
 import '../providers/auth_provider.dart';
 import '../providers/gift_catalog_provider.dart';
@@ -14,7 +15,7 @@ class SellerGiftCatalogScreen extends ConsumerWidget {
     final itemsAsync = ref.watch(sellerGiftCatalogProvider(sellerId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mon catalogue de cadeaux')),
+      appBar: AppBar(title: Text(tr('Mon catalogue de cadeaux'))),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openForm(context, ref, sellerId: sellerId),
         child: const Icon(Icons.add),
@@ -22,7 +23,7 @@ class SellerGiftCatalogScreen extends ConsumerWidget {
       body: itemsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) =>
-            const Center(child: Text('Impossible de charger le catalogue.')),
+            Center(child: Text(tr('Impossible de charger le catalogue.'))),
         data: (items) {
           if (items.isEmpty) {
             return const Center(
@@ -52,7 +53,7 @@ class SellerGiftCatalogScreen extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        tooltip: 'Modifier',
+                        tooltip: tr('Modifier'),
                         icon: const Icon(Icons.edit_outlined),
                         onPressed: () => _openForm(
                           context,
@@ -62,7 +63,7 @@ class SellerGiftCatalogScreen extends ConsumerWidget {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Supprimer',
+                        tooltip: tr('Supprimer'),
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () => ref
                             .read(giftCatalogRepositoryProvider)
@@ -150,7 +151,7 @@ class _GiftItemFormDialogState extends ConsumerState<_GiftItemFormDialog> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Échec de l\'enregistrement.')),
+        SnackBar(content: Text(tr('Échec de l\'enregistrement.'))),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -171,19 +172,19 @@ class _GiftItemFormDialogState extends ConsumerState<_GiftItemFormDialog> {
             children: [
               TextFormField(
                 controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Titre'),
+                decoration: InputDecoration(labelText: tr('Titre')),
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? 'Titre obligatoire'
                     : null,
               ),
               TextFormField(
                 controller: _descriptionController,
-                decoration: const InputDecoration(labelText: 'Description'),
+                decoration: InputDecoration(labelText: tr('Description')),
                 maxLines: 2,
               ),
               TextFormField(
                 controller: _pointsController,
-                decoration: const InputDecoration(labelText: 'Coût en points'),
+                decoration: InputDecoration(labelText: tr('Coût en points')),
                 keyboardType: TextInputType.number,
                 validator: (value) {
                   final parsed = int.tryParse(value?.trim() ?? '');
@@ -195,7 +196,7 @@ class _GiftItemFormDialogState extends ConsumerState<_GiftItemFormDialog> {
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Actif (visible des acheteurs)'),
+                title: Text(tr('Actif (visible des acheteurs)')),
                 value: _isActive,
                 onChanged: (value) => setState(() => _isActive = value),
               ),
@@ -206,7 +207,7 @@ class _GiftItemFormDialogState extends ConsumerState<_GiftItemFormDialog> {
       actions: [
         TextButton(
           onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-          child: const Text('Annuler'),
+          child: Text(tr('Annuler')),
         ),
         FilledButton(
           onPressed: _isSaving ? null : _save,
@@ -216,7 +217,7 @@ class _GiftItemFormDialogState extends ConsumerState<_GiftItemFormDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Enregistrer'),
+              : Text(tr('Enregistrer')),
         ),
       ],
     );

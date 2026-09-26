@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/app_notification.dart';
 import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
@@ -19,7 +20,7 @@ class NotificationsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(tr('Notifications')),
         actions: [
           notificationsAsync.maybeWhen(
             data: (notifications) {
@@ -28,7 +29,7 @@ class NotificationsScreen extends ConsumerWidget {
                   .map((n) => n.id)
                   .toList();
               return IconButton(
-                tooltip: 'Tout marquer comme lu',
+                tooltip: tr('Tout marquer comme lu'),
                 icon: const Icon(Icons.done_all),
                 onPressed: unreadIds.isEmpty
                     ? null
@@ -47,12 +48,12 @@ class NotificationsScreen extends ConsumerWidget {
           Expanded(
             child: notificationsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => const Center(
-                child: Text('Impossible de charger les notifications.'),
+              error: (error, _) => Center(
+                child: Text(tr('Impossible de charger les notifications.')),
               ),
               data: (notifications) {
                 if (notifications.isEmpty) {
-                  return const Center(child: Text('Aucune notification'));
+                  return Center(child: Text(tr('Aucune notification')));
                 }
                 return ListView.separated(
                   itemCount: notifications.length,
@@ -211,11 +212,11 @@ class _NotificationPermissionBannerState
           actions: [
             TextButton(
               onPressed: () => setState(() => _dismissed = true),
-              child: const Text('Plus tard'),
+              child: Text(tr('Plus tard')),
             ),
             TextButton(
               onPressed: NotificationService.openSystemSettings,
-              child: const Text('Ouvrir les réglages'),
+              child: Text(tr('Ouvrir les réglages')),
             ),
           ],
         );

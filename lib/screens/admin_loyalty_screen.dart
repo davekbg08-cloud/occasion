@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/loyalty_points_provider.dart';
 
 /// Remise à zéro exceptionnelle du solde de points d'un acheteur chez un
@@ -36,7 +37,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Confirmer la remise à zéro'),
+        title: Text(tr('Confirmer la remise à zéro')),
         content: Text(
           'Le solde de points de l\'acheteur ${_buyerIdController.text.trim()} '
           'chez le vendeur ${_sellerIdController.text.trim()} sera remis à 0. '
@@ -45,11 +46,11 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
+            child: Text(tr('Annuler')),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Confirmer'),
+            child: Text(tr('Confirmer')),
           ),
         ],
       ),
@@ -68,7 +69,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Solde remis à zéro.')));
+      ).showSnackBar(SnackBar(content: Text(tr('Solde remis à zéro.'))));
       _buyerIdController.clear();
       _sellerIdController.clear();
       _reasonController.clear();
@@ -93,7 +94,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
           onPressed: () =>
               context.canPop() ? context.pop() : context.go('/profile'),
         ),
-        title: const Text('Remise à zéro des points (exceptionnelle)'),
+        title: Text(tr('Remise à zéro des points (exceptionnelle)')),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -110,8 +111,8 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _buyerIdController,
-                decoration: const InputDecoration(
-                  labelText: 'ID de l\'acheteur',
+                decoration: InputDecoration(
+                  labelText: tr('ID de l\'acheteur'),
                 ),
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? 'Obligatoire'
@@ -120,7 +121,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _sellerIdController,
-                decoration: const InputDecoration(labelText: 'ID du vendeur'),
+                decoration: InputDecoration(labelText: tr('ID du vendeur')),
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? 'Obligatoire'
                     : null,
@@ -128,7 +129,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _reasonController,
-                decoration: const InputDecoration(labelText: 'Motif'),
+                decoration: InputDecoration(labelText: tr('Motif')),
                 maxLines: 3,
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? 'Un motif est obligatoire'
@@ -143,7 +144,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Remettre à zéro'),
+                    : Text(tr('Remettre à zéro')),
               ),
             ],
           ),

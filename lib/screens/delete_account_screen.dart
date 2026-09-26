@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../services/account_deletion_service.dart';
 
@@ -45,7 +46,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         await showDialog<void>(
           context: context,
           builder: (_) => AlertDialog(
-            title: const Text('Reconnexion nécessaire'),
+            title: Text(tr('Reconnexion nécessaire')),
             content: const Text(
               'Pour des raisons de sécurité, veuillez vous reconnecter '
               'avant de supprimer définitivement votre compte.',
@@ -60,14 +61,14 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Suppression impossible.')),
+          SnackBar(content: Text(tr('Suppression impossible.'))),
         );
       }
     } catch (_) {
       setState(() => _isDeleting = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Suppression impossible.')),
+          SnackBar(content: Text(tr('Suppression impossible.'))),
         );
       }
     }
@@ -76,7 +77,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Supprimer mon compte')),
+      appBar: AppBar(title: Text(tr('Supprimer mon compte'))),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -88,8 +89,8 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               size: 48,
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Cette action est irréversible',
+            Text(
+              tr('Cette action est irréversible'),
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
             const SizedBox(height: 12),
@@ -104,7 +105,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               'pour des raisons légales, conformément à notre politique de confidentialité.',
             ),
             const SizedBox(height: 24),
-            const Text('Tapez SUPPRIMER pour confirmer :'),
+            Text(tr('Tapez SUPPRIMER pour confirmer :')),
             const SizedBox(height: 8),
             TextField(
               controller: _confirmController,
@@ -132,7 +133,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Text('Supprimer définitivement mon compte'),
+                    : Text(tr('Supprimer définitivement mon compte')),
               ),
             ),
           ],

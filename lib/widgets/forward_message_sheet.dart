@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../models/chat.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
@@ -57,10 +58,10 @@ class _ForwardMessageSheetBody extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'Transférer vers...',
+                tr('Transférer vers...'),
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -69,10 +70,10 @@ class _ForwardMessageSheetBody extends ConsumerWidget {
               ),
             ),
             if (chats.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'Aucune autre conversation.',
+                  tr('Aucune autre conversation.'),
                   style: TextStyle(color: Colors.grey),
                 ),
               )
