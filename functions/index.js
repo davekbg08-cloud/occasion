@@ -2,7 +2,7 @@ const {
   onDocumentCreated,
   onDocumentUpdated,
 } = require("firebase-functions/v2/firestore");
-const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
@@ -2879,8 +2879,8 @@ exports.onReferredUserFirstOrder = onDocumentUpdated(
 // Flux : l'acheteur crée sa commande + `paymentIntents/{transactionId}`
 // (comme pour Orange Money manuel), puis `startPawapayPayment` demande à
 // pawaPay de prélever son portefeuille (le client valide avec son code PIN
-// sur son téléphone). La confirmation arrive par `pawapayCallback` (appel
-// de pawaPay) ou par `checkPawapayPayment` (interrogation par l'app) : dans
+// sur son téléphone). La confirmation arrive par `checkPawapayPayment` (interrogation par
+// l'app) ou par `reconcilePawapayDeposits` (rapprochement planifié) : dans
 // les deux cas le statut est RELU auprès de l'API pawaPay avec notre jeton
 // (un callback n'est jamais cru sur parole), puis réglé par
 // `applySettlement` — le même chemin atomique que la confirmation admin.
@@ -3183,29 +3183,27 @@ exports.checkPawapayPayment = onCall(
 );
 
 /**
- * Callback pawaPay (dépôts, versements, remboursements — même URL).
- * Le contenu reçu sert uniquement à identifier le dépôt : son statut est
- * toujours relu auprès de l'API. Répond 200 pour que pawaPay ne réessaie
- * pas indéfiniment (sauf erreur interne).
+ * Rapprochement périodique des dépôts pawaPay encore en attente (repli
+ * sans URL publique : aucun droit IAM supplémentaire requis). Complète
+ * l'interrogation par l'app si l'acheteur a fermé l'écran avant la
+ * confirmation. Le callback HTTP public viendra dans une étape suivante.
  */
-exports.pawapayCallback = onRequest(
-  { secrets: [PAWAPAY_API_TOKEN] },
-  async (req, res) => {
-    if (req.method !== "POST") {
-      res.status(405).send("Method Not Allowed");
-      return;
-    }
-    const body = req.body || {};
-    const depositId = typeof body.depositId === "string" ? body.depositId : null;
-    try {
-      if (depositId && /^[0-9a-fA-F-]{36}$/.test(depositId)) {
-        await reconcilePawapayDeposit(depositId);
+exports.reconcilePawapayDeposits = onSchedule(
+  { schedule: "every 10 minutes", secrets: [PAWAPAY_API_TOKEN] },
+  async () => {
+    const since = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+    const snapshot = await db
+      .collection("pawapayDeposits")
+      .where("status", "==", "ACCEPTED")
+      .where("createdAt", ">=", since)
+      .limit(100)
+      .get();
+    for (const doc of snapshot.docs) {
+      try {
+        await reconcilePawapayDeposit(doc.id);
+      } catch (error) {
+        console.error("reconcilePawapayDeposits", doc.id, error);
       }
-      // Versements / remboursements : pris en charge dans une étape suivante.
-      res.status(200).send("OK");
-    } catch (error) {
-      console.error("pawapayCallback", error);
-      res.status(500).send("Erreur");
     }
   }
 );
