@@ -2885,11 +2885,11 @@ exports.onReferredUserFirstOrder = onDocumentUpdated(
 // (un callback n'est jamais cru sur parole), puis réglé par
 // `applySettlement` — le même chemin atomique que la confirmation admin.
 //
-// Jeton : secret Secret Manager `PAWAPAY_API_TOKEN`, jamais dans le code.
+// Jeton : secret Secret Manager `PAWAPAY`, jamais dans le code.
 // Environnement : `PAWAPAY_BASE_URL` (functions/.env) — sandbox par défaut.
 // En sandbox, seuls les administrateurs peuvent lancer un paiement (tests).
 
-const PAWAPAY_API_TOKEN = defineSecret("PAWAPAY_API_TOKEN");
+const PAWAPAY_API_TOKEN = defineSecret("PAWAPAY");
 const PAWAPAY_SANDBOX_URL = "https://api.sandbox.pawapay.io";
 
 function pawapayBaseUrl() {
