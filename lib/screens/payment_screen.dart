@@ -508,31 +508,32 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else ...[
-            if (_mobileMoneyAvailable) ...[
-              const SizedBox(height: 20),
-              SegmentedButton<bool>(
-                segments: [
-                  ButtonSegment(
-                    value: true,
-                    icon: Icon(Icons.bolt),
-                    label: Text('Mobile Money'),
-                  ),
-                  ButtonSegment(
-                    value: false,
-                    icon: Icon(Icons.receipt_long_outlined),
-                    label: Text(tr('Orange Money manuel')),
-                  ),
-                ],
-                selected: {_useMobileMoney},
-                onSelectionChanged: isProcessing
-                    ? null
-                    : (value) => setState(() => _useMobileMoney = value.first),
-              ),
-            ],
-            if (_useMobileMoney)
-              _buildMobileMoneySection(totalAmount, cartCurrency)
-            else
-              ..._buildManualSection(totalAmount, cartCurrency),
+              if (_mobileMoneyAvailable) ...[
+                const SizedBox(height: 20),
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.bolt),
+                      label: Text('Mobile Money'),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.receipt_long_outlined),
+                      label: Text(tr('Orange Money manuel')),
+                    ),
+                  ],
+                  selected: {_useMobileMoney},
+                  onSelectionChanged: isProcessing
+                      ? null
+                      : (value) =>
+                            setState(() => _useMobileMoney = value.first),
+                ),
+              ],
+              if (_useMobileMoney)
+                _buildMobileMoneySection(totalAmount, cartCurrency)
+              else
+                ..._buildManualSection(totalAmount, cartCurrency),
             ],
           ],
         ),
