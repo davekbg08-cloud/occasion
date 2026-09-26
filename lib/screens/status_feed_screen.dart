@@ -166,6 +166,22 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                     ),
                     child: Row(
                       children: [
+                        // Absent jusqu'ici : ce fil plein écran n'offrait
+                        // aucun moyen visible de le quitter (contrairement
+                        // à fullscreen_image_viewer.dart/
+                        // fullscreen_video_viewer.dart, qui ont tous deux
+                        // une AppBar avec sa flèche retour automatique) —
+                        // seul le geste système "retour" fonctionnait,
+                        // sans aucun indice à l'écran.
+                        IconButton(
+                          onPressed: () => context.canPop()
+                              ? context.pop()
+                              : context.go('/home'),
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                          ),
+                        ),
                         const Text(
                           'Découvrir',
                           style: TextStyle(
