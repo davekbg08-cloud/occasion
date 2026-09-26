@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/report.dart';
 import '../models/product_model.dart';
 import '../providers/auth_provider.dart';
@@ -27,9 +28,9 @@ class ProductCard extends ConsumerWidget {
 
     final sellerId = product.sellerId;
     if (sellerId == null || sellerId.isEmpty || sellerId == currentUser.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Conversation indisponible.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('Conversation indisponible.'))));
       return;
     }
 
@@ -141,8 +142,8 @@ class ProductCard extends ConsumerWidget {
                       ),
                     ),
                     if (product.isSellerVerified)
-                      const Tooltip(
-                        message: 'Vendeur vérifié',
+                      Tooltip(
+                        message: tr('Vendeur vérifié'),
                         child: Icon(
                           Icons.verified,
                           color: AppColors.primary,
@@ -151,7 +152,7 @@ class ProductCard extends ConsumerWidget {
                       ),
                     if (canModerate)
                       IconButton(
-                        tooltip: 'Signaler ou bloquer',
+                        tooltip: tr('Signaler ou bloquer'),
                         visualDensity: VisualDensity.compact,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
@@ -202,18 +203,18 @@ class ProductCard extends ConsumerWidget {
                   runSpacing: 4,
                   children: [
                     if (product.isSellerPhoneVerified)
-                      const _TrustChip(
+                      _TrustChip(
                         icon: Icons.phone_android_outlined,
-                        label: 'Téléphone vérifié',
+                        label: tr('Téléphone vérifié'),
                       ),
                     if (product.isSellerVerified)
-                      const _TrustChip(
+                      _TrustChip(
                         icon: Icons.verified_user_outlined,
-                        label: 'Vendeur vérifié',
+                        label: tr('Vendeur vérifié'),
                       ),
-                    const _TrustChip(
+                    _TrustChip(
                       icon: Icons.shield_outlined,
-                      label: 'Payez après vérification',
+                      label: tr('Payez après vérification'),
                     ),
                     if (showBuyerActions && loyaltyPoints > 0)
                       _TrustChip(
@@ -256,7 +257,7 @@ class ProductCard extends ConsumerWidget {
                                 Icons.chat_bubble_outline,
                                 size: 18,
                               ),
-                              label: const Text('Contacter'),
+                              label: Text(tr('Contacter')),
                               style: OutlinedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 10,
@@ -272,7 +273,7 @@ class ProductCard extends ConsumerWidget {
                                 Icons.shopping_cart_outlined,
                                 size: 18,
                               ),
-                              label: const Text('Ajouter'),
+                              label: Text(tr('Ajouter')),
                             ),
                           ),
                         ],
@@ -290,7 +291,7 @@ class ProductCard extends ConsumerWidget {
                             Icons.shopping_bag_outlined,
                             size: 18,
                           ),
-                          label: const Text('Acheter'),
+                          label: Text(tr('Acheter')),
                         ),
                       ),
                     ],

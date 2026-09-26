@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../l10n/app_language.dart';
 import '../providers/search_provider.dart';
 import '../../annonce/presentation/widgets/annonce_card.dart';
 import '../../providers/auth_provider.dart';
@@ -14,8 +15,8 @@ class SearchScreen extends ConsumerWidget {
     final userId = ref.read(authNotifierProvider).currentUser?.id;
     if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connecte-toi pour enregistrer une recherche.'),
+        SnackBar(
+          content: Text(tr('Connecte-toi pour enregistrer une recherche.')),
         ),
       );
       return;
@@ -33,16 +34,18 @@ class SearchScreen extends ConsumerWidget {
           );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
+            tr(
+              'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
+            ),
           ),
         ),
       );
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Échec de l'enregistrement. Réessaie.")),
+        SnackBar(content: Text(tr("Échec de l'enregistrement. Réessaie."))),
       );
     }
   }
@@ -58,15 +61,15 @@ class SearchScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Rechercher'),
+        title: Text(tr('Rechercher')),
         actions: [
           IconButton(
-            tooltip: 'Enregistrer cette recherche',
+            tooltip: tr('Enregistrer cette recherche'),
             icon: const Icon(Icons.bookmark_add_outlined),
             onPressed: hasActiveSearch ? () => _saveSearch(context, ref) : null,
           ),
           IconButton(
-            tooltip: 'Mes alertes de recherche',
+            tooltip: tr('Mes alertes de recherche'),
             icon: const Icon(Icons.notifications_active_outlined),
             onPressed: () => context.push('/search-alerts'),
           ),
@@ -78,8 +81,8 @@ class SearchScreen extends ConsumerWidget {
             child: Column(
               children: [
                 TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Rechercher une annonce...',
+                  decoration: InputDecoration(
+                    hintText: tr('Rechercher une annonce...'),
                     prefixIcon: Icon(Icons.search),
                     border: OutlineInputBorder(),
                   ),
@@ -109,7 +112,7 @@ class SearchScreen extends ConsumerWidget {
       body: resultsAsync.when(
         data: (annonces) {
           if (annonces.isEmpty) {
-            return const Center(child: Text('Aucune annonce trouvée'));
+            return Center(child: Text(tr('Aucune annonce trouvée')));
           }
           return RefreshIndicator(
             onRefresh: () => ref.refresh(searchResultsProvider.future),
@@ -122,11 +125,11 @@ class SearchScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const Center(
+        error: (error, stackTrace) => Center(
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              'Impossible de charger les annonces pour le moment.',
+              tr('Impossible de charger les annonces pour le moment.'),
               textAlign: TextAlign.center,
             ),
           ),
@@ -159,13 +162,13 @@ class _CityFilterFieldState extends State<_CityFilterField> {
     return TextField(
       controller: _controller,
       decoration: InputDecoration(
-        hintText: 'Filtrer par ville/quartier...',
+        hintText: tr('Filtrer par ville/quartier...'),
         prefixIcon: const Icon(Icons.place_outlined),
         border: const OutlineInputBorder(),
         suffixIcon: _controller.text.isEmpty
             ? null
             : IconButton(
-                tooltip: 'Retirer le filtre ville',
+                tooltip: tr('Retirer le filtre ville'),
                 icon: const Icon(Icons.clear),
                 onPressed: () {
                   _controller.clear();

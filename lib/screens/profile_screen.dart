@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
@@ -41,11 +42,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profil'),
+        title: Text(tr('Profil')),
         centerTitle: true,
         actions: [
           IconButton(
-            tooltip: 'Notifications',
+            tooltip: tr('Notifications'),
             onPressed: () => context.push('/notifications'),
             icon: Badge(
               isLabelVisible: unreadNotifications > 0,
@@ -84,11 +85,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             else
               const _BuyerSections(),
             _Section(
-              title: 'Compte',
+              title: tr('Compte'),
               children: [
                 _ProfileTile(
                   icon: Icons.settings_outlined,
-                  title: 'Paramètres et confidentialité',
+                  title: tr('Paramètres et confidentialité'),
                   onTap: () => context.push('/account-settings'),
                 ),
                 _LogoutTile(onTap: () => _logout(context, user.id)),
@@ -111,12 +112,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Choisir depuis la galerie'),
+                title: Text(tr('Choisir depuis la galerie')),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('Prendre une photo'),
+                title: Text(tr('Prendre une photo')),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
             ],
@@ -138,7 +139,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       await ref.read(authNotifierProvider.notifier).updateProfilePhoto(image);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo de profil mise à jour.')),
+        SnackBar(content: Text(tr('Photo de profil mise à jour.'))),
       );
     } catch (_) {
       if (!mounted) return;
@@ -266,7 +267,7 @@ class _ProfileHeader extends StatelessWidget {
             ),
             if (onEditPhoto != null)
               IconButton(
-                tooltip: 'Modifier la photo',
+                tooltip: tr('Modifier la photo'),
                 onPressed: isLoading ? null : onEditPhoto,
                 icon: isLoading
                     ? const SizedBox(
@@ -330,21 +331,21 @@ class _AdminSection extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.data != true) return const SizedBox.shrink();
         return _Section(
-          title: 'Administration',
+          title: tr('Administration'),
           children: [
             _ProfileTile(
               icon: Icons.verified_user_outlined,
-              title: 'Paiements Orange Money à vérifier',
+              title: tr('Paiements Orange Money à vérifier'),
               onTap: () => context.push('/admin/orders'),
             ),
             _ProfileTile(
               icon: Icons.flag_outlined,
-              title: 'Signalements',
+              title: tr('Signalements'),
               onTap: () => context.push('/admin/reports'),
             ),
             _ProfileTile(
               icon: Icons.stars_outlined,
-              title: 'Remise à zéro des points',
+              title: tr('Remise à zéro des points'),
               onTap: () => context.push('/admin/loyalty'),
             ),
           ],
@@ -362,36 +363,36 @@ class _BuyerSections extends StatelessWidget {
     return Column(
       children: [
         _Section(
-          title: 'Mes achats',
+          title: tr('Mes achats'),
           children: [
             _ProfileTile(
               icon: Icons.shopping_cart_outlined,
-              title: 'Mon panier',
+              title: tr('Mon panier'),
               onTap: () => context.push('/cart'),
             ),
             _ProfileTile(
               icon: Icons.receipt_long_outlined,
-              title: 'Mes commandes',
+              title: tr('Mes commandes'),
               onTap: () => context.push('/orders'),
             ),
             _ProfileTile(
               icon: Icons.credit_card,
-              title: 'Moyens de paiement',
+              title: tr('Moyens de paiement'),
               onTap: () => context.push('/payment'),
             ),
           ],
         ),
         _Section(
-          title: 'Récompenses',
+          title: tr('Récompenses'),
           children: [
             _ProfileTile(
               icon: Icons.stars_outlined,
-              title: 'Mes points de fidélité',
+              title: tr('Mes points de fidélité'),
               onTap: () => context.push('/loyalty-points'),
             ),
             _ProfileTile(
               icon: Icons.group_add_outlined,
-              title: 'Parrainage',
+              title: tr('Parrainage'),
               onTap: () => context.push('/referral'),
             ),
           ],
@@ -415,37 +416,37 @@ class _SellerSections extends StatelessWidget {
     return Column(
       children: [
         _Section(
-          title: 'Ma boutique',
+          title: tr('Ma boutique'),
           children: [
             _ProfileTile(
               icon: Icons.workspace_premium_outlined,
-              title: 'Abonnement vendeur',
+              title: tr('Abonnement vendeur'),
               subtitle: subscriptionSubtitle,
               onTap: () => context.push('/subscription'),
             ),
             _ProfileTile(
               icon: Icons.storefront_outlined,
-              title: 'Voir ma page vendeur',
+              title: tr('Voir ma page vendeur'),
               onTap: () => context.push('/seller/$userId'),
             ),
           ],
         ),
         _Section(
-          title: 'Récompenses',
+          title: tr('Récompenses'),
           children: [
             _ProfileTile(
               icon: Icons.card_giftcard_outlined,
-              title: 'Mon catalogue de cadeaux',
+              title: tr('Mon catalogue de cadeaux'),
               onTap: () => context.push('/gift-catalog'),
             ),
             _ProfileTile(
               icon: Icons.redeem_outlined,
-              title: 'Demandes d\'échange',
+              title: tr('Demandes d\'échange'),
               onTap: () => context.push('/gift-redemptions'),
             ),
             _ProfileTile(
               icon: Icons.group_add_outlined,
-              title: 'Parrainage',
+              title: tr('Parrainage'),
               onTap: () => context.push('/referral'),
             ),
           ],
@@ -470,7 +471,7 @@ class _SignedOutOptions extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: () => context.go('/login'),
               icon: const Icon(Icons.login),
-              label: const Text('Se connecter'),
+              label: Text(tr('Se connecter')),
             ),
           ),
           const SizedBox(height: 12),
@@ -480,7 +481,7 @@ class _SignedOutOptions extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () => context.go('/register'),
               icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Créer un compte'),
+              label: Text(tr('Créer un compte')),
             ),
           ),
         ],
@@ -523,8 +524,8 @@ class _LogoutTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: const Icon(Icons.logout, color: Colors.red),
-      title: const Text(
-        'Déconnexion',
+      title: Text(
+        tr('Déconnexion'),
         style: TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
       ),
       onTap: onTap,

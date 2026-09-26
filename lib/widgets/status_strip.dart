@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
@@ -74,7 +75,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
         children: [
           if (isSeller)
             _StatusBubble(
-              label: 'Mon statut',
+              label: tr('Mon statut'),
               onTap: () => context.push('/add-status'),
               child: const Icon(Icons.add, size: 26),
             ),

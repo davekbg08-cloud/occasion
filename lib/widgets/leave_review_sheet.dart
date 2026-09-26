@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/review_provider.dart';
 
 /// Ouvre une feuille pour déposer un avis (note 1-5 + commentaire optionnel)
@@ -120,8 +121,8 @@ class _LeaveReviewSheetState extends ConsumerState<_LeaveReviewSheet> {
             maxLines: 3,
             maxLength: 1000,
             enabled: !_isSubmitting,
-            decoration: const InputDecoration(
-              hintText: 'Commentaire (optionnel)',
+            decoration: InputDecoration(
+              hintText: tr('Commentaire (optionnel)'),
               border: OutlineInputBorder(),
             ),
           ),
@@ -140,7 +141,7 @@ class _LeaveReviewSheetState extends ConsumerState<_LeaveReviewSheet> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text("Envoyer l'avis"),
+                  : Text(tr("Envoyer l'avis")),
             ),
           ),
         ],

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/leave_review_sheet.dart';
 
@@ -14,8 +15,8 @@ class OrdersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authNotifierProvider).currentUser;
     if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text('Connecte-toi pour voir tes commandes.')),
+      return Scaffold(
+        body: Center(child: Text(tr('Connecte-toi pour voir tes commandes.'))),
       );
     }
 
@@ -32,7 +33,7 @@ class OrdersScreen extends ConsumerWidget {
           onPressed: () =>
               context.canPop() ? context.pop() : context.go('/home'),
         ),
-        title: const Text('Mes commandes'),
+        title: Text(tr('Mes commandes')),
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: ordersStream,
@@ -41,11 +42,11 @@ class OrdersScreen extends ConsumerWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return const Center(
+            return Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'Impossible de charger les commandes pour le moment.',
+                  tr('Impossible de charger les commandes pour le moment.'),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -54,7 +55,7 @@ class OrdersScreen extends ConsumerWidget {
 
           final docs = snapshot.data?.docs ?? const [];
           if (docs.isEmpty) {
-            return const Center(child: Text('Aucune commande pour le moment.'));
+            return Center(child: Text(tr('Aucune commande pour le moment.')));
           }
 
           return ListView.separated(
@@ -100,16 +101,16 @@ class _OrderCardState extends State<_OrderCard> {
           }, SetOptions(merge: true));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Merci ! Le vendeur va être payé.'),
+        SnackBar(
+          content: Text(tr('Merci ! Le vendeur va être payé.')),
           backgroundColor: Colors.green,
         ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec de la confirmation. Réessaie.'),
+        SnackBar(
+          content: Text(tr('Échec de la confirmation. Réessaie.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -123,25 +124,26 @@ class _OrderCardState extends State<_OrderCard> {
     final reason = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Signaler un problème'),
+        title: Text(tr('Signaler un problème')),
         content: TextField(
           controller: reasonController,
           maxLines: 3,
-          decoration: const InputDecoration(
-            hintText:
-                "Décris le problème (article non reçu, différent de l'annonce...)",
+          decoration: InputDecoration(
+            hintText: tr(
+              "Décris le problème (article non reçu, différent de l'annonce...)",
+            ),
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
+            child: Text(tr('Annuler')),
           ),
           FilledButton(
             onPressed: () =>
                 Navigator.of(context).pop(reasonController.text.trim()),
-            child: const Text('Envoyer'),
+            child: Text(tr('Envoyer')),
           ),
         ],
       ),
@@ -172,8 +174,8 @@ class _OrderCardState extends State<_OrderCard> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec du signalement. Réessaie.'),
+        SnackBar(
+          content: Text(tr('Échec du signalement. Réessaie.')),
           backgroundColor: Colors.red,
         ),
       );
@@ -264,7 +266,7 @@ class _OrderCardState extends State<_OrderCard> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: isProcessing ? null : _reportProblem,
-                      child: const Text('Signaler un problème'),
+                      child: Text(tr('Signaler un problème')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -283,7 +285,7 @@ class _OrderCardState extends State<_OrderCard> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Bien reçu'),
+                          : Text(tr('Bien reçu')),
                     ),
                   ),
                 ],

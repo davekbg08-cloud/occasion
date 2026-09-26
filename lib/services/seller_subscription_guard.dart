@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 
@@ -25,8 +26,8 @@ bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
 
   if (!user.isSeller) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Seuls les vendeurs peuvent publier une annonce.'),
+      SnackBar(
+        content: Text(tr('Seuls les vendeurs peuvent publier une annonce.')),
       ),
     );
     return false;
@@ -38,9 +39,9 @@ bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
 
   if (!hasActiveSubscription) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          "Ton abonnement vendeur n'est pas actif. Active-le pour publier.",
+          tr("Ton abonnement vendeur n'est pas actif. Active-le pour publier."),
         ),
       ),
     );

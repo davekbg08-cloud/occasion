@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../l10n/app_language.dart';
 import '../models/gift_redemption.dart';
 import '../providers/auth_provider.dart';
 import '../providers/loyalty_points_provider.dart';
@@ -24,7 +25,7 @@ class SellerGiftRedemptionsScreen extends ConsumerWidget {
             onPressed: () =>
                 context.canPop() ? context.pop() : context.go('/profile'),
           ),
-          title: const Text('Demandes d\'échange'),
+          title: Text(tr('Demandes d\'échange')),
           bottom: const TabBar(
             isScrollable: true,
             tabs: [
@@ -37,7 +38,7 @@ class SellerGiftRedemptionsScreen extends ConsumerWidget {
         body: redemptionsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) =>
-              const Center(child: Text('Impossible de charger les demandes.')),
+              Center(child: Text(tr('Impossible de charger les demandes.'))),
           data: (redemptions) => TabBarView(
             children: [
               _RedemptionsTab(
@@ -107,7 +108,7 @@ class _RedemptionsTabState extends ConsumerState<_RedemptionsTab> {
   @override
   Widget build(BuildContext context) {
     if (widget.redemptions.isEmpty) {
-      return const Center(child: Text('Aucune demande.'));
+      return Center(child: Text(tr('Aucune demande.')));
     }
 
     return ListView.separated(
@@ -138,7 +139,7 @@ class _RedemptionsTabState extends ConsumerState<_RedemptionsTab> {
                           onPressed: isBusy
                               ? null
                               : () => _respond(redemption.id, false),
-                          child: const Text('Refuser'),
+                          child: Text(tr('Refuser')),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -156,7 +157,7 @@ class _RedemptionsTabState extends ConsumerState<_RedemptionsTab> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text('Cadeau envoyé'),
+                              : Text(tr('Cadeau envoyé')),
                         ),
                       ),
                     ],

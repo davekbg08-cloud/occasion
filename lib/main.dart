@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'annonce/screens/create_annonce_screen.dart';
+import 'l10n/app_language.dart';
 import 'screens/account_settings_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
@@ -81,6 +82,7 @@ Future<void> main() async {
   // volontairement non bloquante : sur le web, la demande de permission FCM et
   // flutter_local_notifications peuvent ne jamais se résoudre, ce qui laissait
   // l'application sur une page blanche tant que runApp() n'était pas appelé.
+  await AppLanguage.load();
   runApp(const ProviderScope(child: OccasionApp()));
   unawaited(NotificationService.init(appNavigatorKey));
 }
@@ -138,12 +140,12 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/addresses',
-        builder: (_, _) => const _RoleGuard(
+        builder: (_, _) => _RoleGuard(
           role: UserRole.buyer,
           child: SimplePlaceholderScreen(
-            title: 'Adresses de livraison',
+            title: tr('Adresses de livraison'),
             icon: Icons.location_on_outlined,
-            message: 'Vos adresses de livraison apparaîtront ici.',
+            message: tr('Vos adresses de livraison apparaîtront ici.'),
           ),
         ),
       ),
@@ -173,12 +175,12 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/favorites',
-        builder: (_, _) => const _RoleGuard(
+        builder: (_, _) => _RoleGuard(
           role: UserRole.buyer,
           child: SimplePlaceholderScreen(
-            title: 'Favoris',
+            title: tr('Favoris'),
             icon: Icons.favorite_outline,
-            message: 'Vos annonces favorites apparaîtront ici.',
+            message: tr('Vos annonces favorites apparaîtront ici.'),
             primaryLabel: 'Voir les produits',
             primaryRoute: '/products',
           ),
@@ -232,12 +234,12 @@ class OccasionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/seller-revenue',
-        builder: (_, _) => const _RoleGuard(
+        builder: (_, _) => _RoleGuard(
           role: UserRole.seller,
           child: SimplePlaceholderScreen(
-            title: 'Revenus',
+            title: tr('Revenus'),
             icon: Icons.account_balance_wallet_outlined,
-            message: 'Vos revenus vendeur apparaîtront ici.',
+            message: tr('Vos revenus vendeur apparaîtront ici.'),
           ),
         ),
       ),
@@ -392,11 +394,20 @@ class OccasionApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      title: 'Occasion',
-      theme: AppTheme.dark(),
-      routerConfig: _router,
+    // Changement de langue : tout l'arbre est reconstruit (clé de la
+    // langue), y compris les widgets constants qui appellent tr().
+    return ValueListenableBuilder<String>(
+      valueListenable: AppLanguage.current,
+      builder: (context, language, _) => MaterialApp.router(
+        debugShowCheckedModeBanner: false,
+        title: 'Occasion',
+        theme: AppTheme.dark(),
+        routerConfig: _router,
+        builder: (context, child) => KeyedSubtree(
+          key: ValueKey(language),
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 }
@@ -480,7 +491,7 @@ class _AuthRestoreErrorPage extends ConsumerWidget {
                       .read(authNotifierProvider.notifier)
                       .retryRestoreSession(),
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Réessayer'),
+                  label: Text(tr('Réessayer')),
                 ),
               ],
             ),
@@ -565,9 +576,7 @@ class _AdminGuardState extends ConsumerState<_AdminGuard> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Accès réservé aux administrateurs.'),
-              ),
+              SnackBar(content: Text(tr('Accès réservé aux administrateurs.'))),
             );
             context.go('/profile');
           });
@@ -641,31 +650,31 @@ class _AppShellState extends ConsumerState<AppShell> {
       const ProfileScreen(),
     ];
     final destinations = <NavigationDestination>[
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.home_outlined),
         selectedIcon: Icon(Icons.home),
-        label: 'Accueil',
+        label: tr('Accueil'),
       ),
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.search),
         selectedIcon: Icon(Icons.manage_search),
-        label: 'Chercher',
+        label: tr('Chercher'),
       ),
       if (isSeller)
-        const NavigationDestination(
+        NavigationDestination(
           icon: Icon(Icons.add_circle_outline),
           selectedIcon: Icon(Icons.add_circle),
-          label: 'Vendre',
+          label: tr('Vendre'),
         ),
       NavigationDestination(
         icon: _MessageBadge(unreadCount: unreadCount),
         selectedIcon: const Icon(Icons.chat_bubble),
-        label: 'Messages',
+        label: tr('Messages'),
       ),
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.person_outline),
         selectedIcon: Icon(Icons.person),
-        label: 'Profil',
+        label: tr('Profil'),
       ),
     ];
     final index = _index.clamp(0, pages.length - 1);
@@ -794,10 +803,10 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
 
         if (snapshot.hasError || !snapshot.hasData) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Messages')),
+            appBar: AppBar(title: Text(tr('Messages'))),
             body: Center(
-              child: const Text(
-                "Impossible d'ouvrir cette conversation pour le moment.",
+              child: Text(
+                tr("Impossible d'ouvrir cette conversation pour le moment."),
               ),
             ),
           );
@@ -839,9 +848,9 @@ class _ChatByIdScreenState extends ConsumerState<_ChatByIdScreen> {
         final chat = snapshot.data;
         if (snapshot.hasError || chat == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Messages')),
-            body: const Center(
-              child: Text("Impossible d'ouvrir cette conversation."),
+            appBar: AppBar(title: Text(tr('Messages'))),
+            body: Center(
+              child: Text(tr("Impossible d'ouvrir cette conversation.")),
             ),
           );
         }
@@ -860,7 +869,7 @@ class _AuthPage extends ConsumerWidget {
     final authState = ref.watch(authNotifierProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Connexion')),
+      appBar: AppBar(title: Text(tr('Connexion'))),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -881,7 +890,7 @@ class _AuthPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Connectez-vous ou créez un compte pour continuer.',
+                  tr('Connectez-vous ou créez un compte pour continuer.'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400]),
                 ),
@@ -891,7 +900,7 @@ class _AuthPage extends ConsumerWidget {
                       ? null
                       : () => context.go('/login'),
                   icon: const Icon(Icons.login),
-                  label: const Text('Se connecter'),
+                  label: Text(tr('Se connecter')),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
@@ -899,7 +908,7 @@ class _AuthPage extends ConsumerWidget {
                       ? null
                       : () => context.go('/register'),
                   icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('Inscription'),
+                  label: Text(tr('Inscription')),
                 ),
               ],
             ),

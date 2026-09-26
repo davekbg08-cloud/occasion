@@ -2,6 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../models/gift_catalog_item.dart';
 import '../models/gift_redemption.dart';
 import '../models/loyalty_points.dart';
@@ -19,19 +20,18 @@ class LoyaltyPointsScreen extends ConsumerWidget {
     final redemptionsAsync = ref.watch(buyerGiftRedemptionsProvider(buyerId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes points de fidélité')),
+      appBar: AppBar(title: Text(tr('Mes points de fidélité'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Vos soldes par vendeur',
+            tr('Vos soldes par vendeur'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           pointsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) =>
-                const Text('Impossible de charger vos points.'),
+            error: (error, _) => Text(tr('Impossible de charger vos points.')),
             data: (points) {
               if (points.isEmpty) {
                 return const Text(
@@ -48,17 +48,17 @@ class LoyaltyPointsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            'Historique de vos demandes',
+            tr('Historique de vos demandes'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           redemptionsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, _) =>
-                const Text('Impossible de charger l\'historique.'),
+                Text(tr('Impossible de charger l\'historique.')),
             data: (redemptions) {
               if (redemptions.isEmpty) {
-                return const Text('Aucune demande d\'échange pour le moment.');
+                return Text(tr('Aucune demande d\'échange pour le moment.'));
               }
               return Column(
                 children: redemptions
@@ -94,15 +94,15 @@ class _SellerPointsCard extends ConsumerWidget {
               padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
             ),
-            error: (error, _) => const Padding(
+            error: (error, _) => Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Catalogue indisponible.'),
+              child: Text(tr('Catalogue indisponible.')),
             ),
             data: (items) {
               if (items.isEmpty) {
-                return const Padding(
+                return Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('Ce vendeur n\'a pas encore de cadeaux.'),
+                  child: Text(tr('Ce vendeur n\'a pas encore de cadeaux.')),
                 );
               }
               return Column(
@@ -156,7 +156,7 @@ class _GiftItemTileState extends ConsumerState<_GiftItemTile> {
       _pendingClientRequestId = null;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Demande d\'échange envoyée.')),
+        SnackBar(content: Text(tr('Demande d\'échange envoyée.'))),
       );
     } on FirebaseFunctionsException catch (error) {
       if (!mounted) return;
@@ -184,7 +184,7 @@ class _GiftItemTileState extends ConsumerState<_GiftItemTile> {
                 height: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text('Échanger'),
+            : Text(tr('Échanger')),
       ),
     );
   }

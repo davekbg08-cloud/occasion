@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../annonce/providers/annonce_provider.dart';
+import '../l10n/app_language.dart';
 import '../models/annonce.dart';
 import '../models/report.dart';
 import '../models/product_model.dart';
@@ -63,9 +64,9 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
     }
     final sellerId = product.sellerId;
     if (sellerId == null || sellerId.isEmpty || sellerId == currentUser.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Conversation indisponible.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('Conversation indisponible.'))));
       return;
     }
     context.push(
@@ -104,15 +105,15 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
           onPressed: () =>
               context.canPop() ? context.pop() : context.go('/home'),
         ),
-        title: const Text('Annonce'),
+        title: Text(tr('Annonce')),
       ),
       body: annonceAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
-            const Center(child: Text('Impossible de charger cette annonce.')),
+            Center(child: Text(tr('Impossible de charger cette annonce.'))),
         data: (annonce) {
           if (annonce == null) {
-            return const Center(child: Text('Cette annonce est introuvable.'));
+            return Center(child: Text(tr('Cette annonce est introuvable.')));
           }
 
           final productAsync = ref.watch(productFromAnnonceProvider(annonce));
@@ -160,7 +161,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                           ),
                           if (canModerate)
                             IconButton(
-                              tooltip: 'Signaler ou bloquer',
+                              tooltip: tr('Signaler ou bloquer'),
                               icon: const Icon(Icons.more_vert),
                               onPressed: () => showReportOrBlockSheet(
                                 context,
@@ -198,8 +199,8 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      const Text(
-                        'Description',
+                      Text(
+                        tr('Description'),
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -345,8 +346,8 @@ class _SellerCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Text(
-                'Boutique',
+              Text(
+                tr('Boutique'),
                 style: TextStyle(color: AppColors.primary, fontSize: 13),
               ),
               const Icon(Icons.chevron_right, color: AppColors.primary),
@@ -389,7 +390,7 @@ class _DetailActions extends ConsumerWidget {
               child: OutlinedButton.icon(
                 onPressed: product == null ? null : () => onContact(product),
                 icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Contacter'),
+                label: Text(tr('Contacter')),
               ),
             ),
             const SizedBox(width: 12),
@@ -397,7 +398,7 @@ class _DetailActions extends ConsumerWidget {
               child: FilledButton.icon(
                 onPressed: product == null ? null : () => onAddToCart(product),
                 icon: const Icon(Icons.shopping_cart_outlined),
-                label: const Text('Au panier'),
+                label: Text(tr('Au panier')),
               ),
             ),
           ],
@@ -423,7 +424,7 @@ class _PriceHistorySection extends ConsumerWidget {
           padding: const EdgeInsets.only(top: 12),
           child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: const Text('Historique des prix'),
+            title: Text(tr('Historique des prix')),
             children: entries
                 .map(
                   (entry) => ListTile(

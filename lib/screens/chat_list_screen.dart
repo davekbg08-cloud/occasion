@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../models/chat.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
@@ -146,16 +147,16 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer la conversation ?'),
-        content: const Text('Elle disparaîtra de votre liste de messages.'),
+        title: Text(tr('Supprimer la conversation ?')),
+        content: Text(tr('Elle disparaîtra de votre liste de messages.')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
+            child: Text(tr('Annuler')),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Supprimer'),
+            child: Text(tr('Supprimer')),
           ),
         ],
       ),
@@ -167,7 +168,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Conversation supprimée.')));
+    ).showSnackBar(SnackBar(content: Text(tr('Conversation supprimée.'))));
   }
 
   void _shareInfo(Chat chat) {
@@ -298,7 +299,7 @@ class _ChatTile extends StatelessWidget {
                       ),
                       _UnreadBadge(count: unreadCount),
                       PopupMenuButton<String>(
-                        tooltip: 'Actions conversation',
+                        tooltip: tr('Actions conversation'),
                         padding: EdgeInsets.zero,
                         icon: const Icon(
                           Icons.more_horiz,
@@ -309,12 +310,12 @@ class _ChatTile extends StatelessWidget {
                           if (value == 'delete') onDelete();
                           if (value == 'share') onShareInfo();
                         },
-                        itemBuilder: (context) => const [
+                        itemBuilder: (context) => [
                           PopupMenuItem(
                             value: 'share',
                             child: ListTile(
                               leading: Icon(Icons.ios_share_outlined),
-                              title: Text('Partager infos utiles'),
+                              title: Text(tr('Partager infos utiles')),
                             ),
                           ),
                           PopupMenuItem(
@@ -324,7 +325,7 @@ class _ChatTile extends StatelessWidget {
                                 Icons.delete_outline,
                                 color: Colors.red,
                               ),
-                              title: Text('Supprimer conversation'),
+                              title: Text(tr('Supprimer conversation')),
                             ),
                           ),
                         ],
@@ -471,8 +472,8 @@ class _EmptyChats extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Pas encore de conversation',
+          Text(
+            tr('Pas encore de conversation'),
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 18,
@@ -502,11 +503,13 @@ class _MessageLoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          'Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.',
+          tr(
+            'Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.',
+          ),
           textAlign: TextAlign.center,
           style: TextStyle(color: AppColors.textSecondary),
         ),

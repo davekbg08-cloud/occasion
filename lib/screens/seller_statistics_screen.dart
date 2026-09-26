@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/app_language.dart';
 import '../models/seller_statistics.dart';
 import '../providers/auth_provider.dart';
 import '../providers/seller_statistics_provider.dart';
@@ -14,12 +15,11 @@ class SellerStatisticsScreen extends ConsumerWidget {
     final statisticsAsync = ref.watch(sellerStatisticsProvider(sellerId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Statistiques')),
+      appBar: AppBar(title: Text(tr('Statistiques'))),
       body: statisticsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => const Center(
-          child: Text('Impossible de charger les statistiques.'),
-        ),
+        error: (error, _) =>
+            Center(child: Text(tr('Impossible de charger les statistiques.'))),
         data: (statistics) => _StatisticsContent(statistics: statistics),
       ),
     );
@@ -48,31 +48,31 @@ class _StatisticsContent extends StatelessWidget {
           children: [
             _StatCard(
               icon: Icons.visibility_outlined,
-              label: 'Vues',
+              label: tr('Vues'),
               value: '${statistics.totalViews}',
             ),
             _StatCard(
               icon: Icons.mark_unread_chat_alt_outlined,
-              label: 'Messages',
+              label: tr('Messages'),
               value: '${statistics.totalMessages}',
             ),
             _StatCard(
               icon: Icons.point_of_sale_outlined,
-              label: 'Ventes',
+              label: tr('Ventes'),
               value: '${statistics.totalSales}',
             ),
             _StatCard(
               icon: Icons.stars_outlined,
-              label: 'Points fidélité',
+              label: tr('Points fidélité'),
               value: '${statistics.loyaltyPoints}',
             ),
           ],
         ),
         const SizedBox(height: 24),
-        Text('Revenu', style: Theme.of(context).textTheme.titleMedium),
+        Text(tr('Revenu'), style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         if (revenueEntries.isEmpty)
-          const Text('Aucune vente réglée pour le moment.')
+          Text(tr('Aucune vente réglée pour le moment.'))
         else
           Card(
             child: Column(

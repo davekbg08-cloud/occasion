@@ -1,3 +1,4 @@
+import '../l10n/app_language.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -182,8 +183,8 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                             color: Colors.white,
                           ),
                         ),
-                        const Text(
-                          'Découvrir',
+                        Text(
+                          tr('Découvrir'),
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 20,
@@ -203,7 +204,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
                           FilledButton.icon(
                             onPressed: _openPublisher,
                             icon: const Icon(Icons.add, size: 16),
-                            label: const Text('Publier'),
+                            label: Text(tr('Publier')),
                           ),
                       ],
                     ),
@@ -396,8 +397,8 @@ class _StatusPageState extends State<_StatusPage> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white, size: 48),
                 const SizedBox(height: 12),
-                const Text(
-                  'Impossible de lire cette vidéo.',
+                Text(
+                  tr('Impossible de lire cette vidéo.'),
                   style: TextStyle(color: Colors.white),
                 ),
                 const SizedBox(height: 12),
@@ -407,7 +408,7 @@ class _StatusPageState extends State<_StatusPage> {
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white70),
                   ),
-                  child: const Text('Réessayer'),
+                  child: Text(tr('Réessayer')),
                 ),
               ],
             ),
@@ -508,11 +509,11 @@ class _SellerInfo extends StatelessWidget {
                 side: const BorderSide(color: Colors.white70),
                 visualDensity: VisualDensity.compact,
               ),
-              child: const Text('Contacter'),
+              child: Text(tr('Contacter')),
             ),
             if (currentUserId.isNotEmpty && currentUserId != status.sellerId)
               IconButton(
-                tooltip: 'Signaler ou bloquer',
+                tooltip: tr('Signaler ou bloquer'),
                 onPressed: () => showReportOrBlockSheet(
                   context,
                   currentUserId: currentUserId,
@@ -567,7 +568,7 @@ class _Actions extends ConsumerWidget {
         _ActionButton(
           icon: Icons.chat_bubble_outline,
           color: Colors.white,
-          label: 'Message',
+          label: tr('Message'),
           onTap: () => context.push(
             '/open-chat',
             extra: {
@@ -580,7 +581,7 @@ class _Actions extends ConsumerWidget {
         _ActionButton(
           icon: Icons.share_outlined,
           color: Colors.white,
-          label: 'Partager',
+          label: tr('Partager'),
           onTap: () {
             final caption = status.caption?.trim();
             final text = [
@@ -650,8 +651,8 @@ class _EmptyFeed extends StatelessWidget {
         children: [
           const Icon(Icons.play_circle_outline, color: Colors.grey, size: 72),
           const SizedBox(height: 16),
-          const Text(
-            'Aucun contenu pour le moment.',
+          Text(
+            tr('Aucun contenu pour le moment.'),
             style: TextStyle(color: Colors.white, fontSize: 16),
           ),
           const SizedBox(height: 8),
@@ -659,11 +660,11 @@ class _EmptyFeed extends StatelessWidget {
             FilledButton.icon(
               onPressed: onPublish,
               icon: const Icon(Icons.add),
-              label: const Text('Publier le premier article'),
+              label: Text(tr('Publier le premier article')),
             )
           else
             Text(
-              'Les vendeurs publieront bientôt leurs articles.',
+              tr('Les vendeurs publieront bientôt leurs articles.'),
               style: TextStyle(color: Colors.grey[500], fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -700,7 +701,7 @@ class _ErrorFeed extends ConsumerWidget {
                 foregroundColor: Colors.white,
                 side: const BorderSide(color: Colors.white70),
               ),
-              child: const Text('Réessayer'),
+              child: Text(tr('Réessayer')),
             ),
           ],
         ),

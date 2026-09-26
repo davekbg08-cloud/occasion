@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../l10n/app_language.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/leave_review_sheet.dart';
@@ -15,8 +16,8 @@ class SellerOrdersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authNotifierProvider).currentUser;
     if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text('Connecte-toi pour voir tes commandes.')),
+      return Scaffold(
+        body: Center(child: Text(tr('Connecte-toi pour voir tes commandes.'))),
       );
     }
 
@@ -34,7 +35,7 @@ class SellerOrdersScreen extends ConsumerWidget {
               ? context.pop()
               : context.go('/seller-dashboard'),
         ),
-        title: const Text('Commandes reçues'),
+        title: Text(tr('Commandes reçues')),
       ),
       body: Column(
         children: [
@@ -94,8 +95,8 @@ class SellerOrdersScreen extends ConsumerWidget {
                 }
                 final docs = snapshot.data?.docs ?? const [];
                 if (docs.isEmpty) {
-                  return const Center(
-                    child: Text('Aucune commande reçue pour le moment.'),
+                  return Center(
+                    child: Text(tr('Aucune commande reçue pour le moment.')),
                   );
                 }
 
@@ -163,7 +164,7 @@ class SellerOrdersScreen extends ConsumerWidget {
                                     Icons.star_outline,
                                     size: 18,
                                   ),
-                                  label: const Text('Laisser un avis'),
+                                  label: Text(tr('Laisser un avis')),
                                 ),
                               ),
                             ],
