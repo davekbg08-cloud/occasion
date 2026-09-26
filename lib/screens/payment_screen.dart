@@ -33,6 +33,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   /// pour les administrateurs uniquement pendant les tests).
   bool _mobileMoneyAvailable = false;
   bool _useMobileMoney = false;
+
+  /// Vrai tant que la configuration des moyens de paiement n'est pas lue :
+  /// évite d'afficher un instant l'ancien écran (Orange Money manuel) avant
+  /// de basculer sur Mobile Money.
+  bool _loadingPaymentOptions = true;
   String? _provider;
   String? _pendingTransactionId;
   String? _statusMessage;
@@ -71,9 +76,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       setState(() {
         _mobileMoneyAvailable = available;
         _useMobileMoney = available;
+        _loadingPaymentOptions = false;
       });
     } catch (_) {
       // Configuration illisible : on garde le paiement manuel.
+      if (mounted) setState(() => _loadingPaymentOptions = false);
     }
   }
 
@@ -495,6 +502,12 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 ],
               ),
             ),
+            if (_loadingPaymentOptions)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 48),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else ...[
             if (_mobileMoneyAvailable) ...[
               const SizedBox(height: 20),
               SegmentedButton<bool>(
@@ -520,6 +533,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               _buildMobileMoneySection(totalAmount, cartCurrency)
             else
               ..._buildManualSection(totalAmount, cartCurrency),
+            ],
           ],
         ),
       ),
