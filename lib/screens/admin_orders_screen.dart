@@ -320,8 +320,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
           messenger.showSnackBar(
             SnackBar(
               content: Text(
-                check.data['message'] as String? ??
-                    tr('Reversement échoué.'),
+                check.data['message'] as String? ?? tr('Reversement échoué.'),
               ),
               backgroundColor: Colors.red,
             ),
@@ -403,9 +402,10 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
             final total = (data['total'] as num?)?.toDouble() ?? 0;
             final orderCurrency = data['currency'] as String? ?? 'FC';
             final buyerName = data['buyerName'] as String? ?? 'Acheteur';
-            final sellerIdList = (data['sellerIds'] as List<dynamic>? ?? const [])
-                .whereType<String>()
-                .toList();
+            final sellerIdList =
+                (data['sellerIds'] as List<dynamic>? ?? const [])
+                    .whereType<String>()
+                    .toList();
             final sellerIds = sellerIdList.join(', ');
             final payoutStatus = data['payoutStatus'] as String?;
             final payoutFailure = data['payoutFailureReason'] as String?;

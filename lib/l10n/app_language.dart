@@ -59,7 +59,8 @@ const _english = <String, String>{
   "Numéro de reversement": "Payout number",
   "Indique le nom du titulaire du compte.": "Enter the account holder's name.",
   "Numéro de reversement enregistré.": "Payout number saved.",
-  "L'argent de tes ventes payées par Mobile Money est envoyé sur ce numéro, après confirmation de réception par l'acheteur. Occasion retient une commission de 4 %.": "Money from your sales paid by Mobile Money is sent to this number once the buyer confirms receipt. Occasion keeps a 4% commission.",
+  "L'argent de tes ventes payées par Mobile Money est envoyé sur ce numéro, après confirmation de réception par l'acheteur. Occasion retient une commission de 4 %.":
+      "Money from your sales paid by Mobile Money is sent to this number once the buyer confirms receipt. Occasion keeps a 4% commission.",
   "Nom du titulaire du compte": "Account holder name",
   "Reversement envoyé": "Payout sent",
   "Vendeur payé.": "Seller paid.",
