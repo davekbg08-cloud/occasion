@@ -498,6 +498,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Marqueur "statut déjà vu" (bulle "stories" de l'accueil — cercle
+    // coloré tant qu'il reste au moins un statut non vu de ce vendeur).
+    // Contrairement à statusLikes, pas de compteur agrégé à protéger ici :
+    // une écriture cliente directe suffit, chacun ne pouvant écrire que
+    // sa propre marque (jamais celle d'un autre utilisateur).
+    match /statusViews/{viewId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      // L'id doit être {statusId}_{uid} (même convention que statusLikes) :
+      // empêche un statut d'être marqué vu sous un id qui prête à confusion
+      // avec celui d'un autre utilisateur, en plus du contrôle déjà
+      // suffisant sur le champ userId lui-même.
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.statusId is string
+        && viewId == request.resource.data.statusId + '_' + request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Code mort : aucune référence à `products` dans lib/ ou functions/ —
     // les annonces vivent exclusivement dans `annonces`. Verrouillage
     // plutôt que suppression de la règle (réduction de surface immédiate,

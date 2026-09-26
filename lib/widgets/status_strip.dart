@@ -31,6 +31,10 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(statusNotifierProvider.notifier).loadFeed();
+      final userId = ref.read(authNotifierProvider).currentUser?.id;
+      if (userId != null) {
+        ref.read(statusNotifierProvider.notifier).loadViewedStatuses(userId);
+      }
     });
   }
 
@@ -39,14 +43,23 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
     final statuses = ref.watch(
       statusNotifierProvider.select((state) => state.statuses),
     );
+    final viewedIds = ref.watch(
+      statusNotifierProvider.select((state) => state.viewedIds),
+    );
     final isSeller =
         ref.watch(authNotifierProvider).currentUser?.isSeller ?? false;
 
-    // Un seul cercle par vendeur, dans l'ordre du fil.
+    // Un seul cercle par vendeur, dans l'ordre du fil — coloré tant qu'au
+    // moins un de SES statuts (pas seulement le premier retenu ici) n'a
+    // pas encore été vu.
     final seen = <String>{};
     final sellers = <Status>[];
+    final hasUnseen = <String, bool>{};
     for (final status in statuses) {
       if (widget.blockedIds.contains(status.sellerId)) continue;
+      hasUnseen[status.sellerId] =
+          (hasUnseen[status.sellerId] ?? false) ||
+          !viewedIds.contains(status.id);
       if (seen.add(status.sellerId)) sellers.add(status);
       if (sellers.length >= 12) break;
     }
@@ -68,7 +81,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
           for (final status in sellers)
             _StatusBubble(
               label: status.sellerName,
-              highlighted: true,
+              highlighted: hasUnseen[status.sellerId] ?? false,
               onTap: () => context.push('/statuts', extra: status.sellerId),
               child: _Avatar(
                 url: status.sellerProfileImageUrl,

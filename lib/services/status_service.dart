@@ -228,6 +228,32 @@ class StatusService {
         .toSet();
   }
 
+  /// Marque [statusId] comme vu par [userId] (bulle "stories" de
+  /// l'accueil) — écriture cliente directe (pas de compteur agrégé à
+  /// protéger, contrairement aux likes), id déterministe pour qu'une
+  /// relance n'écrive jamais deux fois la même marque.
+  Future<void> markViewed(String statusId, String userId) {
+    return _db.collection('statusViews').doc('${statusId}_$userId').set({
+      'statusId': statusId,
+      'userId': userId,
+      'viewedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Identifiants des statuts déjà vus par [userId] — même principe que
+  /// [likedStatusIds] : lecture ponctuelle pour restaurer l'état "déjà vu"
+  /// après reconnexion, jamais gardé seulement en mémoire côté client.
+  Future<Set<String>> viewedStatusIds(String userId) async {
+    final snap = await _db
+        .collection('statusViews')
+        .where('userId', isEqualTo: userId)
+        .get();
+    return snap.docs
+        .map((doc) => doc.data()['statusId'] as String?)
+        .whereType<String>()
+        .toSet();
+  }
+
   /// Suppression côté serveur (voir `functions/index.js::deleteStatus`) :
   /// nettoie aussi le fichier Storage et les `statusLikes` associés, ce
   /// qu'une suppression Firestore directe ne ferait pas.

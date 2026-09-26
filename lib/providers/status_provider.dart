@@ -11,6 +11,7 @@ class StatusState {
   const StatusState({
     this.statuses = const [],
     this.likedIds = const {},
+    this.viewedIds = const {},
     this.isLoading = false,
     this.isLoadingMore = false,
     this.hasMore = true,
@@ -21,6 +22,7 @@ class StatusState {
 
   final List<Status> statuses;
   final Set<String> likedIds;
+  final Set<String> viewedIds;
   final bool isLoading;
   final bool isLoadingMore;
   final bool hasMore;
@@ -29,10 +31,12 @@ class StatusState {
   final String? error;
 
   bool isLiked(String statusId) => likedIds.contains(statusId);
+  bool isViewed(String statusId) => viewedIds.contains(statusId);
 
   StatusState copyWith({
     List<Status>? statuses,
     Set<String>? likedIds,
+    Set<String>? viewedIds,
     bool? isLoading,
     bool? isLoadingMore,
     bool? hasMore,
@@ -45,6 +49,7 @@ class StatusState {
     return StatusState(
       statuses: statuses ?? this.statuses,
       likedIds: likedIds ?? this.likedIds,
+      viewedIds: viewedIds ?? this.viewedIds,
       isLoading: isLoading ?? this.isLoading,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       hasMore: hasMore ?? this.hasMore,
@@ -198,6 +203,33 @@ class StatusNotifier extends StateNotifier<StatusState> {
     } catch (_) {
       // Best-effort : un like déjà connu côté serveur qui échoue à se
       // charger ne doit pas bloquer l'affichage du feed.
+    }
+  }
+
+  /// Restaure l'état "déjà vu" depuis Firestore (`statusViews`), même
+  /// principe que [loadLikedStatuses] — pilote la couleur des bulles
+  /// "stories" de l'accueil (`StatusStrip`).
+  Future<void> loadViewedStatuses(String userId) async {
+    if (userId.isEmpty) return;
+    try {
+      final ids = await _service.viewedStatusIds(userId);
+      state = state.copyWith(viewedIds: ids);
+    } catch (_) {
+      // Best-effort : ne doit jamais bloquer l'affichage du feed.
+    }
+  }
+
+  /// Marque [statusId] comme vu par [userId] — optimiste (mise à jour
+  /// immédiate de l'état local) puis persisté côté serveur ; en cas
+  /// d'échec réseau, la bulle reste "vue" pour cette session (best-effort,
+  /// se resynchronisera au prochain [loadViewedStatuses]).
+  Future<void> markViewed(String statusId, String userId) async {
+    if (userId.isEmpty || state.viewedIds.contains(statusId)) return;
+    state = state.copyWith(viewedIds: {...state.viewedIds, statusId});
+    try {
+      await _service.markViewed(statusId, userId);
+    } catch (_) {
+      // Best-effort, voir ci-dessus.
     }
   }
 

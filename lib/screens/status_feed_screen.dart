@@ -53,6 +53,7 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
       final userId = ref.read(authNotifierProvider).currentUser?.id;
       if (userId != null) {
         ref.read(statusNotifierProvider.notifier).loadLikedStatuses(userId);
+        ref.read(statusNotifierProvider.notifier).loadViewedStatuses(userId);
       }
     });
   }
@@ -101,6 +102,25 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_pageController.hasClients) return;
           _pageController.jumpToPage(index);
+        });
+      }
+    }
+
+    // Marque la page actuellement affichée comme vue (pilote la couleur
+    // de sa bulle "stories" sur l'accueil) — `markViewed` est lui-même
+    // idempotent, donc rien n'empêche de la réappeler à chaque build tant
+    // qu'elle n'est pas encore dans `viewedIds` (devient un no-op dès
+    // qu'elle y est, sur le build suivant).
+    if (visibleStatuses.isNotEmpty) {
+      final activeIndex = _currentPage.clamp(0, visibleStatuses.length - 1);
+      final activeStatus = visibleStatuses[activeIndex];
+      final userId = currentUser?.id;
+      if (userId != null && !statusState.isViewed(activeStatus.id)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref
+              .read(statusNotifierProvider.notifier)
+              .markViewed(activeStatus.id, userId);
         });
       }
     }

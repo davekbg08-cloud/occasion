@@ -129,4 +129,35 @@ void main() {
       },
     );
   });
+
+  group('StatusNotifier.markViewed / loadViewedStatuses', () {
+    test('régression : un statut marqué vu reste vu après reconnexion '
+        '(bulle "stories" ne redevient jamais colorée pour un statut déjà '
+        'consulté)', () async {
+      final firestore = FakeFirebaseFirestore();
+      final service = StatusService(firestore);
+      final notifier = StatusNotifier(service: service);
+      addTearDown(notifier.dispose);
+
+      expect(notifier.state.isViewed('status1'), isFalse);
+
+      await notifier.markViewed('status1', 'buyer1');
+      expect(notifier.state.isViewed('status1'), isTrue);
+
+      // Rien à débiter/incrémenter deux fois ici (contrairement aux
+      // likes) mais un second appel doit rester un no-op silencieux.
+      await notifier.markViewed('status1', 'buyer1');
+      expect(notifier.state.viewedIds.length, 1);
+
+      // Nouvelle session (nouvel état en mémoire) : l'ancien marqueur
+      // persisté côté Firestore doit être restauré.
+      final freshNotifier = StatusNotifier(service: service);
+      addTearDown(freshNotifier.dispose);
+      expect(freshNotifier.state.isViewed('status1'), isFalse);
+
+      await freshNotifier.loadViewedStatuses('buyer1');
+      expect(freshNotifier.state.isViewed('status1'), isTrue);
+      expect(freshNotifier.state.isViewed('status2'), isFalse);
+    });
+  });
 }

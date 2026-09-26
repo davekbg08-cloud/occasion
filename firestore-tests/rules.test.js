@@ -1475,6 +1475,35 @@ test("un utilisateur peut lire son propre statusLikes, pas celui d'un autre, et 
   );
 });
 
+test("statusViews : chacun peut marquer et lire ses propres statuts vus, jamais ceux d'un autre ni au nom d'un autre", async () => {
+  const buyer1 = testEnv.authenticatedContext("buyer1").firestore();
+  const buyer2 = testEnv.authenticatedContext("buyer2").firestore();
+
+  await assertSucceeds(
+    buyer1.collection("statusViews").doc("status1_buyer1").set({
+      statusId: "status1",
+      userId: "buyer1",
+    })
+  );
+  await assertFails(
+    buyer1.collection("statusViews").doc("status1_buyer2").set({
+      statusId: "status1",
+      userId: "buyer1",
+    })
+  );
+  await assertSucceeds(
+    buyer1.collection("statusViews").doc("status1_buyer1").get()
+  );
+  await assertFails(
+    buyer2.collection("statusViews").doc("status1_buyer1").get()
+  );
+  await assertFails(
+    buyer1.collection("statusViews").doc("status1_buyer1").update({
+      statusId: "status2",
+    })
+  );
+});
+
 test("reviews : illisible et inéditable directement par un client, même le propriétaire de l'avis", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("reviews").doc("order1_seller1_buyer_to_seller").set({
