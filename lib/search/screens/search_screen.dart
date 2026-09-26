@@ -36,7 +36,9 @@ class SearchScreen extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            tr('Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.'),
+            tr(
+              'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
+            ),
           ),
         ),
       );

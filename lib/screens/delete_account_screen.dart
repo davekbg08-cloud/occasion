@@ -60,16 +60,16 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('Suppression impossible.'))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(tr('Suppression impossible.'))));
       }
     } catch (_) {
       setState(() => _isDeleting = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('Suppression impossible.'))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(tr('Suppression impossible.'))));
       }
     }
   }

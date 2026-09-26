@@ -112,7 +112,10 @@ class _CodeCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Text(tr('Votre code'), style: Theme.of(context).textTheme.titleSmall),
+            Text(
+              tr('Votre code'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
             const SizedBox(height: 12),
             Text(
               code,

@@ -23,7 +23,9 @@ class BlockedUsersScreen extends ConsumerWidget {
               data: (blocked) {
                 if (blocked.isEmpty) {
                   return Center(
-                    child: Text(tr("Vous n'avez bloqué personne pour le moment.")),
+                    child: Text(
+                      tr("Vous n'avez bloqué personne pour le moment."),
+                    ),
                   );
                 }
 

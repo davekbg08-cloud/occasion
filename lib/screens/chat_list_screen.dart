@@ -507,7 +507,9 @@ class _MessageLoadError extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          tr('Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.'),
+          tr(
+            'Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.',
+          ),
           textAlign: TextAlign.center,
           style: TextStyle(color: AppColors.textSecondary),
         ),

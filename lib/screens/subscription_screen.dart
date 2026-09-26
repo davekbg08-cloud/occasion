@@ -148,7 +148,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                tr("Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées."),
+                tr(
+                  "Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées.",
+                ),
                 style: TextStyle(color: Colors.grey[400], fontSize: 14),
               ),
               const SizedBox(height: 16),
@@ -312,7 +314,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    tr("Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel."),
+                    tr(
+                      "Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel.",
+                    ),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey[400]),
                   ),

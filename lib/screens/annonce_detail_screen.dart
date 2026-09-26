@@ -64,9 +64,9 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
     }
     final sellerId = product.sellerId;
     if (sellerId == null || sellerId.isEmpty || sellerId == currentUser.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('Conversation indisponible.'))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('Conversation indisponible.'))));
       return;
     }
     context.push(

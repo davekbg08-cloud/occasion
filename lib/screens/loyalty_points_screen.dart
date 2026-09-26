@@ -31,8 +31,7 @@ class LoyaltyPointsScreen extends ConsumerWidget {
           const SizedBox(height: 8),
           pointsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) =>
-                Text(tr('Impossible de charger vos points.')),
+            error: (error, _) => Text(tr('Impossible de charger vos points.')),
             data: (points) {
               if (points.isEmpty) {
                 return const Text(

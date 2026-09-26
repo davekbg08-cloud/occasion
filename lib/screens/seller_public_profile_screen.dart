@@ -96,9 +96,8 @@ class SellerPublicProfileScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               reviewsAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, stackTrace) => Text(
-                  tr("Impossible de charger les avis pour le moment."),
-                ),
+                error: (error, stackTrace) =>
+                    Text(tr("Impossible de charger les avis pour le moment.")),
                 data: (reviews) {
                   if (reviews.isEmpty) {
                     return Text(tr('Aucun avis pour le moment.'));

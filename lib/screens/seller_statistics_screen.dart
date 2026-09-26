@@ -18,9 +18,8 @@ class SellerStatisticsScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(tr('Statistiques'))),
       body: statisticsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Text(tr('Impossible de charger les statistiques.')),
-        ),
+        error: (error, _) =>
+            Center(child: Text(tr('Impossible de charger les statistiques.'))),
         data: (statistics) => _StatisticsContent(statistics: statistics),
       ),
     );

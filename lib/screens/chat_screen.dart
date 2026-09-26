@@ -108,7 +108,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (me == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(tr('Vous devez être connecté pour envoyer un message.')),
+          content: Text(
+            tr('Vous devez être connecté pour envoyer un message.'),
+          ),
         ),
       );
     }

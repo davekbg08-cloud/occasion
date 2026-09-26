@@ -1,4 +1,5 @@
 import '../l10n/app_language.dart';
+
 class PhoneCountry {
   const PhoneCountry({
     required this.isoCode,
@@ -330,8 +331,9 @@ class PhoneNumberValidator {
     return PhoneValidationResult(
       isValid: false,
       normalized: normalized,
-      message:
-          tr("Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif."),
+      message: tr(
+        "Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif.",
+      ),
     );
   }
 

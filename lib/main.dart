@@ -576,9 +576,7 @@ class _AdminGuardState extends ConsumerState<_AdminGuard> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(tr('Accès réservé aux administrateurs.')),
-              ),
+              SnackBar(content: Text(tr('Accès réservé aux administrateurs.'))),
             );
             context.go('/profile');
           });

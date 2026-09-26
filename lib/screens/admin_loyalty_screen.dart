@@ -111,9 +111,7 @@ class _AdminLoyaltyScreenState extends ConsumerState<AdminLoyaltyScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _buyerIdController,
-                decoration: InputDecoration(
-                  labelText: tr('ID de l\'acheteur'),
-                ),
+                decoration: InputDecoration(labelText: tr('ID de l\'acheteur')),
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? 'Obligatoire'
                     : null,

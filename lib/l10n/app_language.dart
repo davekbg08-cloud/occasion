@@ -72,7 +72,8 @@ const _english = <String, String>{
   "Ajouter": "Add",
   "Ajouter une description...": "Add a description...",
   "Ajoutez au moins une photo.": "Add at least one photo.",
-  "Ajoutez l'indicatif international, par exemple +243.": "Add the international code, for example +243.",
+  "Ajoutez l'indicatif international, par exemple +243.":
+      "Add the international code, for example +243.",
   "Annonce": "Listing",
   "Annonce supprimée.": "Listing deleted.",
   "Annonces": "Listings",
@@ -102,13 +103,15 @@ const _english = <String, String>{
   "Bienvenue !": "Welcome!",
   "Bloquer": "Block",
   "Boutique": "Shop",
-  "CNI, passeport ou carte d'electeur: prenez une photo nette.": "ID card, passport or voter card: take a clear photo.",
+  "CNI, passeport ou carte d'electeur: prenez une photo nette.":
+      "ID card, passport or voter card: take a clear photo.",
   "Cadeau envoyé": "Gift sent",
   "Catalogue indisponible.": "Catalog unavailable.",
   "Catégorie": "Category",
   "Ce vendeur n'a pas encore de cadeaux.": "This seller has no gifts yet.",
   "Cette action est irréversible": "This action cannot be undone",
-  "Cette action retirera l’annonce de la vente.": "This will remove the listing from sale.",
+  "Cette action retirera l’annonce de la vente.":
+      "This will remove the listing from sale.",
   "Cette annonce est introuvable.": "This listing cannot be found.",
   "Changer image": "Change image",
   "Changer vidéo": "Change video",
@@ -119,7 +122,8 @@ const _english = <String, String>{
   "Choisissez une formule vendeur.": "Choose a seller plan.",
   "Code copié.": "Code copied.",
   "Code de parrainage (optionnel)": "Referral code (optional)",
-  "Colle la référence de transaction reçue par SMS Orange Money.": "Paste the transaction reference from your Orange Money SMS.",
+  "Colle la référence de transaction reçue par SMS Orange Money.":
+      "Paste the transaction reference from your Orange Money SMS.",
   "Commandes reçues": "Orders received",
   "Comment payer": "How to pay",
   "Commentaire (optionnel)": "Comment (optional)",
@@ -130,7 +134,8 @@ const _english = <String, String>{
   "Connecte-toi avec ton compte vendeur.": "Sign in with your seller account.",
   "Connecte-toi pour enregistrer une recherche.": "Sign in to save a search.",
   "Connecte-toi pour voir tes commandes.": "Sign in to see your orders.",
-  "Connectez-vous ou créez un compte pour continuer.": "Sign in or create an account to continue.",
+  "Connectez-vous ou créez un compte pour continuer.":
+      "Sign in or create an account to continue.",
   "Connectez-vous pour voir cette liste.": "Sign in to see this list.",
   "Connexion": "Sign in",
   "Contact vendeur": "Contact seller",
@@ -141,7 +146,8 @@ const _english = <String, String>{
   "Copier": "Copy",
   "Coût en points": "Cost in points",
   "Créer un compte": "Create an account",
-  "Créez votre compte en choisissant votre rôle": "Create your account by choosing your role",
+  "Créez votre compte en choisissant votre rôle":
+      "Create your account by choosing your role",
   "Demande d'échange envoyée.": "Exchange request sent.",
   "Demandes d'échange": "Exchange requests",
   "Description": "Description",
@@ -151,10 +157,12 @@ const _english = <String, String>{
   "Débloquer": "Unblock",
   "Déconnexion": "Sign out",
   "Découvrir": "Discover",
-  "Décris le problème (article non reçu, différent de l'annonce...)": "Describe the problem (item not received, different from the listing...)",
+  "Décris le problème (article non reçu, différent de l'annonce...)":
+      "Describe the problem (item not received, different from the listing...)",
   "Déjà un compte ? ": "Already have an account? ",
   "E-mail": "Email",
-  "Elle disparaîtra de votre liste de messages.": "It will disappear from your messages.",
+  "Elle disparaîtra de votre liste de messages.":
+      "It will disappear from your messages.",
   "En ligne": "Online",
   "En négociation": "Under negotiation",
   "English": "English",
@@ -176,29 +184,43 @@ const _english = <String, String>{
   "ID du vendeur": "Seller ID",
   "ID produit lié (optionnel)": "Linked product ID (optional)",
   "Image": "Image",
-  "Impossible d'ouvrir cette conversation pour le moment.": "Unable to open this conversation right now.",
-  "Impossible d'ouvrir cette conversation.": "Unable to open this conversation.",
-  "Impossible de charger ce profil pour le moment.": "Unable to load this profile right now.",
+  "Impossible d'ouvrir cette conversation pour le moment.":
+      "Unable to open this conversation right now.",
+  "Impossible d'ouvrir cette conversation.":
+      "Unable to open this conversation.",
+  "Impossible de charger ce profil pour le moment.":
+      "Unable to load this profile right now.",
   "Impossible de charger cette annonce.": "Unable to load this listing.",
   "Impossible de charger l'historique.": "Unable to load history.",
   "Impossible de charger le catalogue.": "Unable to load the catalog.",
-  "Impossible de charger le tableau de bord vendeur.": "Unable to load the seller dashboard.",
-  "Impossible de charger les annonces pour le moment.": "Unable to load listings right now.",
-  "Impossible de charger les avis pour le moment.": "Unable to load reviews right now.",
-  "Impossible de charger les commandes pour le moment.": "Unable to load orders right now.",
+  "Impossible de charger le tableau de bord vendeur.":
+      "Unable to load the seller dashboard.",
+  "Impossible de charger les annonces pour le moment.":
+      "Unable to load listings right now.",
+  "Impossible de charger les avis pour le moment.":
+      "Unable to load reviews right now.",
+  "Impossible de charger les commandes pour le moment.":
+      "Unable to load orders right now.",
   "Impossible de charger les demandes.": "Unable to load requests.",
-  "Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.": "Unable to load messages. Check your connection or access rights.",
+  "Impossible de charger les messages. Vérifiez votre connexion ou vos droits d’accès.":
+      "Unable to load messages. Check your connection or access rights.",
   "Impossible de charger les notifications.": "Unable to load notifications.",
-  "Impossible de charger les produits pour le moment.": "Unable to load products right now.",
+  "Impossible de charger les produits pour le moment.":
+      "Unable to load products right now.",
   "Impossible de charger les statistiques.": "Unable to load statistics.",
-  "Impossible de charger vos annonces pour le moment.": "Unable to load your listings right now.",
+  "Impossible de charger vos annonces pour le moment.":
+      "Unable to load your listings right now.",
   "Impossible de charger vos points.": "Unable to load your points.",
-  "Impossible de charger votre code de parrainage.": "Unable to load your referral code.",
+  "Impossible de charger votre code de parrainage.":
+      "Unable to load your referral code.",
   "Impossible de lire cette vidéo.": "Unable to play this video.",
-  "Impossible de modifier l'état de la vente.": "Unable to change the sale status.",
-  "Impossible de modifier le statut de l'annonce.": "Unable to change the listing status.",
+  "Impossible de modifier l'état de la vente.":
+      "Unable to change the sale status.",
+  "Impossible de modifier le statut de l'annonce.":
+      "Unable to change the listing status.",
   "Impossible de supprimer l'annonce.": "Unable to delete the listing.",
-  "Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif.": "Country code not recognized. Choose your country and check the code.",
+  "Indicatif non reconnu. Choisissez votre pays et vérifiez l'indicatif.":
+      "Country code not recognized. Choose your country and check the code.",
   "Informations produit": "Product information",
   "Inscription": "Sign up",
   "Invitez vos proches sur Occasion": "Invite your friends to Occasion",
@@ -206,7 +228,8 @@ const _english = <String, String>{
   "J'ai envoyé l'argent au vendeur": "I've sent the money to the seller",
   "Laisser un avis": "Leave a review",
   "Langue": "Language",
-  "Les vendeurs publieront bientôt leurs articles.": "Sellers will post their items soon.",
+  "Les vendeurs publieront bientôt leurs articles.":
+      "Sellers will post their items soon.",
   "Ma boutique": "My shop",
   "Marqué comme reversé.": "Marked as paid out.",
   "Merci ! Le vendeur va être payé.": "Thank you! The seller will be paid.",
@@ -241,7 +264,8 @@ const _english = <String, String>{
   "Paiement Mobile Money": "Mobile Money payment",
   "Paiement confirmé.": "Payment confirmed.",
   "Paiement rejeté.": "Payment rejected.",
-  "Paiement reçu ! Ta commande est confirmée.": "Payment received! Your order is confirmed.",
+  "Paiement reçu ! Ta commande est confirmée.":
+      "Payment received! Your order is confirmed.",
   "Paiements Orange Money à vérifier": "Orange Money payments to verify",
   "Paramètres": "Settings",
   "Paramètres et confidentialité": "Settings and privacy",
@@ -273,7 +297,8 @@ const _english = <String, String>{
   "Publier un statut": "Post a status",
   "Publier une annonce": "Post a listing",
   "Quartier": "District",
-  "Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.": "Search saved. You'll be notified of new matching listings.",
+  "Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.":
+      "Search saved. You'll be notified of new matching listings.",
   "Rechercher": "Search",
   "Rechercher une annonce...": "Search listings...",
   "Reconnexion nécessaire": "Please sign in again",
@@ -292,11 +317,13 @@ const _english = <String, String>{
   "Reverser au vendeur": "Pay out to seller",
   "Récompenses": "Rewards",
   "Réessayer": "Retry",
-  "Référence de transaction (SMS Orange Money)": "Transaction reference (Orange Money SMS)",
+  "Référence de transaction (SMS Orange Money)":
+      "Transaction reference (Orange Money SMS)",
   "Résoudre": "Resolve",
   "Scanner document": "Scan document",
   "Se connecter": "Sign in",
-  "Seuls les vendeurs peuvent publier une annonce.": "Only sellers can post listings.",
+  "Seuls les vendeurs peuvent publier une annonce.":
+      "Only sellers can post listings.",
   "Signalements": "Reports",
   "Signaler ou bloquer": "Report or block",
   "Signaler un problème": "Report a problem",
@@ -314,7 +341,8 @@ const _english = <String, String>{
   "Sélectionnez un média": "Select a media file",
   "Tapez SUPPRIMER pour confirmer :": "Type SUPPRIMER to confirm:",
   "Titre": "Title",
-  "Ton abonnement vendeur n'est pas actif. Active-le pour publier.": "Your seller subscription isn't active. Activate it to publish.",
+  "Ton abonnement vendeur n'est pas actif. Active-le pour publier.":
+      "Your seller subscription isn't active. Activate it to publish.",
   "Ton opérateur": "Your operator",
   "Total :": "Total:",
   "Tout": "All",
@@ -335,17 +363,25 @@ const _english = <String, String>{
   "Vidéo depuis la galerie": "Video from gallery",
   "Ville": "City",
   "Voir ma page vendeur": "View my seller page",
-  "Vos adresses de livraison apparaîtront ici.": "Your delivery addresses will appear here.",
-  "Vos annonces favorites apparaîtront ici.": "Your favorite listings will appear here.",
-  "Vos annonces publiées apparaîtront ici.": "Your published listings will appear here.",
-  "Vos revenus vendeur apparaîtront ici.": "Your seller income will appear here.",
+  "Vos adresses de livraison apparaîtront ici.":
+      "Your delivery addresses will appear here.",
+  "Vos annonces favorites apparaîtront ici.":
+      "Your favorite listings will appear here.",
+  "Vos annonces publiées apparaîtront ici.":
+      "Your published listings will appear here.",
+  "Vos revenus vendeur apparaîtront ici.":
+      "Your seller income will appear here.",
   "Vos soldes par vendeur": "Your balances by seller",
   "Votre code": "Your code",
-  "Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel.": "Your buyer account is free. You don't pay a monthly subscription.",
+  "Votre compte acheteur est gratuit. Vous ne payez pas d'abonnement mensuel.":
+      "Your buyer account is free. You don't pay a monthly subscription.",
   "Votre panier est vide": "Your cart is empty",
-  "Vous devez être connecté pour envoyer un message.": "You must be signed in to send a message.",
-  "Vous n'avez bloqué personne pour le moment.": "You haven't blocked anyone yet.",
-  "Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées.": "You can post a few listings with the free plan. The seller subscription is for higher volumes and advanced options.",
+  "Vous devez être connecté pour envoyer un message.":
+      "You must be signed in to send a message.",
+  "Vous n'avez bloqué personne pour le moment.":
+      "You haven't blocked anyone yet.",
+  "Vous pouvez publier quelques annonces selon la configuration gratuite. L'abonnement vendeur servira aux volumes plus élevés et aux options avancées.":
+      "You can post a few listings with the free plan. The seller subscription is for higher volumes and advanced options.",
   "Vues": "Views",
   "Vérifier mon abonnement": "Check my subscription",
   "Échanger": "Redeem",

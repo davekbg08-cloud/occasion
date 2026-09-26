@@ -409,7 +409,9 @@ class _ResultPanel extends StatelessWidget {
               )
             else if (recognizedText.isEmpty)
               Text(
-                tr("CNI, passeport ou carte d'electeur: prenez une photo nette."),
+                tr(
+                  "CNI, passeport ou carte d'electeur: prenez une photo nette.",
+                ),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),

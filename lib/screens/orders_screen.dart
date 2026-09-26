@@ -129,8 +129,9 @@ class _OrderCardState extends State<_OrderCard> {
           controller: reasonController,
           maxLines: 3,
           decoration: InputDecoration(
-            hintText:
-                tr("Décris le problème (article non reçu, différent de l'annonce...)"),
+            hintText: tr(
+              "Décris le problème (article non reçu, différent de l'annonce...)",
+            ),
             border: OutlineInputBorder(),
           ),
         ),
