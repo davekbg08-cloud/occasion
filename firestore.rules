@@ -901,6 +901,27 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Reversements pawaPay aux vendeurs : exclusivement serveur.
+    match /pawapayPayouts/{payoutId} {
+      allow read, write: if false;
+    }
+
+    // Numéro de reversement Mobile Money du vendeur : lu et écrit par son
+    // propriétaire, lu par l'administrateur (reversements).
+    match /payoutAccounts/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(
+          ['provider', 'phoneNumber', 'holderName', 'updatedAt'])
+        && request.resource.data.provider in
+          ['VODACOM_MPESA_COD', 'AIRTEL_COD', 'ORANGE_COD']
+        && request.resource.data.phoneNumber is string
+        && request.resource.data.phoneNumber.size() <= 20
+        && request.resource.data.holderName is string
+        && request.resource.data.holderName.size() <= 80;
+      allow delete: if isOwner(userId);
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
