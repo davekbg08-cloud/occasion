@@ -762,7 +762,8 @@ class _PayoutHistoryTabState extends State<_PayoutHistoryTab> {
         subtitle: Text(
           [
             method,
-            if (paidOut != null) '${tr('versé')} ${formatPrice(paidOut, currency)}',
+            if (paidOut != null)
+              '${tr('versé')} ${formatPrice(paidOut, currency)}',
             if (commission != null)
               '${tr('commission')} ${formatPrice(commission, currency)}',
             dateText,
