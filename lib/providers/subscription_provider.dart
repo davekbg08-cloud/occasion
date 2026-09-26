@@ -90,7 +90,7 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
       'planId': planId,
       'planName': planName,
       'amount': price,
-      'currency': 'FC',
+      'currency': 'USD',
       'durationDays': durationDays,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),

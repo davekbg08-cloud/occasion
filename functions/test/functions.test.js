@@ -731,7 +731,8 @@ test("régression : confirmManualPayment ignore le montant/durée déclarés par
   });
 
   const subSnap = await db.collection("subscriptions").doc("seller1").get();
-  assert.equal(subSnap.data().price, 20000);
+  assert.equal(subSnap.data().price, 10);
+  assert.equal(subSnap.data().currency, "USD");
   assert.equal(subSnap.data().planName, "Vendeur Mensuel");
   const durationMs = subSnap.data().expiryDate.toMillis() - subSnap.data().startDate.toMillis();
   const durationDays = Math.round(durationMs / (24 * 60 * 60 * 1000));
