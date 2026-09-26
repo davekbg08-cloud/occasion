@@ -888,6 +888,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Configuration publique de l'app (ex. activation du paiement Mobile
+    // Money automatique `payments.pawapayMode`) : lue par l'app, modifiée
+    // uniquement depuis la console Firebase.
+    match /appConfig/{configId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Suivi des dépôts pawaPay : exclusivement serveur (Cloud Functions).
+    match /pawapayDeposits/{depositId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

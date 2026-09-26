@@ -2,7 +2,8 @@ const {
   onDocumentCreated,
   onDocumentUpdated,
 } = require("firebase-functions/v2/firestore");
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
@@ -2871,7 +2872,348 @@ exports.onReferredUserFirstOrder = onDocumentUpdated(
 // Exports internes réservés aux tests (functions/test/), jamais utilisés en
 // production ni déployés comme fonctions (objet brut, pas un CloudFunction
 // reconnu par le CLI Firebase).
+// ─────────────────────────────────────────────────────────────────────────
+// pawaPay : paiement Mobile Money automatique (RDC : M-Pesa, Airtel, Orange)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Flux : l'acheteur crée sa commande + `paymentIntents/{transactionId}`
+// (comme pour Orange Money manuel), puis `startPawapayPayment` demande à
+// pawaPay de prélever son portefeuille (le client valide avec son code PIN
+// sur son téléphone). La confirmation arrive par `pawapayCallback` (appel
+// de pawaPay) ou par `checkPawapayPayment` (interrogation par l'app) : dans
+// les deux cas le statut est RELU auprès de l'API pawaPay avec notre jeton
+// (un callback n'est jamais cru sur parole), puis réglé par
+// `applySettlement` — le même chemin atomique que la confirmation admin.
+//
+// Jeton : secret Secret Manager `PAWAPAY_API_TOKEN`, jamais dans le code.
+// Environnement : `PAWAPAY_BASE_URL` (functions/.env) — sandbox par défaut.
+// En sandbox, seuls les administrateurs peuvent lancer un paiement (tests).
+
+const PAWAPAY_API_TOKEN = defineSecret("PAWAPAY_API_TOKEN");
+const PAWAPAY_SANDBOX_URL = "https://api.sandbox.pawapay.io";
+
+function pawapayBaseUrl() {
+  return (process.env.PAWAPAY_BASE_URL || PAWAPAY_SANDBOX_URL).replace(/\/+$/, "");
+}
+
+function pawapayIsSandbox() {
+  return pawapayBaseUrl() === PAWAPAY_SANDBOX_URL;
+}
+
+/** Opérateurs RDC pris en charge (codes « provider » de l'API v2). */
+const PAWAPAY_PROVIDERS_COD = new Set([
+  "VODACOM_MPESA_COD",
+  "AIRTEL_COD",
+  "ORANGE_COD",
+]);
+
+/** Devise Occasion → devise pawaPay (seule la RDC est ouverte pour l'instant). */
+function pawapayCurrency(currency) {
+  const code = String(currency || "").trim().toUpperCase();
+  if (code === "FC" || code === "CDF") return "CDF";
+  if (code === "USD") return "USD";
+  return null;
+}
+
+/** Montant au format attendu : entier en CDF, 2 décimales max en USD. */
+function pawapayAmount(amount, currency) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  if (currency === "CDF") return String(Math.round(value));
+  return String(Math.round(value * 100) / 100);
+}
+
+/** Numéro RDC au format pawaPay : 243 + 9 chiffres, sans « + ». */
+function pawapayPhone(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  const normalized = digits.startsWith("243")
+    ? digits
+    : digits.startsWith("0")
+      ? `243${digits.slice(1)}`
+      : digits;
+  return /^243\d{9}$/.test(normalized) ? normalized : null;
+}
+
+async function pawapayRequest(method, path, body) {
+  const response = await fetch(`${pawapayBaseUrl()}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${PAWAPAY_API_TOKEN.value()}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (_) {
+    data = null;
+  }
+  return { httpStatus: response.status, data };
+}
+
+/**
+ * Statut final d'un dépôt relu auprès de pawaPay. Tolère les deux formes
+ * de réponse ({status:"FOUND", data:{...}} en v2, ou l'objet direct).
+ */
+async function fetchPawapayDeposit(depositId) {
+  const { httpStatus, data } = await pawapayRequest(
+    "GET",
+    `/v2/deposits/${encodeURIComponent(depositId)}`
+  );
+  if (httpStatus >= 400 || !data) return null;
+  const deposit = data.data && typeof data.data === "object" ? data.data : data;
+  if (Array.isArray(deposit)) return deposit[0] || null;
+  return deposit;
+}
+
+/**
+ * Applique le statut pawaPay d'un dépôt à l'intention de paiement.
+ * COMPLETED → réglée « payée » (montant et devise revérifiés) ; FAILED →
+ * l'intention reste en attente pour permettre un nouvel essai.
+ */
+async function reconcilePawapayDeposit(depositId) {
+  const linkRef = db.collection("pawapayDeposits").doc(depositId);
+  const linkSnap = await linkRef.get();
+  if (!linkSnap.exists) return { status: "unknown" };
+  const link = linkSnap.data();
+
+  const deposit = await fetchPawapayDeposit(depositId);
+  if (!deposit || !deposit.status) return { status: "pending" };
+  const status = String(deposit.status).toUpperCase();
+
+  if (status === "COMPLETED") {
+    const sameAmount =
+      deposit.amount == null ||
+      Math.abs(Number(deposit.amount) - Number(link.amount)) < 0.01;
+    const sameCurrency =
+      deposit.currency == null || deposit.currency === link.currency;
+    if (!sameAmount || !sameCurrency) {
+      await linkRef.set(
+        { status: "MISMATCH", checkedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      console.error("pawaPay : montant/devise incohérents", depositId);
+      return { status: "failed", message: "Paiement incohérent : contactez le support." };
+    }
+    await linkRef.set(
+      { status: "COMPLETED", checkedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    const result = await applySettlement({
+      transactionId: link.transactionId,
+      isPaid: true,
+      paymentMethod: `Mobile Money pawaPay (${link.provider})`,
+      extra: { pawapayDepositId: depositId },
+    });
+    return { status: result.status === "failed" ? "failed" : "paid" };
+  }
+
+  if (status === "FAILED" || status === "REJECTED") {
+    const reason =
+      deposit.failureReason?.failureMessage ||
+      deposit.failureReason?.failureCode ||
+      "Paiement refusé ou annulé.";
+    await linkRef.set(
+      { status: "FAILED", failureReason: reason, checkedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await db.collection("paymentIntents").doc(link.transactionId).set(
+      { pawapayStatus: "FAILED", pawapayFailureReason: reason },
+      { merge: true }
+    );
+    return { status: "failed", message: reason };
+  }
+
+  return { status: "pending" };
+}
+
+/**
+ * Lance le prélèvement Mobile Money d'une commande déjà créée.
+ * data : { transactionId, phoneNumber, provider }
+ */
+exports.startPawapayPayment = onCall(
+  { secrets: [PAWAPAY_API_TOKEN] },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Connexion requise.");
+    if (pawapayIsSandbox()) {
+      // Mode test : aucun argent réel, réservé aux administrateurs.
+      await assertIsAdmin(uid);
+    }
+
+    const transactionId = request.data?.transactionId;
+    const provider = String(request.data?.provider || "");
+    const phoneNumber = pawapayPhone(request.data?.phoneNumber);
+    if (!isValidDocId(transactionId, 128)) {
+      throw new HttpsError("invalid-argument", "Paiement introuvable.");
+    }
+    if (!PAWAPAY_PROVIDERS_COD.has(provider)) {
+      throw new HttpsError("invalid-argument", "Opérateur Mobile Money non pris en charge.");
+    }
+    if (!phoneNumber) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Numéro Mobile Money invalide (format RDC : 243 suivi de 9 chiffres)."
+      );
+    }
+
+    const intentRef = db.collection("paymentIntents").doc(transactionId);
+    const intentSnap = await intentRef.get();
+    if (!intentSnap.exists) throw new HttpsError("not-found", "Paiement introuvable.");
+    const intent = intentSnap.data();
+    if (intent.userId !== uid) {
+      throw new HttpsError("permission-denied", "Ce paiement ne vous appartient pas.");
+    }
+    if (intent.type !== "order" || !intent.orderId) {
+      throw new HttpsError("failed-precondition", "Seules les commandes se paient ainsi.");
+    }
+    if (intent.status === "paid" || intent.status === "failed") {
+      throw new HttpsError("failed-precondition", "Ce paiement est déjà réglé.");
+    }
+
+    const currency = pawapayCurrency(intent.currency);
+    if (!currency) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Le paiement Mobile Money n'est disponible qu'en FC ou en USD."
+      );
+    }
+
+    // Montant revérifié côté serveur à partir des prix RÉELS des annonces.
+    const orderSnap = await db.collection("orders").doc(intent.orderId).get();
+    if (!orderSnap.exists || orderSnap.data().buyerId !== uid) {
+      throw new HttpsError("not-found", "Commande introuvable.");
+    }
+    const items = await verifiedItemTotals(orderSnap.data().items, (ref) => ref.get());
+    if (items.length === 0 || items.some((item) => item.verifiedTotal === null)) {
+      throw new HttpsError("failed-precondition", "Un article n'est plus disponible.");
+    }
+    const verifiedTotal = items.reduce((sum, item) => sum + item.verifiedTotal, 0);
+    if (Math.abs(verifiedTotal - Number(intent.amount)) > 1) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Le prix d'un article a changé : recommencez votre commande."
+      );
+    }
+    const amount = pawapayAmount(verifiedTotal, currency);
+    if (!amount) throw new HttpsError("failed-precondition", "Montant invalide.");
+
+    const depositId = randomUUID();
+    // Lien enregistré AVANT l'appel : même sans réponse (coupure réseau),
+    // le dépôt reste rapprochable par son identifiant.
+    await db.collection("pawapayDeposits").doc(depositId).set({
+      depositId,
+      transactionId,
+      orderId: intent.orderId,
+      userId: uid,
+      provider,
+      amount: Number(amount),
+      currency,
+      status: "INITIATED",
+      sandbox: pawapayIsSandbox(),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    await intentRef.set(
+      {
+        pawapayDepositId: depositId,
+        pawapayStatus: "INITIATED",
+        pawapayProvider: provider,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const { httpStatus, data } = await pawapayRequest("POST", "/v2/deposits", {
+      depositId,
+      amount,
+      currency,
+      payer: {
+        type: "MMO",
+        accountDetails: { phoneNumber, provider },
+      },
+      customerMessage: "Achat Occasion",
+      clientReferenceId: intent.orderId,
+      metadata: [{ orderId: intent.orderId }],
+    });
+
+    const accepted = httpStatus < 400 && data && String(data.status).toUpperCase() === "ACCEPTED";
+    if (!accepted) {
+      const reason =
+        data?.failureReason?.failureMessage ||
+        data?.failureReason?.failureCode ||
+        "Paiement refusé par l'opérateur.";
+      await db.collection("pawapayDeposits").doc(depositId).set(
+        { status: "REJECTED", failureReason: reason },
+        { merge: true }
+      );
+      await intentRef.set({ pawapayStatus: "REJECTED" }, { merge: true });
+      console.error("pawaPay : dépôt refusé", httpStatus, JSON.stringify(data));
+      throw new HttpsError("failed-precondition", reason);
+    }
+
+    await db.collection("pawapayDeposits").doc(depositId).set(
+      { status: "ACCEPTED" },
+      { merge: true }
+    );
+    await intentRef.set({ pawapayStatus: "ACCEPTED" }, { merge: true });
+    return { depositId, status: "pending" };
+  }
+);
+
+/** Interrogation par l'app (repli si le callback tarde). data : { transactionId } */
+exports.checkPawapayPayment = onCall(
+  { secrets: [PAWAPAY_API_TOKEN] },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Connexion requise.");
+    const transactionId = request.data?.transactionId;
+    if (!isValidDocId(transactionId, 128)) {
+      throw new HttpsError("invalid-argument", "Paiement introuvable.");
+    }
+    const intentSnap = await db.collection("paymentIntents").doc(transactionId).get();
+    if (!intentSnap.exists || intentSnap.data().userId !== uid) {
+      throw new HttpsError("not-found", "Paiement introuvable.");
+    }
+    const intent = intentSnap.data();
+    if (intent.status === "paid") return { status: "paid" };
+    if (!intent.pawapayDepositId) return { status: "pending" };
+    return reconcilePawapayDeposit(intent.pawapayDepositId);
+  }
+);
+
+/**
+ * Callback pawaPay (dépôts, versements, remboursements — même URL).
+ * Le contenu reçu sert uniquement à identifier le dépôt : son statut est
+ * toujours relu auprès de l'API. Répond 200 pour que pawaPay ne réessaie
+ * pas indéfiniment (sauf erreur interne).
+ */
+exports.pawapayCallback = onRequest(
+  { secrets: [PAWAPAY_API_TOKEN] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("Method Not Allowed");
+      return;
+    }
+    const body = req.body || {};
+    const depositId = typeof body.depositId === "string" ? body.depositId : null;
+    try {
+      if (depositId && /^[0-9a-fA-F-]{36}$/.test(depositId)) {
+        await reconcilePawapayDeposit(depositId);
+      }
+      // Versements / remboursements : pris en charge dans une étape suivante.
+      res.status(200).send("OK");
+    } catch (error) {
+      console.error("pawapayCallback", error);
+      res.status(500).send("Erreur");
+    }
+  }
+);
+
 exports._testables = {
+  pawapayPhone,
+  pawapayAmount,
+  pawapayCurrency,
   claimPushSlot,
   applyPushResult,
   upsertNotificationContent,
