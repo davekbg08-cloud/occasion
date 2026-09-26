@@ -160,9 +160,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       countryIso: 'CD',
     );
     if (!phoneValidation.isValid) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(phoneValidation.message)),
-      );
+      messenger.showSnackBar(SnackBar(content: Text(phoneValidation.message)));
       return;
     }
 
@@ -272,10 +270,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         });
         final status = response.data['status'] as String? ?? 'pending';
         if (status == 'paid' || status == 'failed') {
-          return (
-            status: status,
-            message: response.data['message'] as String?,
-          );
+          return (status: status, message: response.data['message'] as String?);
         }
       } catch (_) {
         // Réseau instable : on réessaie au tour suivant.
@@ -602,146 +597,143 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
   List<Widget> _buildManualSection(double totalAmount, String cartCurrency) {
     return [
-            const SizedBox(height: 20),
-            Card(
-              color: Colors.grey[900],
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+      const SizedBox(height: 20),
+      Card(
+        color: Colors.grey[900],
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Comment payer',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '1. Envoie ${totalAmount.toInt()} $cartCurrency via Orange Money au '
+                'numéro ci-dessous.\n'
+                '2. Colle la référence de transaction reçue par SMS.\n'
+                '3. Ta commande sera confirmée après vérification '
+                '(généralement rapide, pas instantané).',
+                style: TextStyle(color: Colors.grey[400], height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Depuis l'étranger : utilise l'app Orange Money "
+                "internationale (ou un partenaire de transfert Orange "
+                "Money) pour envoyer directement sur ce numéro RDC.",
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Comment payer',
-                      style: TextStyle(
+                    Text(
+                      PaymentConfig.manualOrangeMoneyNumber,
+                      style: const TextStyle(
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        color: Colors.orange,
                       ),
                     ),
-                    const SizedBox(height: 8),
                     Text(
-                      '1. Envoie ${totalAmount.toInt()} $cartCurrency via Orange Money au '
-                      'numéro ci-dessous.\n'
-                      '2. Colle la référence de transaction reçue par SMS.\n'
-                      '3. Ta commande sera confirmée après vérification '
-                      '(généralement rapide, pas instantané).',
-                      style: TextStyle(color: Colors.grey[400], height: 1.4),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Depuis l'étranger : utilise l'app Orange Money "
-                      "internationale (ou un partenaire de transfert Orange "
-                      "Money) pour envoyer directement sur ce numéro RDC.",
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            PaymentConfig.manualOrangeMoneyNumber,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange,
-                            ),
-                          ),
-                          Text(
-                            PaymentConfig.manualOrangeMoneyHolderName,
-                            style: TextStyle(color: Colors.grey[400]),
-                          ),
-                        ],
-                      ),
+                      PaymentConfig.manualOrangeMoneyHolderName,
+                      style: TextStyle(color: Colors.grey[400]),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Numéro de téléphone',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: phoneCountryIso,
-              decoration: const InputDecoration(
-                labelText: 'Pays du numéro',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.public_outlined),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+      const Text(
+        'Numéro de téléphone',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+      const SizedBox(height: 8),
+      DropdownButtonFormField<String>(
+        initialValue: phoneCountryIso,
+        decoration: const InputDecoration(
+          labelText: 'Pays du numéro',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.public_outlined),
+        ),
+        items: PhoneNumberValidator.mobileMoneyCountries
+            .map(
+              (country) => DropdownMenuItem(
+                value: country.isoCode,
+                child: Text('${country.name} (${country.dialCode})'),
               ),
-              items: PhoneNumberValidator.mobileMoneyCountries
-                  .map(
-                    (country) => DropdownMenuItem(
-                      value: country.isoCode,
-                      child: Text('${country.name} (${country.dialCode})'),
-                    ),
-                  )
-                  .toList(),
-              onChanged: isProcessing
-                  ? null
-                  : (value) => setState(
-                      () => phoneCountryIso =
-                          value ?? PhoneNumberValidator.defaultCountryIso,
-                    ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              enabled: !isProcessing,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                hintText: '+243 8xx xxx xxx',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
+            )
+            .toList(),
+        onChanged: isProcessing
+            ? null
+            : (value) => setState(
+                () => phoneCountryIso =
+                    value ?? PhoneNumberValidator.defaultCountryIso,
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: referenceController,
-              enabled: !isProcessing,
-              decoration: const InputDecoration(
-                labelText: 'Référence de transaction (SMS Orange Money)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.receipt_long_outlined),
-              ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: FilledButton(
-                onPressed: isProcessing ? null : _submit,
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: phoneController,
+        enabled: !isProcessing,
+        keyboardType: TextInputType.phone,
+        decoration: const InputDecoration(
+          hintText: '+243 8xx xxx xxx',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.phone),
+        ),
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: referenceController,
+        enabled: !isProcessing,
+        decoration: const InputDecoration(
+          labelText: 'Référence de transaction (SMS Orange Money)',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.receipt_long_outlined),
+        ),
+      ),
+      const SizedBox(height: 32),
+      SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: FilledButton(
+          onPressed: isProcessing ? null : _submit,
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+          ),
+          child: isProcessing
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.5,
+                  ),
+                )
+              : const Text(
+                  "J'AI ENVOYÉ L'ARGENT",
+                  style: TextStyle(fontSize: 18),
                 ),
-                child: isProcessing
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                        ),
-                      )
-                    : const Text(
-                        "J'AI ENVOYÉ L'ARGENT",
-                        style: TextStyle(fontSize: 18),
-                      ),
-              ),
-            ),
+        ),
+      ),
     ];
   }
 }
