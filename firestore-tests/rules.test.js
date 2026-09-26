@@ -1504,6 +1504,80 @@ test("statusViews : chacun peut marquer et lire ses propres statuts vus, jamais 
   );
 });
 
+test("payoutAccounts : le vendeur gère son propre numéro de reversement, jamais celui d'un autre", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("admins").doc("admin1").set({});
+  });
+  const seller1 = testEnv.authenticatedContext("seller1").firestore();
+  const seller2 = testEnv.authenticatedContext("seller2").firestore();
+  const admin1 = testEnv.authenticatedContext("admin1").firestore();
+
+  await assertSucceeds(
+    seller1.collection("payoutAccounts").doc("seller1").set({
+      provider: "AIRTEL_COD",
+      phoneNumber: "0991234567",
+      holderName: "Vendeur Un",
+      updatedAt: new Date(),
+    })
+  );
+  // Un fournisseur en dehors de la liste blanche ne doit jamais passer —
+  // sans ça un client pourrait enregistrer un provider inventé que le
+  // serveur pawaPay rejetterait silencieusement au moment du reversement.
+  await assertFails(
+    seller1.collection("payoutAccounts").doc("seller1").set({
+      provider: "BITCOIN",
+      phoneNumber: "0991234567",
+      holderName: "Vendeur Un",
+      updatedAt: new Date(),
+    })
+  );
+  // Champ non prévu (ex. un solde ou un statut que le serveur seul doit
+  // gérer) : refusé même s'il accompagne des champs par ailleurs valides.
+  await assertFails(
+    seller1.collection("payoutAccounts").doc("seller1").set({
+      provider: "AIRTEL_COD",
+      phoneNumber: "0991234567",
+      holderName: "Vendeur Un",
+      updatedAt: new Date(),
+      balance: 999999,
+    })
+  );
+  await assertFails(
+    seller2.collection("payoutAccounts").doc("seller1").set({
+      provider: "AIRTEL_COD",
+      phoneNumber: "0999999999",
+      holderName: "Usurpateur",
+      updatedAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    seller1.collection("payoutAccounts").doc("seller1").get()
+  );
+  await assertFails(seller2.collection("payoutAccounts").doc("seller1").get());
+  await assertSucceeds(
+    admin1.collection("payoutAccounts").doc("seller1").get()
+  );
+});
+
+test("pawapayPayouts : entièrement fermé côté client, y compris pour un administrateur (exclusivement serveur)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("pawapayPayouts").doc("payout1").set({
+      orderId: "order1",
+      sellerId: "seller1",
+      amount: 9600,
+      status: "ACCEPTED",
+    });
+    await ctx.firestore().collection("admins").doc("admin2").set({});
+  });
+  const admin2 = testEnv.authenticatedContext("admin2").firestore();
+  const seller1 = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(admin2.collection("pawapayPayouts").doc("payout1").get());
+  await assertFails(seller1.collection("pawapayPayouts").doc("payout1").get());
+  await assertFails(
+    admin2.collection("pawapayPayouts").doc("payout1").update({ status: "COMPLETED" })
+  );
+});
+
 test("reviews : illisible et inéditable directement par un client, même le propriétaire de l'avis", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("reviews").doc("order1_seller1_buyer_to_seller").set({

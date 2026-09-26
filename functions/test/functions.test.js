@@ -2420,3 +2420,175 @@ test("androidChannelIdForType : les autres types ne sont jamais affectés par l'
   assert.equal(functions.androidChannelIdForType("price_drop"), "occasion_general");
   assert.equal(functions.androidChannelIdForType("gift"), "occasion_general");
 });
+
+test("sellerPayoutAmount : commission Occasion 4 %, arrondi entier en CDF, 2 décimales en USD, rejette les montants invalides", () => {
+  const { sellerPayoutAmount } = functions._testables;
+  assert.equal(sellerPayoutAmount(10000, "CDF"), 9600);
+  assert.equal(sellerPayoutAmount(10, "USD"), 9.6);
+  assert.equal(sellerPayoutAmount(0, "CDF"), null);
+  assert.equal(sellerPayoutAmount(-5, "USD"), null);
+  assert.equal(sellerPayoutAmount(NaN, "CDF"), null);
+});
+
+test("startPawapayPayout : refuse un appelant non connecté", async () => {
+  await assert.rejects(
+    () => functions.startPawapayPayout.run({ data: { orderId: "order1" }, auth: null }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+});
+
+test("startPawapayPayout : refuse un appelant non administrateur", async () => {
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("startPawapayPayout : refuse une commande introuvable", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "commande-inexistante" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "not-found");
+      return true;
+    }
+  );
+});
+
+test("startPawapayPayout : refuse une commande pas encore reçue par l'acheteur", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("orders").doc("order-pas-complete").set({ status: "paid", items: [] });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order-pas-complete" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
+test("régression : startPawapayPayout refuse un reversement déjà en cours (pas de double envoi si l'admin déclenche deux fois)", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("orders").doc("order-en-cours").set({
+    status: "completed",
+    payoutStatus: "processing",
+    items: [],
+  });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order-en-cours" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
+test("startPawapayPayout : refuse une commande non payée via pawaPay (aucune transaction correspondante)", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("orders").doc("order-pas-pawapay").set({ status: "completed", items: [] });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order-pas-pawapay" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
+test("régression : startPawapayPayout refuse une commande à plusieurs vendeurs (reversement manuel requis, jamais reversé au mauvais vendeur)", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("annonces").doc("annonce-a").set({ sellerId: "sellerA", price: 5000 });
+  await db.collection("annonces").doc("annonce-b").set({ sellerId: "sellerB", price: 5000 });
+  await db.collection("transactions").doc("tx-multi").set({
+    status: "paid",
+    pawapayDepositId: "dep-multi",
+    amount: 10000,
+    currency: "FC",
+  });
+  await db.collection("orders").doc("order-multi").set({
+    status: "completed",
+    transactionId: "tx-multi",
+    items: [
+      { sellerId: "sellerA", productId: "annonce-a", quantity: 1, totalPrice: 5000 },
+      { sellerId: "sellerB", productId: "annonce-b", quantity: 1, totalPrice: 5000 },
+    ],
+  });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order-multi" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
+test("régression : startPawapayPayout refuse tant que le vendeur n'a pas enregistré de numéro de reversement", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("annonces").doc("annonce-c").set({ sellerId: "sellerC", price: 10000 });
+  await db.collection("transactions").doc("tx-c").set({
+    status: "paid",
+    pawapayDepositId: "dep-c",
+    amount: 10000,
+    currency: "FC",
+  });
+  await db.collection("orders").doc("order-c").set({
+    status: "completed",
+    transactionId: "tx-c",
+    items: [{ sellerId: "sellerC", productId: "annonce-c", quantity: 1, totalPrice: 10000 }],
+  });
+  await assert.rejects(
+    () =>
+      functions.startPawapayPayout.run({
+        data: { orderId: "order-c" },
+        auth: { uid: "admin1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "failed-precondition");
+      return true;
+    }
+  );
+});
+
+test("checkPawapayPayout : refuse un appelant non administrateur", async () => {
+  await assert.rejects(
+    () =>
+      functions.checkPawapayPayout.run({
+        data: { orderId: "order1" },
+        auth: { uid: "buyer1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
