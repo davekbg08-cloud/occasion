@@ -7,6 +7,7 @@ import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/payment_config.dart';
+import '../utils/currencies.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -24,7 +25,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     {
       'id': 'seller_monthly',
       'name': 'Vendeur Mensuel',
-      'price': 20000,
+      'price': 10,
+      'currency': 'USD',
       'duration': '1 mois',
       'benefit': 'Publication des annonces',
     },
@@ -399,7 +401,10 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         ),
         subtitle: Text("${plan['duration']} - ${plan['benefit']}"),
         trailing: Text(
-          "${plan['price']} FC",
+          formatPrice(
+            plan['price'] as num,
+            plan['currency'] as String? ?? 'USD',
+          ),
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,

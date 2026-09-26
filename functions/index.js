@@ -1537,7 +1537,12 @@ exports.deleteStatus = onCall(async (request) => {
  * Doit rester synchronisé avec `plans` dans `lib/screens/subscription_screen.dart`.
  */
 const SUBSCRIPTION_PLANS = {
-  seller_monthly: { name: "Vendeur Mensuel", amount: 20000, durationDays: 30 },
+  seller_monthly: {
+    name: "Vendeur Mensuel",
+    amount: 10,
+    currency: "USD",
+    durationDays: 30,
+  },
 };
 
 /**
@@ -1714,7 +1719,9 @@ async function applySettlement({
           amount: subscriptionPlan
             ? subscriptionPlan.amount
             : (recomputedOrderTotal ?? intent.amount),
-          currency: intent.currency ?? "FC",
+          currency: subscriptionPlan
+            ? subscriptionPlan.currency
+            : (intent.currency ?? "FC"),
           paymentMethod,
           paymentReference: intent.manualPaymentReference ?? null,
           status: isPaid ? "paid" : "failed",
@@ -1757,6 +1764,7 @@ async function applySettlement({
             planId: intent.planId,
             planName: subscriptionPlan.name,
             price: subscriptionPlan.amount,
+            currency: subscriptionPlan.currency,
             startDate,
             expiryDate,
             isActive: true,
