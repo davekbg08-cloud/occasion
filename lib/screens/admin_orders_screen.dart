@@ -14,7 +14,7 @@ class AdminOrdersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
@@ -22,21 +22,23 @@ class AdminOrdersScreen extends StatelessWidget {
             onPressed: () =>
                 context.canPop() ? context.pop() : context.go('/profile'),
           ),
-          title: Text(tr('Administration paiements')),
-          bottom: const TabBar(
+          title: Text(tr('Paiements et reversements')),
+          bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: 'À vérifier'),
-              Tab(text: 'À reverser'),
-              Tab(text: 'Litiges'),
+              Tab(text: tr('À reverser')),
+              Tab(text: tr('Paiements manuels')),
+              Tab(text: tr('Litiges')),
+              Tab(text: tr('Historique')),
             ],
           ),
         ),
         body: const TabBarView(
           children: [
-            _PendingVerificationTab(),
             _ReadyForPayoutTab(),
+            _PendingVerificationTab(),
             _DisputesTab(),
+            _PayoutHistoryTab(),
           ],
         ),
       ),
@@ -647,6 +649,127 @@ class _DisputesTabState extends State<_DisputesTab> {
           },
         );
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
+// Onglet 4 : historique des reversements et commissions gagnées.
+// ---------------------------------------------------------------------
+class _PayoutHistoryTab extends StatefulWidget {
+  const _PayoutHistoryTab();
+
+  @override
+  State<_PayoutHistoryTab> createState() => _PayoutHistoryTabState();
+}
+
+class _PayoutHistoryTabState extends State<_PayoutHistoryTab> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
+        .collection('orders')
+        .where('status', isEqualTo: 'payout_sent')
+        .orderBy('payoutSentAt', descending: true)
+        .limit(100)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text(tr('Accès refusé ou erreur.')));
+        }
+        final docs = snapshot.data?.docs ?? const [];
+        if (docs.isEmpty) {
+          return Center(child: Text(tr('Aucun reversement pour le moment.')));
+        }
+
+        // Commissions gagnées, par devise (reversements pawaPay).
+        final commissions = <String, double>{};
+        for (final doc in docs) {
+          final data = doc.data();
+          final commission = (data['payoutCommission'] as num?)?.toDouble();
+          if (commission == null) continue;
+          final currency = data['currency'] as String? ?? 'FC';
+          commissions[currency] = (commissions[currency] ?? 0) + commission;
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr('Commissions gagnées (4 %)'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    if (commissions.isEmpty)
+                      Text(tr('Aucune commission pawaPay pour le moment.'))
+                    else
+                      for (final entry in commissions.entries)
+                        Text(
+                          formatPrice(entry.value, entry.key),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${docs.length} ${tr('ventes reversées')}',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final doc in docs) _historyTile(doc.data()),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _historyTile(Map<String, dynamic> data) {
+    final total = (data['total'] as num?)?.toDouble() ?? 0;
+    final currency = data['currency'] as String? ?? 'FC';
+    final paidOut = (data['payoutAmount'] as num?)?.toDouble();
+    final commission = (data['payoutCommission'] as num?)?.toDouble();
+    final method = data['payoutMethod'] as String? ?? tr('Manuel');
+    final buyerName = data['buyerName'] as String? ?? '';
+    final date = data['payoutSentAt'];
+    final dateText = date is Timestamp
+        ? DateFormat('dd/MM/yyyy HH:mm').format(date.toDate())
+        : '';
+    return Card(
+      child: ListTile(
+        title: Text('${formatPrice(total, currency)} · $buyerName'),
+        subtitle: Text(
+          [
+            method,
+            if (paidOut != null)
+              '${tr('versé')} ${formatPrice(paidOut, currency)}',
+            if (commission != null)
+              '${tr('commission')} ${formatPrice(commission, currency)}',
+            dateText,
+          ].where((part) => part.isNotEmpty).join(' · '),
+        ),
+      ),
     );
   }
 }

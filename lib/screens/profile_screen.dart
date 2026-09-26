@@ -335,7 +335,7 @@ class _AdminSection extends StatelessWidget {
           children: [
             _ProfileTile(
               icon: Icons.verified_user_outlined,
-              title: tr('Paiements Orange Money à vérifier'),
+              title: tr('Paiements et reversements'),
               onTap: () => context.push('/admin/orders'),
             ),
             _ProfileTile(
