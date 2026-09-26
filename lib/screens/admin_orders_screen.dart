@@ -281,6 +281,72 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
         .snapshots();
   }
 
+  /// Reversement automatique via pawaPay (commission 4 % retenue par le
+  /// serveur), puis interrogation du statut pendant une minute environ.
+  Future<void> _payoutWithPawapay(String orderId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _processing.add(orderId));
+    try {
+      final functions = FirebaseFunctions.instance;
+      final result = await functions
+          .httpsCallable('startPawapayPayout')
+          .call<Map<String, dynamic>>({'orderId': orderId});
+      final amount = (result.data['amount'] as num?)?.toDouble() ?? 0;
+      final currency = result.data['currency'] as String? ?? 'USD';
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${tr('Reversement envoyé')} : ${formatPrice(amount, currency == 'CDF' ? 'FC' : currency)}',
+          ),
+        ),
+      );
+      for (var attempt = 0; attempt < 12; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 5));
+        if (!mounted) return;
+        final check = await functions
+            .httpsCallable('checkPawapayPayout')
+            .call<Map<String, dynamic>>({'orderId': orderId});
+        final status = check.data['status'] as String? ?? 'processing';
+        if (status == 'sent') {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(tr('Vendeur payé.')),
+              backgroundColor: Colors.green,
+            ),
+          );
+          return;
+        }
+        if (status == 'failed') {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                check.data['message'] as String? ?? tr('Reversement échoué.'),
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+    } on FirebaseFunctionsException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(error.message ?? tr('Échec. Réessaie.')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(tr('Échec. Réessaie.')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _processing.remove(orderId));
+    }
+  }
+
   Future<void> _markPaidOut(String orderId) async {
     setState(() => _processing.add(orderId));
     try {
@@ -336,8 +402,13 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
             final total = (data['total'] as num?)?.toDouble() ?? 0;
             final orderCurrency = data['currency'] as String? ?? 'FC';
             final buyerName = data['buyerName'] as String? ?? 'Acheteur';
-            final sellerIds = (data['sellerIds'] as List<dynamic>? ?? const [])
-                .join(', ');
+            final sellerIdList =
+                (data['sellerIds'] as List<dynamic>? ?? const [])
+                    .whereType<String>()
+                    .toList();
+            final sellerIds = sellerIdList.join(', ');
+            final payoutStatus = data['payoutStatus'] as String?;
+            final payoutFailure = data['payoutFailureReason'] as String?;
 
             return Card(
               child: Padding(
@@ -354,10 +425,39 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
                       'Vendeur(s) : $sellerIds',
                       style: TextStyle(color: Colors.grey[500], fontSize: 12),
                     ),
+                    if (sellerIdList.length == 1)
+                      _PayoutAccountLine(sellerId: sellerIdList.first),
+                    if (payoutStatus == 'processing') ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        tr('Reversement pawaPay en cours…'),
+                        style: const TextStyle(color: Colors.orange),
+                      ),
+                    ],
+                    if (payoutStatus == 'failed' && payoutFailure != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '${tr('Reversement échoué')} : $payoutFailure',
+                        style: const TextStyle(color: Colors.redAccent),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      child: FilledButton(
+                      child: FilledButton.icon(
+                        onPressed: isBusy || payoutStatus == 'processing'
+                            ? null
+                            : () => _payoutWithPawapay(orderId),
+                        icon: const Icon(Icons.bolt),
+                        label: Text(
+                          '${tr('Reverser via pawaPay')} (${formatPrice(total * 0.96, orderCurrency)}, −4 %)',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
                         onPressed: isBusy ? null : () => _markPaidOut(orderId),
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.green,
@@ -371,7 +471,7 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(tr("J'ai envoyé l'argent au vendeur")),
+                            : Text(tr("Déjà payé à la main")),
                       ),
                     ),
                   ],
@@ -379,6 +479,39 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
               ),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+/// Numéro de reversement enregistré par le vendeur (lecture admin).
+class _PayoutAccountLine extends StatelessWidget {
+  const _PayoutAccountLine({required this.sellerId});
+
+  final String sellerId;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('payoutAccounts')
+          .doc(sellerId)
+          .get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final text = data == null
+            ? tr('Aucun numéro de reversement enregistré')
+            : '${data['holderName'] ?? ''} · +${data['phoneNumber'] ?? ''}';
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: data == null ? Colors.orange : Colors.grey[400],
+            ),
+          ),
         );
       },
     );

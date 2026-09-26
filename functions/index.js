@@ -3238,7 +3238,255 @@ exports.reconcilePawapayDeposits = onSchedule(
   }
 );
 
+// ─────────────────────────────────────────────────────────────────────────
+// pawaPay : reversement automatique au vendeur (commission Occasion 4 %)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Une commande payée par pawaPay puis confirmée « reçue » par l'acheteur
+// (statut `completed`) peut être reversée par un administrateur : le
+// serveur retrouve le montant RÉELLEMENT encaissé (`transactions`), retient
+// la commission, et envoie le reste sur le Mobile Money enregistré par le
+// vendeur (`payoutAccounts/{sellerId}`). La commande passe à `payout_sent`
+// quand pawaPay confirme (interrogation ou rapprochement planifié).
+
+const OCCASION_COMMISSION_RATE = 0.04;
+
+/** Part du vendeur après commission, arrondie selon la devise. */
+function sellerPayoutAmount(amount, currency) {
+  const net = Number(amount) * (1 - OCCASION_COMMISSION_RATE);
+  if (!Number.isFinite(net) || net <= 0) return null;
+  return currency === "CDF"
+    ? Math.floor(net)
+    : Math.floor(net * 100) / 100;
+}
+
+exports.startPawapayPayout = onCall(
+  { secrets: [PAWAPAY_API_TOKEN] },
+  async (request) => {
+    try {
+      return await startPawapayPayoutImpl(request);
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      console.error("startPawapayPayout", error);
+      throw new HttpsError(
+        "internal",
+        `Reversement impossible : ${error?.message || error}`
+      );
+    }
+  }
+);
+
+async function startPawapayPayoutImpl(request) {
+  const uid = request.auth?.uid;
+  await assertIsAdmin(uid);
+  const orderId = request.data?.orderId;
+  if (!isValidDocId(orderId, 128)) {
+    throw new HttpsError("invalid-argument", "Commande introuvable.");
+  }
+
+  const orderRef = db.collection("orders").doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) throw new HttpsError("not-found", "Commande introuvable.");
+  const order = orderSnap.data();
+  if (order.status !== "completed") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Seule une commande reçue par l'acheteur peut être reversée."
+    );
+  }
+  if (order.payoutStatus === "processing") {
+    throw new HttpsError("failed-precondition", "Un reversement est déjà en cours.");
+  }
+
+  // Montant réellement encaissé via pawaPay (jamais le total déclaré).
+  const transactionId = order.transactionId;
+  const txSnap = transactionId
+    ? await db.collection("transactions").doc(transactionId).get()
+    : null;
+  const tx = txSnap?.exists ? txSnap.data() : null;
+  if (!tx || tx.status !== "paid" || !tx.pawapayDepositId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Commande non payée via pawaPay : reverse-la manuellement."
+    );
+  }
+
+  // Vendeur réel : propriétaire vérifié des annonces (un seul vendeur).
+  const items = await verifiedItemTotals(order.items, (ref) => ref.get());
+  const sellers = [...new Set(items.map((item) => item.verifiedSellerId).filter(Boolean))];
+  if (sellers.length !== 1) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Commande à plusieurs vendeurs : reverse-la manuellement."
+    );
+  }
+  const sellerId = sellers[0];
+
+  const accountSnap = await db.collection("payoutAccounts").doc(sellerId).get();
+  const account = accountSnap.exists ? accountSnap.data() : null;
+  const phoneNumber = pawapayPhone(account?.phoneNumber);
+  if (!account || !phoneNumber || !PAWAPAY_PROVIDERS_COD.has(account.provider)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Le vendeur n'a pas encore enregistré de numéro de reversement."
+    );
+  }
+
+  const currency = pawapayCurrency(tx.currency);
+  const net = currency ? sellerPayoutAmount(tx.amount, currency) : null;
+  if (!currency || !net) {
+    throw new HttpsError("failed-precondition", "Montant ou devise invalide.");
+  }
+  const amount = pawapayAmount(net, currency);
+  const commission = Math.round((Number(tx.amount) - net) * 100) / 100;
+
+  const payoutId = randomUUID();
+  const payoutRef = db.collection("pawapayPayouts").doc(payoutId);
+  await payoutRef.set({
+    payoutId,
+    orderId,
+    sellerId,
+    provider: account.provider,
+    phoneNumber,
+    grossAmount: Number(tx.amount),
+    commission,
+    commissionRate: OCCASION_COMMISSION_RATE,
+    amount: Number(amount),
+    currency,
+    status: "INITIATED",
+    requestedBy: uid,
+    sandbox: pawapayIsSandbox(),
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await orderRef.set(
+    {
+      payoutStatus: "processing",
+      pawapayPayoutId: payoutId,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  const { httpStatus, data } = await pawapayRequest("POST", "/v2/payouts", {
+    payoutId,
+    amount,
+    currency,
+    recipient: {
+      type: "MMO",
+      accountDetails: { phoneNumber, provider: account.provider },
+    },
+    customerMessage: "Vente Occasion",
+    clientReferenceId: orderId,
+    metadata: [{ orderId }],
+  });
+  const accepted = httpStatus < 400 && data && String(data.status).toUpperCase() === "ACCEPTED";
+  if (!accepted) {
+    const reason =
+      data?.failureReason?.failureMessage ||
+      data?.failureReason?.failureCode ||
+      "Reversement refusé par pawaPay.";
+    await payoutRef.set({ status: "REJECTED", failureReason: reason }, { merge: true });
+    await orderRef.set(
+      { payoutStatus: "failed", payoutFailureReason: reason },
+      { merge: true }
+    );
+    console.error("pawaPay : reversement refusé", httpStatus, JSON.stringify(data));
+    throw new HttpsError("failed-precondition", reason);
+  }
+  await payoutRef.set({ status: "ACCEPTED" }, { merge: true });
+  return { payoutId, status: "processing", amount: Number(amount), currency, commission };
+}
+
+/** Applique le statut final d'un reversement pawaPay à la commande. */
+async function reconcilePawapayPayout(payoutId) {
+  const payoutRef = db.collection("pawapayPayouts").doc(payoutId);
+  const payoutSnap = await payoutRef.get();
+  if (!payoutSnap.exists) return { status: "unknown" };
+  const payout = payoutSnap.data();
+
+  const { httpStatus, data } = await pawapayRequest(
+    "GET",
+    `/v2/payouts/${encodeURIComponent(payoutId)}`
+  );
+  if (httpStatus >= 400 || !data) return { status: "processing" };
+  const remote = data.data && typeof data.data === "object" ? data.data : data;
+  const status = String(remote?.status || "").toUpperCase();
+  const orderRef = db.collection("orders").doc(payout.orderId);
+
+  if (status === "COMPLETED") {
+    await payoutRef.set(
+      { status: "COMPLETED", checkedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await orderRef.set(
+      {
+        status: "payout_sent",
+        payoutStatus: "sent",
+        payoutMethod: `pawaPay (${payout.provider})`,
+        payoutAmount: payout.amount,
+        payoutCommission: payout.commission,
+        payoutSentAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return { status: "sent" };
+  }
+  if (status === "FAILED" || status === "REJECTED") {
+    const reason =
+      remote?.failureReason?.failureMessage ||
+      remote?.failureReason?.failureCode ||
+      "Reversement échoué.";
+    await payoutRef.set(
+      { status: "FAILED", failureReason: reason, checkedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await orderRef.set(
+      { payoutStatus: "failed", payoutFailureReason: reason },
+      { merge: true }
+    );
+    return { status: "failed", message: reason };
+  }
+  return { status: "processing" };
+}
+
+exports.checkPawapayPayout = onCall(
+  { secrets: [PAWAPAY_API_TOKEN] },
+  async (request) => {
+    await assertIsAdmin(request.auth?.uid);
+    const orderId = request.data?.orderId;
+    if (!isValidDocId(orderId, 128)) {
+      throw new HttpsError("invalid-argument", "Commande introuvable.");
+    }
+    const orderSnap = await db.collection("orders").doc(orderId).get();
+    const payoutId = orderSnap.data()?.pawapayPayoutId;
+    if (!payoutId) return { status: "none" };
+    return reconcilePawapayPayout(payoutId);
+  }
+);
+
+exports.reconcilePawapayPayouts = onSchedule(
+  { schedule: "every 10 minutes", secrets: [PAWAPAY_API_TOKEN] },
+  async () => {
+    const since = Timestamp.fromMillis(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const snapshot = await db
+      .collection("pawapayPayouts")
+      .where("status", "==", "ACCEPTED")
+      .where("createdAt", ">=", since)
+      .limit(100)
+      .get();
+    for (const doc of snapshot.docs) {
+      try {
+        await reconcilePawapayPayout(doc.id);
+      } catch (error) {
+        console.error("reconcilePawapayPayouts", doc.id, error);
+      }
+    }
+  }
+);
+
 exports._testables = {
+  sellerPayoutAmount,
   pawapayPhone,
   pawapayAmount,
   pawapayCurrency,

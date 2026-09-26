@@ -13,6 +13,7 @@ import 'package:go_router/go_router.dart';
 import 'annonce/screens/create_annonce_screen.dart';
 import 'l10n/app_language.dart';
 import 'screens/account_settings_screen.dart';
+import 'screens/payout_account_screen.dart';
 import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'models/annonce.dart';
@@ -109,6 +110,13 @@ class OccasionApp extends StatelessWidget {
         path: '/statuts',
         builder: (context, state) => _AuthGuard(
           child: StatusFeedScreen(initialSellerId: state.extra as String?),
+        ),
+      ),
+      GoRoute(
+        path: '/payout-account',
+        builder: (context, state) => const _RoleGuard(
+          role: UserRole.seller,
+          child: PayoutAccountScreen(),
         ),
       ),
       GoRoute(

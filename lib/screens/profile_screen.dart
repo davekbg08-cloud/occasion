@@ -425,6 +425,11 @@ class _SellerSections extends StatelessWidget {
               onTap: () => context.push('/subscription'),
             ),
             _ProfileTile(
+              icon: Icons.account_balance_wallet_outlined,
+              title: tr('Numéro de reversement'),
+              onTap: () => context.push('/payout-account'),
+            ),
+            _ProfileTile(
               icon: Icons.storefront_outlined,
               title: tr('Voir ma page vendeur'),
               onTap: () => context.push('/seller/$userId'),
