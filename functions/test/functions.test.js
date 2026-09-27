@@ -2669,3 +2669,157 @@ test("régression : onNewStatus retire un statut vidéo publié au-delà du quot
   const snap = await db.collection("statuses").doc("video-en-trop").get();
   assert.equal(snap.exists, false, "le statut au-delà du quota doit être retiré");
 });
+
+test("r2KeyFromPublicUrl : ne reconnaît que les URL publiques du bucket R2 (jamais Firebase Storage ni un domaine tiers)", () => {
+  const { r2KeyFromPublicUrl, R2_PUBLIC_BASE_URL } = functions._testables;
+  assert.equal(
+    r2KeyFromPublicUrl(`${R2_PUBLIC_BASE_URL}/statuses/u1/1_abc.mp4`),
+    "statuses/u1/1_abc.mp4"
+  );
+  assert.equal(
+    r2KeyFromPublicUrl(
+      "https://firebasestorage.googleapis.com/v0/b/x/o/annonces%2Fu1%2Fstatuses%2F1.mp4?alt=media"
+    ),
+    null
+  );
+  assert.equal(r2KeyFromPublicUrl("https://pub-autre.r2.dev/statuses/u1/1.mp4"), null);
+  assert.equal(r2KeyFromPublicUrl(`${R2_PUBLIC_BASE_URL}/`), null);
+  assert.equal(r2KeyFromPublicUrl(undefined), null);
+});
+
+test("presignR2Put : taille et type signés (R2 refusera tout envoi différent), validité 10 min", async () => {
+  const { presignR2Put } = functions._testables;
+  const url = new URL(
+    await presignR2Put({
+      credentials: { accountId: "acct", accessKeyId: "AK", secretAccessKey: "SK" },
+      key: "statuses/u1/1_abc.mp4",
+      size: 1234,
+      contentType: "video/mp4",
+    })
+  );
+  assert.equal(url.host, "acct.r2.cloudflarestorage.com");
+  assert.equal(url.pathname, "/occasion-videos/statuses/u1/1_abc.mp4");
+  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "content-length;content-type;host");
+  assert.equal(url.searchParams.get("X-Amz-Expires"), "600");
+  assert.ok(url.searchParams.get("X-Amz-Signature"));
+});
+
+test("isActiveSubscription : actif et non expiré uniquement", () => {
+  const { isActiveSubscription } = functions._testables;
+  const now = Date.parse("2026-09-27T10:00:00Z");
+  const future = Timestamp.fromMillis(now + 86400000);
+  const past = Timestamp.fromMillis(now - 1);
+  assert.equal(isActiveSubscription({ isActive: true, expiryDate: future }, now), true);
+  assert.equal(isActiveSubscription({ isActive: true, expiryDate: past }, now), false);
+  assert.equal(isActiveSubscription({ isActive: false, expiryDate: future }, now), false);
+  assert.equal(isActiveSubscription(undefined, now), false);
+});
+
+async function seedR2Seller(uid, { subscribed = true } = {}) {
+  await db.collection("users").doc(uid).set({ role: "seller" });
+  if (subscribed) {
+    await db.collection("subscriptions").doc(uid).set({
+      isActive: true,
+      expiryDate: Timestamp.fromMillis(Date.now() + 86400000),
+    });
+  }
+}
+
+function expectHttpsError(code) {
+  return (err) => {
+    assert.equal(err.code, code);
+    return true;
+  };
+}
+
+test("createStatusVideoUpload : refuse un appelant non connecté", async () => {
+  await assert.rejects(
+    () => functions.createStatusVideoUpload.run({ data: { size: 1000 }, auth: null }),
+    expectHttpsError("unauthenticated")
+  );
+});
+
+test("createStatusVideoUpload : refuse une taille absente, nulle ou au-delà de 5 Mo", async () => {
+  await seedR2Seller("seller-r2-size");
+  for (const size of [undefined, 0, -1, 1.5, 5 * 1024 * 1024 + 1]) {
+    await assert.rejects(
+      () =>
+        functions.createStatusVideoUpload.run({
+          data: { size },
+          auth: { uid: "seller-r2-size" },
+        }),
+      expectHttpsError("invalid-argument")
+    );
+  }
+});
+
+test("createStatusVideoUpload : réservé aux vendeurs abonnés", async () => {
+  await db.collection("users").doc("buyer-r2").set({ role: "buyer" });
+  await assert.rejects(
+    () =>
+      functions.createStatusVideoUpload.run({ data: { size: 1000 }, auth: { uid: "buyer-r2" } }),
+    expectHttpsError("permission-denied")
+  );
+  await seedR2Seller("seller-r2-sans-abo", { subscribed: false });
+  await assert.rejects(
+    () =>
+      functions.createStatusVideoUpload.run({
+        data: { size: 1000 },
+        auth: { uid: "seller-r2-sans-abo" },
+      }),
+    expectHttpsError("failed-precondition")
+  );
+});
+
+test("createStatusVideoUpload : refuse d'emblée quand le quota vidéo du jour est atteint", async () => {
+  const { statusDayKey } = functions._testables;
+  await seedR2Seller("seller-r2-plein");
+  await db
+    .collection("statusDailyCounters")
+    .doc(`seller-r2-plein_${statusDayKey()}`)
+    .set({ sellerId: "seller-r2-plein", videoStatusIds: ["1", "2", "3", "4", "5"] });
+  await assert.rejects(
+    () =>
+      functions.createStatusVideoUpload.run({
+        data: { size: 1000 },
+        auth: { uid: "seller-r2-plein" },
+      }),
+    expectHttpsError("resource-exhausted")
+  );
+});
+
+test("createStatusVideoUpload : délivre une adresse présignée dans le dossier du vendeur et l'URL publique correspondante", async () => {
+  const { R2_PUBLIC_BASE_URL } = functions._testables;
+  const previous = {
+    id: process.env.R2_ACCOUNT_ID,
+    key: process.env.R2_ACCESS_KEY_ID,
+    secret: process.env.R2_SECRET_ACCESS_KEY,
+  };
+  process.env.R2_ACCOUNT_ID = "acct";
+  process.env.R2_ACCESS_KEY_ID = "AK";
+  process.env.R2_SECRET_ACCESS_KEY = "SK";
+  try {
+    await seedR2Seller("seller-r2-ok");
+    const result = await functions.createStatusVideoUpload.run({
+      data: { size: 4000000 },
+      auth: { uid: "seller-r2-ok" },
+    });
+    const upload = new URL(result.uploadUrl);
+    assert.ok(upload.pathname.startsWith("/occasion-videos/statuses/seller-r2-ok/"));
+    assert.ok(result.publicUrl.startsWith(`${R2_PUBLIC_BASE_URL}/statuses/seller-r2-ok/`));
+    assert.equal(
+      upload.pathname.replace("/occasion-videos/", ""),
+      result.publicUrl.replace(`${R2_PUBLIC_BASE_URL}/`, "")
+    );
+    assert.equal(result.contentType, "video/mp4");
+  } finally {
+    for (const [name, value] of [
+      ["R2_ACCOUNT_ID", previous.id],
+      ["R2_ACCESS_KEY_ID", previous.key],
+      ["R2_SECRET_ACCESS_KEY", previous.secret],
+    ]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

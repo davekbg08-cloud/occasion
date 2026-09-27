@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
 import '../models/status.dart';
@@ -23,7 +26,10 @@ class StatusService {
     this._firestore,
     this._storageOverride,
     this._functionsOverride,
+    this._httpClientOverride,
   ]);
+
+  final http.Client? _httpClientOverride;
 
   final FirebaseFirestore? _firestore;
   final FirebaseStorage? _storageOverride;
@@ -118,6 +124,84 @@ class StatusService {
         );
   }
 
+  /// Codes renvoyés par `createStatusVideoUpload` pour un refus "métier"
+  /// (quota, abonnement, taille…) : message déjà rédigé pour l'utilisateur,
+  /// jamais contourné par le repli Firebase Storage.
+  static const _r2RefusalCodes = {
+    'resource-exhausted',
+    'failed-precondition',
+    'permission-denied',
+    'invalid-argument',
+    'unauthenticated',
+  };
+
+  /// Envoie une vidéo de statut sur Cloudflare R2 (bande passante gratuite,
+  /// contrairement à Firebase Storage) via une adresse présignée délivrée
+  /// par le serveur. Retourne l'URL publique, ou `null` si R2 est
+  /// indisponible — l'appelant retombe alors sur Firebase Storage.
+  Future<String?> _uploadVideoToR2(
+    Uint8List bytes, {
+    void Function(double progress)? onProgress,
+  }) async {
+    final String uploadUrl;
+    final String publicUrl;
+    try {
+      final result = await _functions
+          .httpsCallable('createStatusVideoUpload')
+          .call({'size': bytes.lengthInBytes});
+      final data = Map<String, dynamic>.from(result.data as Map);
+      uploadUrl = data['uploadUrl'] as String;
+      publicUrl = data['publicUrl'] as String;
+    } on FirebaseFunctionsException catch (error) {
+      if (_r2RefusalCodes.contains(error.code)) {
+        throw Exception(error.message ?? 'Publication refusée.');
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+
+    return await putToPresignedUrl(uploadUrl, bytes, onProgress: onProgress)
+        ? publicUrl
+        : null;
+  }
+
+  /// PUT d'une vidéo vers une adresse présignée R2. Le type et la taille
+  /// envoyés doivent correspondre EXACTEMENT à ceux signés par le serveur
+  /// (`video/mp4`, taille du fichier), sinon R2 refuse l'envoi.
+  @visibleForTesting
+  Future<bool> putToPresignedUrl(
+    String uploadUrl,
+    Uint8List bytes, {
+    void Function(double progress)? onProgress,
+  }) async {
+    final client = _httpClientOverride ?? http.Client();
+    try {
+      onProgress?.call(0);
+      final response = await client
+          .send(
+            _ProgressPutRequest(
+              Uri.parse(uploadUrl),
+              bytes,
+              contentType: 'video/mp4',
+              onProgress: onProgress,
+            ),
+          )
+          .timeout(const Duration(minutes: 3));
+      await response.stream.drain<void>();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return false;
+      }
+      onProgress?.call(1);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      // Client créé pour cet envoi uniquement : jamais laissé ouvert.
+      if (_httpClientOverride == null) client.close();
+    }
+  }
+
   Future<void> createStatus({
     required String sellerId,
     required String sellerName,
@@ -150,31 +234,20 @@ class StatusService {
         ? _storage.ref().child('annonces/$sellerId/statuses/$timestamp.mp4')
         : _storage.ref().child('annonces/$sellerId/statuses/$timestamp.jpg');
 
+    String? r2MediaUrl;
     if (type == StatusType.video) {
+      final Uint8List videoBytes;
+      var metadata = <String, String>{};
       if (kIsWeb) {
         // Pas de transcodage natif disponible sur le web : on applique
         // uniquement le plafond de taille, sans recompression.
-        final videoBytes = await mediaFile.readAsBytes();
+        videoBytes = await mediaFile.readAsBytes();
         if (videoBytes.lengthInBytes > VideoCompressionService.maxOutputBytes) {
           throw Exception(
             'La vidéo doit faire moins de '
             '${VideoCompressionService.maxOutputMegabytes} Mo (30s max).',
           );
         }
-        final uploadTask = ref.putData(
-          videoBytes,
-          SettableMetadata(contentType: 'video/mp4'),
-        );
-        uploadTask.snapshotEvents.listen((snapshot) {
-          if (snapshot.totalBytes <= 0) return;
-          onProgress?.call(
-            StatusUploadProgress(
-              StatusUploadPhase.uploading,
-              snapshot.bytesTransferred / snapshot.totalBytes,
-            ),
-          );
-        });
-        await uploadTask;
       } else {
         final compressed = await VideoCompressionService.compress(
           mediaFile,
@@ -182,24 +255,28 @@ class StatusService {
             StatusUploadProgress(StatusUploadPhase.compressing, progress),
           ),
         );
-        final uploadTask = ref.putFile(
-          compressed.file,
-          SettableMetadata(
-            contentType: 'video/mp4',
-            customMetadata: {
-              'originalSize': compressed.originalSize.toString(),
-              'compressedSize': compressed.compressedSize.toString(),
-            },
-          ),
+        videoBytes = await compressed.file.readAsBytes() as Uint8List;
+        metadata = {
+          'originalSize': compressed.originalSize.toString(),
+          'compressedSize': compressed.compressedSize.toString(),
+        };
+      }
+
+      void reportUpload(double progress) => onProgress?.call(
+        StatusUploadProgress(StatusUploadPhase.uploading, progress),
+      );
+
+      r2MediaUrl = await _uploadVideoToR2(videoBytes, onProgress: reportUpload);
+      if (r2MediaUrl == null) {
+        // Repli : R2 indisponible (réseau, configuration) — la publication
+        // passe quand même, sur Firebase Storage comme avant.
+        final uploadTask = ref.putData(
+          videoBytes,
+          SettableMetadata(contentType: 'video/mp4', customMetadata: metadata),
         );
         uploadTask.snapshotEvents.listen((snapshot) {
           if (snapshot.totalBytes <= 0) return;
-          onProgress?.call(
-            StatusUploadProgress(
-              StatusUploadPhase.uploading,
-              snapshot.bytesTransferred / snapshot.totalBytes,
-            ),
-          );
+          reportUpload(snapshot.bytesTransferred / snapshot.totalBytes);
         });
         await uploadTask;
       }
@@ -225,7 +302,7 @@ class StatusService {
         ),
       );
     }
-    final mediaUrl = await ref.getDownloadURL();
+    final mediaUrl = r2MediaUrl ?? await ref.getDownloadURL();
 
     final docRef = _statuses.doc();
     final status = Status(
@@ -300,5 +377,40 @@ class StatusService {
   /// qu'une suppression Firestore directe ne ferait pas.
   Future<void> deleteStatus(String statusId) async {
     await _functions.httpsCallable('deleteStatus').call({'statusId': statusId});
+  }
+}
+
+/// Requête PUT dont le corps est émis par morceaux à la demande de la
+/// connexion : sur mobile, la progression suit donc réellement l'envoi
+/// (le navigateur, lui, lit tout d'un coup — la barre saute alors à 100 %).
+class _ProgressPutRequest extends http.BaseRequest {
+  _ProgressPutRequest(
+    Uri url,
+    this._bytes, {
+    required String contentType,
+    this.onProgress,
+  }) : super('PUT', url) {
+    headers['content-type'] = contentType;
+    contentLength = _bytes.lengthInBytes;
+  }
+
+  final Uint8List _bytes;
+  final void Function(double progress)? onProgress;
+
+  static const _chunkSize = 64 * 1024;
+
+  @override
+  http.ByteStream finalize() {
+    super.finalize();
+    return http.ByteStream(_chunks());
+  }
+
+  Stream<List<int>> _chunks() async* {
+    final total = _bytes.lengthInBytes;
+    for (var offset = 0; offset < total; offset += _chunkSize) {
+      final end = offset + _chunkSize < total ? offset + _chunkSize : total;
+      yield Uint8List.sublistView(_bytes, offset, end);
+      onProgress?.call(end / total);
+    }
   }
 }

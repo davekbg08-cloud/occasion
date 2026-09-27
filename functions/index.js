@@ -10,6 +10,7 @@ const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestor
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
 const { randomUUID } = require("node:crypto");
+const { AwsV4Signer } = require("aws4fetch");
 
 initializeApp({
   storageBucket: "occasion-10cdb.firebasestorage.app",
@@ -1371,6 +1372,188 @@ exports.deleteChat = onCall(async (request) => {
  * proportionnel au nombre d'acheteurs à chaque publication, désormais
  * géré par FCM lui-même côté abonnement au topic).
  */
+// ─────────────────────────────────────────────────────────────────────────
+// Cloudflare R2 : stockage des vidéos de statut
+// ─────────────────────────────────────────────────────────────────────────
+//
+// La bande passante sortante de R2 est gratuite, contrairement à Firebase
+// Storage (facturée à chaque visionnage) — c'est le premier coût par
+// vendeur. Le client n'a jamais les clés R2 : il demande une adresse
+// d'envoi temporaire (createStatusVideoUpload), signée pour UN fichier, UN
+// type (video/mp4) et UNE taille exacte ; R2 refuse tout envoi qui ne
+// correspond pas. Les vidéos déjà publiées sur Firebase Storage restent
+// lisibles telles quelles (aucune migration).
+
+const R2_ACCOUNT_ID = defineSecret("R2_ACCOUNT_ID");
+const R2_ACCESS_KEY_ID = defineSecret("R2_ACCESS_KEY_ID");
+const R2_SECRET_ACCESS_KEY = defineSecret("R2_SECRET_ACCESS_KEY");
+const R2_SECRETS = [R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY];
+const R2_BUCKET = "occasion-videos";
+const R2_PUBLIC_BASE_URL = "https://pub-db36f0bd4a5b4bae811c7e3731c8e355.r2.dev";
+/** Doit rester aligné avec VideoCompressionService.maxOutputBytes (app). */
+const MAX_STATUS_VIDEO_BYTES = 5 * 1024 * 1024;
+const R2_UPLOAD_URL_TTL_SECONDS = 600;
+
+function r2Credentials() {
+  return {
+    accountId: R2_ACCOUNT_ID.value(),
+    accessKeyId: R2_ACCESS_KEY_ID.value(),
+    secretAccessKey: R2_SECRET_ACCESS_KEY.value(),
+  };
+}
+
+function r2ObjectUrl(accountId, key) {
+  const path = key.split("/").map(encodeURIComponent).join("/");
+  return `https://${accountId}.r2.cloudflarestorage.com/${R2_BUCKET}/${path}`;
+}
+
+/** Clé objet R2 d'une URL publique de ce bucket ; null sinon (Firebase…). */
+function r2KeyFromPublicUrl(url) {
+  if (typeof url !== "string") return null;
+  const prefix = `${R2_PUBLIC_BASE_URL}/`;
+  if (!url.startsWith(prefix)) return null;
+  const key = decodeURIComponent(url.slice(prefix.length).split("?")[0]);
+  return key.length > 0 ? key : null;
+}
+
+/**
+ * Adresse PUT présignée pour un objet R2 : taille et type signés, donc
+ * imposés par R2 lui-même au moment de l'envoi.
+ */
+async function presignR2Put({ credentials, key, size, contentType }) {
+  const url = new URL(r2ObjectUrl(credentials.accountId, key));
+  url.searchParams.set("X-Amz-Expires", String(R2_UPLOAD_URL_TTL_SECONDS));
+  const signed = await new AwsV4Signer({
+    method: "PUT",
+    url: url.toString(),
+    headers: { "content-type": contentType, "content-length": String(size) },
+    accessKeyId: credentials.accessKeyId,
+    secretAccessKey: credentials.secretAccessKey,
+    service: "s3",
+    region: "auto",
+    signQuery: true,
+    allHeaders: true,
+  }).sign();
+  return signed.url.toString();
+}
+
+/** Supprime un objet R2 ; une absence (déjà supprimé) n'est pas une erreur. */
+async function deleteR2Object(key) {
+  const credentials = r2Credentials();
+  const signed = await new AwsV4Signer({
+    method: "DELETE",
+    url: r2ObjectUrl(credentials.accountId, key),
+    accessKeyId: credentials.accessKeyId,
+    secretAccessKey: credentials.secretAccessKey,
+    service: "s3",
+    region: "auto",
+  }).sign();
+  const response = await fetch(signed.url, {
+    method: signed.method,
+    headers: signed.headers,
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Suppression R2 refusée (${response.status}) pour ${key}`);
+  }
+}
+
+/**
+ * Supprime le média d'un statut, où qu'il soit stocké (R2 ou Firebase
+ * Storage). Jamais bloquant : un fichier orphelin vaut mieux qu'un statut
+ * impossible à supprimer.
+ */
+async function deleteStatusMedia(statusId, mediaUrl) {
+  try {
+    const r2Key = r2KeyFromPublicUrl(mediaUrl);
+    if (r2Key) {
+      await deleteR2Object(r2Key);
+      return;
+    }
+    const mediaPath = storagePathFromDownloadUrl(mediaUrl);
+    if (mediaPath) {
+      await storageBucket.file(mediaPath).delete();
+    }
+  } catch (err) {
+    if (err?.code !== 404) {
+      console.error(`Erreur suppression média statut ${statusId} :`, err);
+    }
+  }
+}
+
+function isActiveSubscription(data, nowMs = Date.now()) {
+  if (!data || data.isActive !== true) return false;
+  const expiry = data.expiryDate;
+  const expiryMs =
+    expiry instanceof Timestamp
+      ? expiry.toMillis()
+      : expiry instanceof Date
+        ? expiry.getTime()
+        : typeof expiry === "number"
+          ? expiry
+          : typeof expiry === "string"
+            ? Date.parse(expiry)
+            : NaN;
+  return Number.isFinite(expiryMs) && expiryMs > nowMs;
+}
+
+exports.createStatusVideoUpload = onCall(
+  { secrets: R2_SECRETS },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Connexion requise.");
+    }
+
+    const size = request.data?.size;
+    if (!Number.isInteger(size) || size <= 0 || size > MAX_STATUS_VIDEO_BYTES) {
+      throw new HttpsError(
+        "invalid-argument",
+        "La vidéo doit faire moins de 5 Mo (30s max)."
+      );
+    }
+
+    const [userSnap, subscriptionSnap, counterSnap] = await Promise.all([
+      db.collection("users").doc(uid).get(),
+      db.collection("subscriptions").doc(uid).get(),
+      db
+        .collection("statusDailyCounters")
+        .doc(`${uid}_${statusDayKey()}`)
+        .get(),
+    ]);
+    if (userSnap.data()?.role !== "seller") {
+      throw new HttpsError("permission-denied", "Réservé aux vendeurs.");
+    }
+    if (!isActiveSubscription(subscriptionSnap.data())) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Un abonnement vendeur actif est nécessaire pour publier un statut. " +
+          "Active ou renouvelle ton abonnement."
+      );
+    }
+    const publishedToday = counterSnap.data()?.videoStatusIds?.length ?? 0;
+    if (publishedToday >= MAX_VIDEO_STATUSES_PER_DAY) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `Limite atteinte : ${MAX_VIDEO_STATUSES_PER_DAY} statuts vidéo par jour. ` +
+          "Tu peux encore publier des photos, ou réessayer demain."
+      );
+    }
+
+    const key = `statuses/${uid}/${Date.now()}_${randomUUID()}.mp4`;
+    const uploadUrl = await presignR2Put({
+      credentials: r2Credentials(),
+      key,
+      size,
+      contentType: "video/mp4",
+    });
+    return {
+      uploadUrl,
+      publicUrl: `${R2_PUBLIC_BASE_URL}/${key}`,
+      contentType: "video/mp4",
+    };
+  }
+);
+
 /**
  * Statuts VIDÉO publiables par vendeur et par jour. La bande passante des
  * vidéos (chaque visionnage est facturé) est de loin le premier coût par
@@ -1417,7 +1600,9 @@ async function reserveVideoStatusSlot(sellerId, statusId, nowMs = Date.now()) {
   });
 }
 
-exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => {
+exports.onNewStatus = onDocumentCreated(
+  { document: "statuses/{statusId}", secrets: R2_SECRETS },
+  async (event) => {
   const status = event.data.data();
   const statusId = event.params.statusId;
 
@@ -1430,17 +1615,7 @@ exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => 
         `Quota vidéo atteint pour ${status.sellerId} : statut ${statusId} retiré.`
       );
       await db.collection("statuses").doc(statusId).delete();
-      const mediaPath = storagePathFromDownloadUrl(status.mediaUrl);
-      if (mediaPath) {
-        await storageBucket
-          .file(mediaPath)
-          .delete()
-          .catch((err) => {
-            if (err.code !== 404) {
-              console.error(`Erreur suppression Storage statut ${statusId} :`, err);
-            }
-          });
-      }
+      await deleteStatusMedia(statusId, status.mediaUrl);
       return null;
     }
   }
@@ -1534,7 +1709,7 @@ exports.toggleStatusLike = onCall(async (request) => {
  * `statusLikes` du statut (jamais laissés orphelins), contrairement à
  * l'ancienne suppression Firestore directe côté client.
  */
-exports.deleteStatus = onCall(async (request) => {
+exports.deleteStatus = onCall({ secrets: R2_SECRETS }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "Connexion requise.");
@@ -1582,17 +1757,7 @@ exports.deleteStatus = onCall(async (request) => {
     await statusRef.delete();
   }
 
-  const mediaPath = storagePathFromDownloadUrl(status.mediaUrl);
-  if (mediaPath) {
-    await storageBucket
-      .file(mediaPath)
-      .delete()
-      .catch((err) => {
-        if (err.code !== 404) {
-          console.error(`Erreur suppression Storage statut ${statusId} :`, err);
-        }
-      });
-  }
+  await deleteStatusMedia(statusId, status.mediaUrl);
 
   return { status: "deleted" };
 });
@@ -3564,6 +3729,11 @@ exports.reconcilePawapayPayouts = onSchedule(
 );
 
 exports._testables = {
+  r2KeyFromPublicUrl,
+  presignR2Put,
+  isActiveSubscription,
+  R2_PUBLIC_BASE_URL,
+  MAX_STATUS_VIDEO_BYTES,
   statusDayKey,
   reserveVideoStatusSlot,
   MAX_VIDEO_STATUSES_PER_DAY,
