@@ -1435,6 +1435,54 @@ test("le propriétaire peut toujours modifier les autres champs de son propre st
   );
 });
 
+test("régression : un statut photo ne peut pas être transformé en vidéo après coup (contournement du quota vidéo quotidien)", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statuses").doc("status1").set({
+      sellerId: "seller1",
+      sellerName: "Vendeur test",
+      mediaUrl: "https://example.com/photo.jpg",
+      type: "image",
+      status: "published",
+      active: true,
+      likesCount: 0,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(
+    seller.collection("statuses").doc("status1").update({ type: "video" })
+  );
+  await assertFails(
+    seller
+      .collection("statuses")
+      .doc("status1")
+      .update({ mediaUrl: "https://example.com/video.mp4" })
+  );
+});
+
+test("statusDailyCounters : lisible uniquement par le vendeur concerné, jamais modifiable par un client", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statusDailyCounters").doc("seller1_2026-09-27").set({
+      sellerId: "seller1",
+      videoStatusIds: ["v1"],
+    });
+  });
+  const seller1 = testEnv.authenticatedContext("seller1").firestore();
+  const seller2 = testEnv.authenticatedContext("seller2").firestore();
+  await assertSucceeds(
+    seller1.collection("statusDailyCounters").doc("seller1_2026-09-27").get()
+  );
+  await assertFails(
+    seller2.collection("statusDailyCounters").doc("seller1_2026-09-27").get()
+  );
+  await assertFails(
+    seller1
+      .collection("statusDailyCounters")
+      .doc("seller1_2026-09-27")
+      .set({ sellerId: "seller1", videoStatusIds: [] })
+  );
+});
+
 test("un statut ne peut plus être supprimé directement par le client, même par son propriétaire (passe par la Cloud Function deleteStatus)", async () => {
   await seed("seller1", { id: "seller1", role: "seller" });
   await testEnv.withSecurityRulesDisabled(async (ctx) => {

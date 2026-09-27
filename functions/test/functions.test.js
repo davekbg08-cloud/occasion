@@ -2616,3 +2616,56 @@ test("checkPawapayPayout : refuse un appelant non administrateur", async () => {
     }
   );
 });
+
+test("statusDayKey : journée à l'heure de Kinshasa (UTC+1), bascule à 23h UTC", () => {
+  const { statusDayKey } = functions._testables;
+  assert.equal(statusDayKey(Date.parse("2026-09-27T22:59:00Z")), "2026-09-27");
+  assert.equal(statusDayKey(Date.parse("2026-09-27T23:00:00Z")), "2026-09-28");
+});
+
+test("reserveVideoStatusSlot : 5 statuts vidéo par jour, le 6e est refusé, jamais compté deux fois", async () => {
+  const { reserveVideoStatusSlot, MAX_VIDEO_STATUSES_PER_DAY } = functions._testables;
+  const now = Date.parse("2026-09-27T10:00:00Z");
+  for (let i = 1; i <= MAX_VIDEO_STATUSES_PER_DAY; i++) {
+    assert.equal(await reserveVideoStatusSlot("seller-quota", `video-${i}`, now), true);
+  }
+  // Trigger redélivré pour un statut déjà compté : toujours accepté, sans
+  // consommer de place supplémentaire.
+  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-3", now), true);
+  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-6", now), false);
+
+  // Le lendemain, le quota repart de zéro.
+  const tomorrow = Date.parse("2026-09-28T10:00:00Z");
+  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-6", tomorrow), true);
+  // Un autre vendeur n'est jamais affecté par le quota du premier.
+  assert.equal(await reserveVideoStatusSlot("autre-vendeur", "video-x", now), true);
+});
+
+test("régression : onNewStatus retire un statut vidéo publié au-delà du quota quotidien", async () => {
+  const { statusDayKey } = functions._testables;
+  await db
+    .collection("statusDailyCounters")
+    .doc(`seller-plein_${statusDayKey()}`)
+    .set({
+      sellerId: "seller-plein",
+      videoStatusIds: ["v1", "v2", "v3", "v4", "v5"],
+    });
+  const statusData = {
+    sellerId: "seller-plein",
+    sellerName: "Vendeur",
+    type: "video",
+    mediaUrl: "https://example.com/video.mp4",
+    status: "published",
+    active: true,
+    createdAt: Date.now(),
+  };
+  await db.collection("statuses").doc("video-en-trop").set(statusData);
+
+  await functions.onNewStatus.run({
+    data: { data: () => statusData },
+    params: { statusId: "video-en-trop" },
+  });
+
+  const snap = await db.collection("statuses").doc("video-en-trop").get();
+  assert.equal(snap.exists, false, "le statut au-delà du quota doit être retiré");
+});

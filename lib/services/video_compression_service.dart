@@ -30,15 +30,16 @@ class VideoCompressionException implements Exception {
   String toString() => message;
 }
 
-/// Compresse une vidéo de statut/feed en MP4 H.264 + AAC, 720p max,
-/// 30s max, avec un objectif d'environ 5 Mo et un plafond strict de 12 Mo.
+/// Compresse une vidéo (statut, message) en MP4 H.264 + AAC, 720p max,
+/// 30s max, avec un plafond strict de 8 Mo — la bande passante des vidéos
+/// (chaque visionnage est facturé) est le premier coût par vendeur.
 ///
 /// L'implémentation réelle vit dans `video_compression_service_io.dart`
 /// (mobile) ; sur le web, le stub lève une exception car aucun transcodage
 /// natif n'est disponible (le web applique seulement le plafond de taille).
 class VideoCompressionService {
   static const maxDurationSeconds = 30;
-  static const maxOutputBytes = 12 * 1024 * 1024;
+  static const maxOutputBytes = 8 * 1024 * 1024;
 
   static Future<CompressedVideo> compress(
     XFile source, {

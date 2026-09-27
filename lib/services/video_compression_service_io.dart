@@ -9,6 +9,7 @@ import 'video_compression_service.dart';
 // encore le plafond après une première passe.
 const _qualityLadder = [
   VideoQuality.Res1280x720Quality,
+  VideoQuality.Res960x540Quality,
   VideoQuality.MediumQuality,
   VideoQuality.LowQuality,
 ];
@@ -69,7 +70,7 @@ Future<CompressedVideo> compressVideoImpl(
   }
 
   throw const VideoCompressionException(
-    'La vidéo reste trop lourde après compression (max 12 Mo). '
+    'La vidéo reste trop lourde après compression (max 8 Mo). '
     'Réessaie avec une vidéo plus courte.',
   );
 }

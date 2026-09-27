@@ -46,6 +46,36 @@ class StatusService {
 
   static const feedPageSize = 20;
 
+  /// Statuts vidéo publiables par vendeur et par jour — doit rester
+  /// synchronisé avec `MAX_VIDEO_STATUSES_PER_DAY` (functions/index.js),
+  /// seul juge réel : ce contrôle côté app évite juste de compresser et
+  /// d'envoyer une vidéo que le serveur retirerait aussitôt.
+  static const maxVideoStatusesPerDay = 5;
+
+  /// Même découpage que `statusDayKey` côté serveur : jour calendaire à
+  /// l'heure de Kinshasa (UTC+1, sans heure d'été), format AAAA-MM-JJ.
+  static String videoQuotaDayKey(DateTime now) {
+    final kinshasa = now.toUtc().add(const Duration(hours: 1));
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${kinshasa.year}-${two(kinshasa.month)}-${two(kinshasa.day)}';
+  }
+
+  /// Nombre de statuts vidéo déjà publiés aujourd'hui par [sellerId]
+  /// (compteur tenu par le serveur). 0 si illisible : le serveur reste
+  /// l'autorité, un échec de lecture ne doit jamais bloquer une publication.
+  Future<int> videoStatusesPublishedToday(String sellerId) async {
+    try {
+      final snap = await _db
+          .collection('statusDailyCounters')
+          .doc('${sellerId}_${videoQuotaDayKey(DateTime.now())}')
+          .get();
+      final ids = snap.data()?['videoStatusIds'];
+      return ids is List ? ids.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// Première page du feed, en temps réel (les nouveaux statuts et les
   /// likes apparaissent immédiatement). Les pages suivantes sont chargées
   /// via [fetchMoreFeed], qui paginé avec un curseur Firestore plutôt que
@@ -107,6 +137,14 @@ class StatusService {
       );
     }
 
+    if (type == StatusType.video &&
+        await videoStatusesPublishedToday(sellerId) >= maxVideoStatusesPerDay) {
+      throw Exception(
+        'Limite atteinte : $maxVideoStatusesPerDay statuts vidéo par jour. '
+        'Tu peux encore publier des photos, ou réessayer demain.',
+      );
+    }
+
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final ref = type == StatusType.video
         ? _storage.ref().child('annonces/$sellerId/statuses/$timestamp.mp4')
@@ -118,7 +156,7 @@ class StatusService {
         // uniquement le plafond de taille, sans recompression.
         final videoBytes = await mediaFile.readAsBytes();
         if (videoBytes.lengthInBytes > VideoCompressionService.maxOutputBytes) {
-          throw Exception('La vidéo doit faire moins de 12 Mo (30s max).');
+          throw Exception('La vidéo doit faire moins de 8 Mo (30s max).');
         }
         final uploadTask = ref.putData(
           videoBytes,

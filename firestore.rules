@@ -483,10 +483,13 @@ service cloud.firestore {
       // `likesCount` n'est plus modifiable côté client du tout : passe
       // exclusivement par la Cloud Function `toggleStatusLike` (Admin SDK,
       // contourne ces règles, transaction anti-double-like).
+      // `type`/`mediaUrl` figés aussi : sinon un statut photo (hors quota)
+      // pouvait être transformé en vidéo après coup, contournant la limite
+      // quotidienne de statuts vidéo (`onNewStatus`).
       allow update: if signedIn()
         && isSeller()
         && resource.data.sellerId == request.auth.uid
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['likesCount']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['likesCount', 'type', 'mediaUrl']);
       // Suppression exclusivement via la Cloud Function `deleteStatus`
       // (Admin SDK) : nettoie aussi le fichier Storage et les `statusLikes`
       // associés, ce qu'une suppression Firestore directe ne ferait pas.
@@ -495,6 +498,14 @@ service cloud.firestore {
 
     match /statusLikes/{likeId} {
       allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Quota quotidien de statuts vidéo : tenu exclusivement par le serveur
+    // (`onNewStatus`), lisible par le vendeur concerné pour que l'app
+    // l'avertisse AVANT de compresser/envoyer une vidéo refusée d'office.
+    match /statusDailyCounters/{counterId} {
+      allow read: if signedIn() && resource.data.sellerId == request.auth.uid;
       allow write: if false;
     }
 

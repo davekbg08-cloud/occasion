@@ -1371,8 +1371,80 @@ exports.deleteChat = onCall(async (request) => {
  * proportionnel au nombre d'acheteurs à chaque publication, désormais
  * géré par FCM lui-même côté abonnement au topic).
  */
+/**
+ * Statuts VIDÉO publiables par vendeur et par jour. La bande passante des
+ * vidéos (chaque visionnage est facturé) est de loin le premier coût par
+ * vendeur : sans plafond, un seul gros publieur coûte plus que son
+ * abonnement. Doit rester synchronisé avec
+ * `StatusService.maxVideoStatusesPerDay` côté client.
+ */
+const MAX_VIDEO_STATUSES_PER_DAY = 5;
+
+/** Jour calendaire à l'heure de Kinshasa (UTC+1, sans heure d'été). */
+function statusDayKey(nowMs = Date.now()) {
+  return new Date(nowMs + 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Réserve une place dans le quota vidéo du jour du vendeur. Compteur
+ * serveur (jamais le `createdAt` écrit par le client, falsifiable) et
+ * transactionnel ; idempotent si le trigger est redélivré (un même
+ * statut n'est jamais compté deux fois). Une suppression ne libère pas de
+ * place : le quota porte sur les publications, pas sur les statuts encore
+ * en ligne. Retourne false si le quota était déjà atteint.
+ */
+async function reserveVideoStatusSlot(sellerId, statusId, nowMs = Date.now()) {
+  const dayKey = statusDayKey(nowMs);
+  const counterRef = db
+    .collection("statusDailyCounters")
+    .doc(`${sellerId}_${dayKey}`);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(counterRef);
+    const ids = snap.exists ? snap.data().videoStatusIds ?? [] : [];
+    if (ids.includes(statusId)) return true;
+    if (ids.length >= MAX_VIDEO_STATUSES_PER_DAY) return false;
+    tx.set(
+      counterRef,
+      {
+        sellerId,
+        day: dayKey,
+        videoStatusIds: [...ids, statusId],
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return true;
+  });
+}
+
 exports.onNewStatus = onDocumentCreated("statuses/{statusId}", async (event) => {
   const status = event.data.data();
+  const statusId = event.params.statusId;
+
+  if (status.type === "video" && status.sellerId) {
+    const allowed = await reserveVideoStatusSlot(status.sellerId, statusId);
+    if (!allowed) {
+      // Client modifié ou contrôle côté app contourné : on retire le
+      // statut et sa vidéo plutôt que de laisser le quota être dépassé.
+      console.warn(
+        `Quota vidéo atteint pour ${status.sellerId} : statut ${statusId} retiré.`
+      );
+      await db.collection("statuses").doc(statusId).delete();
+      const mediaPath = storagePathFromDownloadUrl(status.mediaUrl);
+      if (mediaPath) {
+        await storageBucket
+          .file(mediaPath)
+          .delete()
+          .catch((err) => {
+            if (err.code !== 404) {
+              console.error(`Erreur suppression Storage statut ${statusId} :`, err);
+            }
+          });
+      }
+      return null;
+    }
+  }
+
   const sellerName = status.sellerName ?? "Un vendeur";
   const caption = status.caption;
   const body = caption
@@ -3492,6 +3564,9 @@ exports.reconcilePawapayPayouts = onSchedule(
 );
 
 exports._testables = {
+  statusDayKey,
+  reserveVideoStatusSlot,
+  MAX_VIDEO_STATUSES_PER_DAY,
   sellerPayoutAmount,
   pawapayPhone,
   pawapayAmount,
