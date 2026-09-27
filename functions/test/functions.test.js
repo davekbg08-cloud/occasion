@@ -2445,6 +2445,10 @@ test("androidChannelIdForType : les autres types ne sont jamais affectés par l'
   assert.equal(functions.androidChannelIdForType("gift"), "occasion_general");
 });
 
+test("MAX_VIDEO_STATUSES_PER_DAY : 10 statuts vidéo par jour (bande passante R2 gratuite, limite fixée pour la qualité du fil)", () => {
+  assert.equal(functions._testables.MAX_VIDEO_STATUSES_PER_DAY, 10);
+});
+
 test("sellerPayoutAmount : commission Occasion 4 %, arrondi entier en CDF, 2 décimales en USD, rejette les montants invalides", () => {
   const { sellerPayoutAmount } = functions._testables;
   assert.equal(sellerPayoutAmount(10000, "CDF"), 9600);
@@ -2623,7 +2627,7 @@ test("statusDayKey : journée à l'heure de Kinshasa (UTC+1), bascule à 23h UTC
   assert.equal(statusDayKey(Date.parse("2026-09-27T23:00:00Z")), "2026-09-28");
 });
 
-test("reserveVideoStatusSlot : 5 statuts vidéo par jour, le 6e est refusé, jamais compté deux fois", async () => {
+test("reserveVideoStatusSlot : quota de statuts vidéo par jour, le suivant est refusé, jamais compté deux fois", async () => {
   const { reserveVideoStatusSlot, MAX_VIDEO_STATUSES_PER_DAY } = functions._testables;
   const now = Date.parse("2026-09-27T10:00:00Z");
   for (let i = 1; i <= MAX_VIDEO_STATUSES_PER_DAY; i++) {
@@ -2632,23 +2636,23 @@ test("reserveVideoStatusSlot : 5 statuts vidéo par jour, le 6e est refusé, jam
   // Trigger redélivré pour un statut déjà compté : toujours accepté, sans
   // consommer de place supplémentaire.
   assert.equal(await reserveVideoStatusSlot("seller-quota", "video-3", now), true);
-  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-6", now), false);
+  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-en-trop", now), false);
 
   // Le lendemain, le quota repart de zéro.
   const tomorrow = Date.parse("2026-09-28T10:00:00Z");
-  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-6", tomorrow), true);
+  assert.equal(await reserveVideoStatusSlot("seller-quota", "video-en-trop", tomorrow), true);
   // Un autre vendeur n'est jamais affecté par le quota du premier.
   assert.equal(await reserveVideoStatusSlot("autre-vendeur", "video-x", now), true);
 });
 
 test("régression : onNewStatus retire un statut vidéo publié au-delà du quota quotidien", async () => {
-  const { statusDayKey } = functions._testables;
+  const { statusDayKey, MAX_VIDEO_STATUSES_PER_DAY } = functions._testables;
   await db
     .collection("statusDailyCounters")
     .doc(`seller-plein_${statusDayKey()}`)
     .set({
       sellerId: "seller-plein",
-      videoStatusIds: ["v1", "v2", "v3", "v4", "v5"],
+      videoStatusIds: Array.from({ length: MAX_VIDEO_STATUSES_PER_DAY }, (_, i) => `v${i}`),
     });
   const statusData = {
     sellerId: "seller-plein",
@@ -2772,12 +2776,15 @@ test("createStatusVideoUpload : réservé aux vendeurs abonnés", async () => {
 });
 
 test("createStatusVideoUpload : refuse d'emblée quand le quota vidéo du jour est atteint", async () => {
-  const { statusDayKey } = functions._testables;
+  const { statusDayKey, MAX_VIDEO_STATUSES_PER_DAY } = functions._testables;
   await seedR2Seller("seller-r2-plein");
   await db
     .collection("statusDailyCounters")
     .doc(`seller-r2-plein_${statusDayKey()}`)
-    .set({ sellerId: "seller-r2-plein", videoStatusIds: ["1", "2", "3", "4", "5"] });
+    .set({
+      sellerId: "seller-r2-plein",
+      videoStatusIds: Array.from({ length: MAX_VIDEO_STATUSES_PER_DAY }, (_, i) => `v${i}`),
+    });
   await assert.rejects(
     () =>
       functions.createStatusVideoUpload.run({

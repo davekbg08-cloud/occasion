@@ -56,7 +56,7 @@ class StatusService {
   /// synchronisé avec `MAX_VIDEO_STATUSES_PER_DAY` (functions/index.js),
   /// seul juge réel : ce contrôle côté app évite juste de compresser et
   /// d'envoyer une vidéo que le serveur retirerait aussitôt.
-  static const maxVideoStatusesPerDay = 5;
+  static const maxVideoStatusesPerDay = 10;
 
   /// Même découpage que `statusDayKey` côté serveur : jour calendaire à
   /// l'heure de Kinshasa (UTC+1, sans heure d'été), format AAAA-MM-JJ.

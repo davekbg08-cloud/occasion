@@ -28,7 +28,10 @@ void main() {
           .doc('seller1_$dayKey')
           .set({
             'sellerId': 'seller1',
-            'videoStatusIds': ['v1', 'v2', 'v3', 'v4', 'v5'],
+            'videoStatusIds': [
+              for (var i = 0; i < StatusService.maxVideoStatusesPerDay; i++)
+                'v$i',
+            ],
           });
       expect(
         await service.videoStatusesPublishedToday('seller1'),

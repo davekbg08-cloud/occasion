@@ -1563,7 +1563,7 @@ exports.createStatusVideoUpload = onCall(
  * abonnement. Doit rester synchronisé avec
  * `StatusService.maxVideoStatusesPerDay` côté client.
  */
-const MAX_VIDEO_STATUSES_PER_DAY = 5;
+const MAX_VIDEO_STATUSES_PER_DAY = 10;
 
 /** Jour calendaire à l'heure de Kinshasa (UTC+1, sans heure d'été). */
 function statusDayKey(nowMs = Date.now()) {
