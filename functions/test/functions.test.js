@@ -11,6 +11,7 @@
 // l'émulateur Firestore.
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 
 const functions = require("../index.js");
@@ -41,6 +42,7 @@ test.beforeEach(async () => {
     "reviews",
     "publicProfiles",
     "searchAlerts",
+    "playPurchases",
   ]);
 });
 
@@ -2827,4 +2829,259 @@ test("createStatusVideoUpload : délivre une adresse présignée dans le dossier
       else process.env[name] = value;
     }
   }
+});
+
+// --- Achat intégré Google Play (confirmPlayPurchase) -----------------------
+
+test("evaluatePlaySubscriptionPurchase : refuse un jeton sans compte externe correspondant à l'appelant", () => {
+  const { evaluatePlaySubscriptionPurchase } = functions._testables;
+  const sansCompte = evaluatePlaySubscriptionPurchase({
+    response: {
+      subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    },
+    productId: "seller_monthly",
+    uid: "seller1",
+  });
+  assert.equal(sansCompte.ok, false);
+  assert.equal(sansCompte.reason, "account-mismatch");
+
+  const autreCompte = evaluatePlaySubscriptionPurchase({
+    response: {
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "un-autre-uid" },
+      subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    },
+    productId: "seller_monthly",
+    uid: "seller1",
+  });
+  assert.equal(autreCompte.ok, false);
+  assert.equal(autreCompte.reason, "account-mismatch");
+});
+
+test("evaluatePlaySubscriptionPurchase : refuse un produit absent des lignes de l'abonnement", () => {
+  const { evaluatePlaySubscriptionPurchase } = functions._testables;
+  const result = evaluatePlaySubscriptionPurchase({
+    response: {
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "seller1" },
+      subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+      lineItems: [{ productId: "autre_produit", expiryTime: "2026-11-01T00:00:00Z" }],
+    },
+    productId: "seller_monthly",
+    uid: "seller1",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "product-mismatch");
+});
+
+test("evaluatePlaySubscriptionPurchase : refuse un abonnement Google Play non actif", () => {
+  const { evaluatePlaySubscriptionPurchase } = functions._testables;
+  const result = evaluatePlaySubscriptionPurchase({
+    response: {
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "seller1" },
+      subscriptionState: "SUBSCRIPTION_STATE_CANCELED",
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    },
+    productId: "seller_monthly",
+    uid: "seller1",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "not-active");
+});
+
+test("evaluatePlaySubscriptionPurchase : accepte un abonnement actif ou en période de grâce, avec sa date d'expiration", () => {
+  const { evaluatePlaySubscriptionPurchase } = functions._testables;
+  for (const state of ["SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"]) {
+    const result = evaluatePlaySubscriptionPurchase({
+      response: {
+        externalAccountIdentifiers: { obfuscatedExternalAccountId: "seller1" },
+        subscriptionState: state,
+        lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+      },
+      productId: "seller_monthly",
+      uid: "seller1",
+    });
+    assert.equal(result.ok, true, `état ${state} devrait être accepté`);
+    assert.equal(result.expiryDate.toISOString(), "2026-11-01T00:00:00.000Z");
+  }
+});
+
+/**
+ * Clé de service factice (jamais utilisée pour un vrai appel Google, la
+ * requête OAuth elle-même est stubbée) — juste assez valide pour que
+ * `crypto.sign("RSA-SHA256", ...)` ne lève pas.
+ */
+function fakePlayServiceAccountJson() {
+  const { privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  return JSON.stringify({
+    client_email: "play-verifier@example.iam.gserviceaccount.com",
+    private_key: privateKey,
+  });
+}
+
+async function withStubbedPlayApi(subscriptionResponseFactory, run) {
+  const previousSecret = process.env.PLAY_SERVICE_ACCOUNT_JSON;
+  const previousFetch = global.fetch;
+  process.env.PLAY_SERVICE_ACCOUNT_JSON = fakePlayServiceAccountJson();
+  global.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes("oauth2.googleapis.com/token")) {
+      return { ok: true, json: async () => ({ access_token: "fake-access-token" }) };
+    }
+    if (href.includes("androidpublisher.googleapis.com")) {
+      return { ok: true, json: async () => subscriptionResponseFactory() };
+    }
+    throw new Error(`URL inattendue dans le test : ${href}`);
+  };
+  try {
+    await run();
+  } finally {
+    global.fetch = previousFetch;
+    if (previousSecret === undefined) delete process.env.PLAY_SERVICE_ACCOUNT_JSON;
+    else process.env.PLAY_SERVICE_ACCOUNT_JSON = previousSecret;
+  }
+}
+
+test("confirmPlayPurchase : refuse un appel non connecté ou un productId/purchaseToken manquant ou inconnu", async () => {
+  await assert.rejects(
+    () => functions.confirmPlayPurchase.run({ data: {}, auth: null }),
+    expectHttpsError("unauthenticated")
+  );
+  await assert.rejects(
+    () =>
+      functions.confirmPlayPurchase.run({
+        data: { purchaseToken: "tok1" },
+        auth: { uid: "seller1" },
+      }),
+    expectHttpsError("invalid-argument")
+  );
+  await assert.rejects(
+    () =>
+      functions.confirmPlayPurchase.run({
+        data: { productId: "seller_monthly" },
+        auth: { uid: "seller1" },
+      }),
+    expectHttpsError("invalid-argument")
+  );
+  await assert.rejects(
+    () =>
+      functions.confirmPlayPurchase.run({
+        data: { productId: "produit_inconnu", purchaseToken: "tok1" },
+        auth: { uid: "seller1" },
+      }),
+    expectHttpsError("invalid-argument")
+  );
+});
+
+test("confirmPlayPurchase : vérifie l'achat auprès de Google Play puis active l'abonnement, de façon idempotente", async () => {
+  await withStubbedPlayApi(
+    () => ({
+      subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "seller-play" },
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    }),
+    async () => {
+      await db.collection("users").doc("seller-play").set({ role: "seller" });
+
+      const result = await functions.confirmPlayPurchase.run({
+        data: { productId: "seller_monthly", purchaseToken: "tok-play-1" },
+        auth: { uid: "seller-play" },
+      });
+      assert.equal(result.status, "active");
+      assert.equal(result.expiryDate, "2026-11-01T00:00:00.000Z");
+
+      const subSnap = await db.collection("subscriptions").doc("seller-play").get();
+      assert.equal(subSnap.data().isActive, true);
+      assert.equal(subSnap.data().paymentMethod, "google_play");
+      assert.equal(subSnap.data().planId, "seller_monthly");
+      assert.equal(subSnap.data().transactionId, "tok-play-1");
+
+      const userSnap = await db.collection("users").doc("seller-play").get();
+      assert.equal(userSnap.data().sellerSubscriptionActive, true);
+
+      const purchaseSnap = await db.collection("playPurchases").doc("tok-play-1").get();
+      assert.equal(purchaseSnap.data().userId, "seller-play");
+
+      // Même jeton revérifié (ex. restorePurchases() au démarrage de l'app,
+      // seule façon de refléter un renouvellement automatique faute de
+      // notification serveur Play en place) : idempotent, ne fait que
+      // rafraîchir l'expiration, jamais dupliquer/écraser au hasard.
+      const second = await functions.confirmPlayPurchase.run({
+        data: { productId: "seller_monthly", purchaseToken: "tok-play-1" },
+        auth: { uid: "seller-play" },
+      });
+      assert.equal(second.status, "active");
+
+      // Le même jeton, revendiqué par un AUTRE compte, doit être refusé —
+      // un purchaseToken Play ne prouve rien sur qui l'a réellement payé.
+      // Rejeté dès `evaluatePlaySubscriptionPurchase` (le compte externe
+      // renvoyé par Google reste "seller-play", pas "seller-play-2") : voir
+      // le test dédié ci-dessous pour le filet de sécurité supplémentaire
+      // au niveau de la transaction Firestore (`playPurchases`).
+      await db.collection("users").doc("seller-play-2").set({ role: "seller" });
+      await assert.rejects(
+        () =>
+          functions.confirmPlayPurchase.run({
+            data: { productId: "seller_monthly", purchaseToken: "tok-play-1" },
+            auth: { uid: "seller-play-2" },
+          }),
+        expectHttpsError("failed-precondition")
+      );
+    }
+  );
+});
+
+test("confirmPlayPurchase : filet de sécurité — refuse un jeton déjà enregistré (playPurchases) au nom d'un autre compte", async () => {
+  // Scénario qui ne devrait jamais se produire via le flux normal (le
+  // compte externe Google est déjà vérifié avant d'atteindre ce point),
+  // mais défendu quand même : si `playPurchases/{token}.userId` diffère de
+  // l'appelant, la transaction refuse plutôt que d'écraser le propriétaire
+  // enregistré.
+  await db.collection("playPurchases").doc("tok-hijack").set({ userId: "victime" });
+  await withStubbedPlayApi(
+    () => ({
+      subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "attaquant" },
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    }),
+    async () => {
+      await db.collection("users").doc("attaquant").set({ role: "seller" });
+      await assert.rejects(
+        () =>
+          functions.confirmPlayPurchase.run({
+            data: { productId: "seller_monthly", purchaseToken: "tok-hijack" },
+            auth: { uid: "attaquant" },
+          }),
+        expectHttpsError("permission-denied")
+      );
+    }
+  );
+});
+
+test("confirmPlayPurchase : refuse un abonnement Google Play non actif (annulé/expiré)", async () => {
+  await withStubbedPlayApi(
+    () => ({
+      subscriptionState: "SUBSCRIPTION_STATE_CANCELED",
+      externalAccountIdentifiers: { obfuscatedExternalAccountId: "seller-play-3" },
+      lineItems: [{ productId: "seller_monthly", expiryTime: "2026-11-01T00:00:00Z" }],
+    }),
+    async () => {
+      await db.collection("users").doc("seller-play-3").set({ role: "seller" });
+      await assert.rejects(
+        () =>
+          functions.confirmPlayPurchase.run({
+            data: { productId: "seller_monthly", purchaseToken: "tok-play-3" },
+            auth: { uid: "seller-play-3" },
+          }),
+        expectHttpsError("failed-precondition")
+      );
+
+      const purchaseSnap = await db.collection("playPurchases").doc("tok-play-3").get();
+      assert.equal(purchaseSnap.exists, false);
+    }
+  );
 });

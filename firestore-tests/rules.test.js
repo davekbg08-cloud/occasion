@@ -1483,6 +1483,25 @@ test("statusDailyCounters : lisible uniquement par le vendeur concerné, jamais 
   );
 });
 
+test("playPurchases : lisible uniquement par l'utilisateur concerné, jamais modifiable par un client", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("playPurchases").doc("token1").set({
+      userId: "seller1",
+      productId: "seller_monthly",
+    });
+  });
+  const seller1 = testEnv.authenticatedContext("seller1").firestore();
+  const seller2 = testEnv.authenticatedContext("seller2").firestore();
+  await assertSucceeds(seller1.collection("playPurchases").doc("token1").get());
+  await assertFails(seller2.collection("playPurchases").doc("token1").get());
+  await assertFails(
+    seller1
+      .collection("playPurchases")
+      .doc("token1")
+      .set({ userId: "seller1", productId: "seller_monthly" })
+  );
+});
+
 test("un statut ne peut plus être supprimé directement par le client, même par son propriétaire (passe par la Cloud Function deleteStatus)", async () => {
   await seed("seller1", { id: "seller1", role: "seller" });
   await testEnv.withSecurityRulesDisabled(async (ctx) => {

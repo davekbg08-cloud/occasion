@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../l10n/app_language.dart';
 import '../models/subscription.dart';
 import '../providers/auth_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/payment_config.dart';
+import '../services/play_billing_service.dart';
 import '../utils/currencies.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
@@ -20,6 +24,93 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String? selectedPlan = 'seller_monthly';
   bool isProcessing = false;
   final TextEditingController referenceController = TextEditingController();
+
+  // Achat intégré Google Play (moyen de paiement principal quand
+  // disponible) : Orange Money manuel reste utilisable en secours, en
+  // particulier là où Google Play Billing n'est pas pertinent (Afrique
+  // centrale, où Play a peu de moyens de paiement locaux enregistrés).
+  final _playBilling = PlayBillingService();
+  ProductDetails? _playProduct;
+  bool _playLoading = true;
+  bool _playProcessing = false;
+  String? _playStatusMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (PlayBillingService.isSupportedPlatform) {
+      _initPlayBilling();
+    } else {
+      _playLoading = false;
+    }
+  }
+
+  Future<void> _initPlayBilling() async {
+    final uid = ref.read(authNotifierProvider).currentUser?.id;
+    if (uid != null) {
+      _playBilling.listen(uid, _onPlayPurchaseUpdate);
+      // Reflète un renouvellement automatique éventuel (aucune notification
+      // serveur Play en place) : redonne une occasion au serveur de
+      // rafraîchir la date d'expiration à chaque ouverture de l'écran.
+      unawaited(_playBilling.restore(uid));
+    }
+    final product = await _playBilling.loadSellerMonthlyProduct();
+    if (!mounted) return;
+    setState(() {
+      _playProduct = product;
+      _playLoading = false;
+    });
+  }
+
+  void _onPlayPurchaseUpdate(PlayPurchaseUpdate update) {
+    if (!mounted) return;
+    switch (update.outcome) {
+      case PlayPurchaseOutcome.pending:
+        setState(() {
+          _playProcessing = true;
+          _playStatusMessage = null;
+        });
+      case PlayPurchaseOutcome.success:
+        setState(() {
+          _playProcessing = false;
+          _playStatusMessage = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Abonnement activé via Google Play !'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      case PlayPurchaseOutcome.cancelled:
+        setState(() {
+          _playProcessing = false;
+          _playStatusMessage = null;
+        });
+      case PlayPurchaseOutcome.error:
+        setState(() {
+          _playProcessing = false;
+          _playStatusMessage =
+              update.message ?? 'Paiement Google Play impossible.';
+        });
+    }
+  }
+
+  Future<void> _buyViaPlay() async {
+    final uid = ref.read(authNotifierProvider).currentUser?.id;
+    final product = _playProduct;
+    if (uid == null || product == null) return;
+    setState(() {
+      _playProcessing = true;
+      _playStatusMessage = null;
+    });
+    final started = await _playBilling.buy(product, uid);
+    if (!started && mounted) {
+      setState(() {
+        _playProcessing = false;
+        _playStatusMessage = "Impossible de démarrer l'achat Google Play.";
+      });
+    }
+  }
 
   final List<Map<String, Object>> plans = const [
     {
@@ -43,6 +134,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   @override
   void dispose() {
     referenceController.dispose();
+    _playBilling.dispose();
     super.dispose();
   }
 
@@ -192,83 +284,205 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
               const SizedBox(height: 20),
             ],
-            ...plans.map((plan) => _buildPlanCard(plan, formDisabled)),
-            const SizedBox(height: 20),
-            Card(
-              color: Colors.grey[900],
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tr('Comment payer'),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '1. Envoie le montant via Orange Money au numéro '
-                      'ci-dessous.\n'
-                      '2. Colle la référence de transaction reçue par SMS.\n'
-                      "3. Ton abonnement s'active après vérification "
-                      '(généralement rapide, pas instantané).',
-                      style: TextStyle(color: Colors.white70, height: 1.4),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange),
-                      ),
+            if (PlayBillingService.isSupportedPlatform) ...[
+              _buildPlayBillingSection(),
+              const SizedBox(height: 20),
+            ],
+            Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                // Sur Android, Google Play Billing est le moyen de paiement
+                // mis en avant ci-dessus : Orange Money reste disponible
+                // mais replié par défaut, pour les vendeurs d'Afrique
+                // centrale qui n'ont pas de moyen de paiement enregistré
+                // sur leur compte Play. Ailleurs (web, Play indisponible),
+                // c'est le seul moyen de paiement : déplié d'emblée.
+                initiallyExpanded: !PlayBillingService.isSupportedPlatform,
+                tilePadding: EdgeInsets.zero,
+                title: Text(
+                  PlayBillingService.isSupportedPlatform
+                      ? tr('Ou payer via Orange Money (Afrique centrale)')
+                      : tr('Payer via Orange Money'),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                children: [
+                  ...plans.map((plan) => _buildPlanCard(plan, formDisabled)),
+                  const SizedBox(height: 4),
+                  Card(
+                    color: Colors.grey[900],
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            PaymentConfig.manualOrangeMoneyNumber,
-                            style: const TextStyle(
-                              fontSize: 18,
+                            tr('Comment payer'),
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Colors.orange,
+                              fontSize: 16,
                             ),
                           ),
-                          Text(
-                            PaymentConfig.manualOrangeMoneyHolderName,
-                            style: TextStyle(color: Colors.grey[400]),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '1. Envoie le montant via Orange Money au numéro '
+                            'ci-dessous.\n'
+                            '2. Colle la référence de transaction reçue par SMS.\n'
+                            "3. Ton abonnement s'active après vérification "
+                            '(généralement rapide, pas instantané).',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.orange),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  PaymentConfig.manualOrangeMoneyNumber,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                                Text(
+                                  PaymentConfig.manualOrangeMoneyHolderName,
+                                  style: TextStyle(color: Colors.grey[400]),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: referenceController,
+                    enabled: !formDisabled,
+                    decoration: InputDecoration(
+                      labelText: tr(
+                        'Référence de transaction (SMS Orange Money)',
+                      ),
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.receipt_long_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: FilledButton(
+                      onPressed: formDisabled ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: isProcessing
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : Text(
+                              tr("J'AI ENVOYÉ L'ARGENT"),
+                              style: TextStyle(fontSize: 18),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayBillingSection() {
+    if (_playLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final product = _playProduct;
+    if (product == null) {
+      // Produit introuvable/inactif côté Play Console, ou Play Billing
+      // indisponible sur cet appareil : Orange Money (déplié) reste le
+      // seul chemin, pas d'erreur bloquante affichée.
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      color: Colors.grey[900],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Colors.green),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.shop, color: Colors.green),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tr('Payer avec Google Play'),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
+            const SizedBox(height: 8),
+            Text(
+              tr(
+                "${product.price} / mois — carte bancaire, opérateur ou solde Google Play déjà enregistré sur ton compte. Activation immédiate.",
+              ),
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+            ),
+            if (_playStatusMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _playStatusMessage!,
+                style: const TextStyle(color: Colors.red),
+              ),
+            ],
             const SizedBox(height: 16),
-            TextField(
-              controller: referenceController,
-              enabled: !formDisabled,
-              decoration: InputDecoration(
-                labelText: tr('Référence de transaction (SMS Orange Money)'),
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.receipt_long_outlined),
-              ),
-            ),
-            const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
               height: 56,
               child: FilledButton(
-                onPressed: formDisabled ? null : _submit,
+                onPressed: _playProcessing ? null : _buyViaPlay,
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
                 ),
-                child: isProcessing
+                child: _playProcessing
                     ? const SizedBox(
                         width: 24,
                         height: 24,
@@ -278,8 +492,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         ),
                       )
                     : Text(
-                        tr("J'AI ENVOYÉ L'ARGENT"),
-                        style: TextStyle(fontSize: 18),
+                        tr("S'ABONNER AVEC GOOGLE PLAY"),
+                        style: const TextStyle(fontSize: 16),
                       ),
               ),
             ),

@@ -9,7 +9,8 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
-const { randomUUID } = require("node:crypto");
+const crypto = require("node:crypto");
+const { randomUUID } = crypto;
 const { AwsV4Signer } = require("aws4fetch");
 
 initializeApp({
@@ -2484,6 +2485,288 @@ exports.rejectManualPayment = onCall(async (request) => {
   });
 });
 
+// --- Achat intégré Google Play (abonnement vendeur) -----------------------
+//
+// Le client (in_app_purchase / GooglePlayPurchaseParam) déclenche l'achat et
+// obtient un `purchaseToken` de la part de la boutique Play. Ce jeton ne
+// prouve rien par lui-même tant qu'il n'a pas été revérifié directement
+// auprès de Google (API Play Developer) : jamais on n'active un abonnement
+// sur la seule foi de ce que le client prétend avoir payé, même principe que
+// `confirmManualPayment`/`applySettlement` pour Orange Money.
+
+const PLAY_PACKAGE_NAME = "com.occasion.app";
+// Contient le JSON complet d'un compte de service Google Cloud disposant de
+// l'accès "Voir les données financières" dans Play Console (Utilisateurs et
+// autorisations) — jamais le compte de service utilisé pour publier les
+// builds (release-android.yml), volontairement séparé (moindre privilège).
+const PLAY_SERVICE_ACCOUNT_JSON = defineSecret("PLAY_SERVICE_ACCOUNT_JSON");
+
+/**
+ * Échange la clé privée d'un compte de service Google contre un jeton
+ * d'accès OAuth2 (flux JWT Bearer, RFC 7523) pour l'API Play Developer.
+ * Implémenté à la main (JWT signé via `crypto.sign`, un simple `fetch` vers
+ * l'endpoint token) plutôt qu'avec la librairie `googleapis` — même choix
+ * que `aws4fetch` pour R2 : éviter une dépendance lourde pour un besoin
+ * ponctuel.
+ */
+async function getPlayAccessToken(serviceAccountJsonRaw) {
+  let credentials;
+  try {
+    credentials = JSON.parse(serviceAccountJsonRaw);
+  } catch (err) {
+    throw new Error("PLAY_SERVICE_ACCOUNT_JSON invalide (JSON illisible).");
+  }
+  const clientEmail = credentials.client_email;
+  const privateKey = credentials.private_key;
+  if (!clientEmail || !privateKey) {
+    throw new Error(
+      "PLAY_SERVICE_ACCOUNT_JSON incomplet (client_email/private_key manquants)."
+    );
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claims = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/androidpublisher",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: nowSeconds,
+    exp: nowSeconds + 3600,
+  };
+  const base64url = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const unsigned = `${base64url(header)}.${base64url(claims)}`;
+  const signature = crypto
+    .sign("RSA-SHA256", Buffer.from(unsigned), privateKey)
+    .toString("base64url");
+  const assertion = `${unsigned}.${signature}`;
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!tokenRes.ok) {
+    const bodyText = await tokenRes.text().catch(() => "");
+    console.error(`Échec auth Google Play (${tokenRes.status}) :`, bodyText);
+    throw new Error(`Échec d'authentification Google Play (${tokenRes.status}).`);
+  }
+  const tokenJson = await tokenRes.json();
+  if (!tokenJson.access_token) {
+    throw new Error("Réponse d'authentification Google Play sans access_token.");
+  }
+  return tokenJson.access_token;
+}
+
+/**
+ * Récupère l'état actuel d'un abonnement Play (API `subscriptionsv2`,
+ * remplace l'ancienne `purchases.subscriptions.get`) à partir du jeton
+ * d'achat fourni par le client.
+ */
+async function fetchPlaySubscriptionV2(accessToken, purchaseToken) {
+  const url =
+    "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/" +
+    `${PLAY_PACKAGE_NAME}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    console.error(`Échec vérification Google Play (${res.status}) :`, bodyText);
+    throw new HttpsError(
+      "failed-precondition",
+      `Vérification Google Play impossible (${res.status}).`
+    );
+  }
+  return res.json();
+}
+
+/**
+ * Interprète la réponse `subscriptionsv2` pour un achat donné : renvoie la
+ * date d'expiration si l'abonnement est bien actif ET payé par le compte
+ * Occasion appelant, sinon un motif de refus. Fonction pure (aucun appel
+ * réseau) — testable indépendamment de la signature JWT / des identifiants
+ * Play.
+ *
+ * Le contrôle `externalAccountIdentifiers.obfuscatedExternalAccountId ===
+ * uid` est essentiel : un `purchaseToken` Google Play valide ne prouve rien
+ * sur QUI l'a payé (jamais lié à Firebase Auth par construction). Sans lui,
+ * n'importe quel utilisateur connecté pourrait activer son abonnement avec
+ * le jeton d'achat de quelqu'un d'autre (capturé, partagé, rejoué). Ce champ
+ * est renseigné par `GooglePlayPurchaseParam.applicationUserName` côté
+ * client au moment de l'achat (voir `PlayBillingService`).
+ */
+function evaluatePlaySubscriptionPurchase({ response, productId, uid }) {
+  if (!response || typeof response !== "object") {
+    return { ok: false, reason: "invalid-response" };
+  }
+
+  const externalAccountId = response.externalAccountIdentifiers?.obfuscatedExternalAccountId;
+  if (!externalAccountId || externalAccountId !== uid) {
+    return { ok: false, reason: "account-mismatch" };
+  }
+
+  const lineItems = Array.isArray(response.lineItems) ? response.lineItems : [];
+  const lineItem = lineItems.find((item) => item.productId === productId);
+  if (!lineItem) {
+    return { ok: false, reason: "product-mismatch" };
+  }
+
+  const ACTIVE_SUBSCRIPTION_STATES = new Set([
+    "SUBSCRIPTION_STATE_ACTIVE",
+    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+  ]);
+  if (!ACTIVE_SUBSCRIPTION_STATES.has(response.subscriptionState)) {
+    return {
+      ok: false,
+      reason: "not-active",
+      subscriptionState: response.subscriptionState ?? null,
+    };
+  }
+
+  const expiryDate = lineItem.expiryTime ? new Date(lineItem.expiryTime) : null;
+  if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
+    return { ok: false, reason: "missing-expiry" };
+  }
+
+  return { ok: true, expiryDate };
+}
+
+/**
+ * Vérifie un achat Google Play Billing (abonnement vendeur) auprès de l'API
+ * Play Developer puis active l'abonnement — jamais sur la seule foi du
+ * client. Appelée à chaque achat, mais aussi à chaque `restorePurchases()`
+ * (démarrage de l'app côté client) : c'est ce second appel, avec le même
+ * `purchaseToken` mais une date d'expiration rafraîchie auprès de Google,
+ * qui prolonge l'abonnement lors d'un renouvellement automatique (aucune
+ * notification serveur Play/Pub-Sub en place pour l'instant).
+ *
+ * Idempotent sur `purchaseToken` (`playPurchases/{purchaseToken}`) : un même
+ * jeton revérifié plusieurs fois (redélivrance `purchaseStream` après un
+ * crash, restauration au démarrage) ne fait que rafraîchir la date
+ * d'expiration, jamais dupliquer quoi que ce soit. Un jeton déjà lié à un
+ * AUTRE compte Occasion est refusé (`permission-denied`).
+ */
+exports.confirmPlayPurchase = onCall(
+  { secrets: [PLAY_SERVICE_ACCOUNT_JSON] },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Connexion requise.");
+    }
+
+    const productId = request.data?.productId;
+    const purchaseToken = request.data?.purchaseToken;
+    if (typeof productId !== "string" || productId.length === 0) {
+      throw new HttpsError("invalid-argument", "productId manquant.");
+    }
+    if (typeof purchaseToken !== "string" || purchaseToken.length === 0) {
+      throw new HttpsError("invalid-argument", "purchaseToken manquant.");
+    }
+
+    const plan = SUBSCRIPTION_PLANS[productId];
+    if (!plan) {
+      throw new HttpsError("invalid-argument", `Produit Google Play inconnu (${productId}).`);
+    }
+
+    const accessToken = await getPlayAccessToken(PLAY_SERVICE_ACCOUNT_JSON.value());
+    const subscriptionResponse = await fetchPlaySubscriptionV2(accessToken, purchaseToken);
+    const evaluation = evaluatePlaySubscriptionPurchase({
+      response: subscriptionResponse,
+      productId,
+      uid,
+    });
+
+    if (!evaluation.ok) {
+      console.error(
+        `PAYMENT_ALERT confirmPlayPurchase: achat refusé (${evaluation.reason}) pour ${uid}`
+      );
+      throw new HttpsError(
+        "failed-precondition",
+        "Achat Google Play introuvable ou non actif."
+      );
+    }
+
+    const purchaseRef = db.collection("playPurchases").doc(purchaseToken);
+    const now = FieldValue.serverTimestamp();
+    let isFirstActivation = false;
+
+    await db.runTransaction(async (tx) => {
+      const purchaseSnap = await tx.get(purchaseRef);
+      if (purchaseSnap.exists && purchaseSnap.data().userId !== uid) {
+        throw new HttpsError(
+          "permission-denied",
+          "Ce reçu Google Play appartient à un autre compte."
+        );
+      }
+      isFirstActivation = !purchaseSnap.exists;
+
+      const subscriptionRef = db.collection("subscriptions").doc(uid);
+      const subscriptionSnap = await tx.get(subscriptionRef);
+      const existing = subscriptionSnap.data();
+      // Conserve la date de départ d'origine tant que le même abonnement
+      // Play reste actif (un renouvellement ne doit pas réinitialiser
+      // "abonné depuis") ; sinon (première activation, ou reprise après
+      // expiration réelle) repart d'aujourd'hui.
+      const keepStartDate =
+        subscriptionSnap.exists &&
+        existing.isActive === true &&
+        existing.paymentMethod === "google_play" &&
+        existing.transactionId === purchaseToken &&
+        existing.startDate;
+      const startDate = keepStartDate || new Date();
+
+      tx.set(
+        purchaseRef,
+        { userId: uid, productId, expiryDate: evaluation.expiryDate, updatedAt: now },
+        { merge: true }
+      );
+
+      tx.set(
+        subscriptionRef,
+        {
+          id: uid,
+          userId: uid,
+          planId: productId,
+          planName: plan.name,
+          price: plan.amount,
+          currency: plan.currency,
+          startDate,
+          expiryDate: evaluation.expiryDate,
+          isActive: true,
+          paymentMethod: "google_play",
+          transactionId: purchaseToken,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        db.collection("users").doc(uid),
+        {
+          sellerSubscriptionActive: true,
+          sellerSubscriptionExpiresAt: evaluation.expiryDate,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    });
+
+    if (isFirstActivation) {
+      await sendToUser({
+        recipientId: uid,
+        notificationId: `subscription_play_${purchaseToken}`,
+        type: "subscription",
+        title: "✅ Abonnement activé",
+        body: "Votre abonnement vendeur est actif (Google Play).",
+        route: "/subscription",
+      }).catch((err) => console.error(`Erreur notification confirmPlayPurchase ${uid} :`, err));
+    }
+
+    return { status: "active", expiryDate: evaluation.expiryDate.toISOString() };
+  }
+);
+
 /**
  * Libération automatique du séquestre : si un acheteur n'a ni confirmé
  * la réception ni signalé de problème dans les délais, on considère la
@@ -3748,4 +4031,7 @@ exports._testables = {
   upsertNotificationContent,
   PUSH_LEASE_MS,
   badgeCountForUser,
+  evaluatePlaySubscriptionPurchase,
+  PLAY_PACKAGE_NAME,
+  SUBSCRIPTION_PLANS,
 };

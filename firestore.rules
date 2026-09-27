@@ -665,6 +665,17 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Reçus d'achat Google Play Billing (abonnement vendeur) — état
+    // d'idempotence tenu exclusivement par la Cloud Function
+    // `confirmPlayPurchase` (Admin SDK, contourne ces règles) après
+    // vérification réelle auprès de l'API Play Developer. Jamais écrit par
+    // le client : un `purchaseToken` n'est une preuve d'achat qu'une fois
+    // revérifié côté serveur.
+    match /playPurchases/{purchaseToken} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
     match /transactions/{transactionId} {
       allow read: if signedIn()
         && resource.data.userId == request.auth.uid;
