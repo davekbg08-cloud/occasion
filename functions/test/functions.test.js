@@ -731,12 +731,36 @@ test("régression : confirmManualPayment ignore le montant/durée déclarés par
   });
 
   const subSnap = await db.collection("subscriptions").doc("seller1").get();
-  assert.equal(subSnap.data().price, 10);
+  assert.equal(subSnap.data().price, 7);
   assert.equal(subSnap.data().currency, "USD");
   assert.equal(subSnap.data().planName, "Vendeur Mensuel");
   const durationMs = subSnap.data().expiryDate.toMillis() - subSnap.data().startDate.toMillis();
   const durationDays = Math.round(durationMs / (24 * 60 * 60 * 1000));
   assert.equal(durationDays, 30, "la durée doit venir de la table canonique (30 jours), jamais des 36500 jours déclarés par le client");
+});
+
+test("confirmManualPayment : active la formule franc congolais (seller_monthly_fc) au montant canonique de 15 000 FC", async () => {
+  await db.collection("admins").doc("admin1").set({ uid: "admin1" });
+  await db.collection("paymentIntents").doc("intent-plan-fc").set({
+    type: "subscription",
+    userId: "seller-fc",
+    planId: "seller_monthly_fc",
+    planName: "Vendeur Mensuel",
+    amount: 1,
+    durationDays: 1,
+    currency: "USD",
+    status: "awaiting_manual_verification",
+    manualPaymentMethod: "orange_money_manual",
+  });
+
+  await functions.confirmManualPayment.run({
+    data: { transactionId: "intent-plan-fc" },
+    auth: { uid: "admin1" },
+  });
+
+  const subSnap = await db.collection("subscriptions").doc("seller-fc").get();
+  assert.equal(subSnap.data().price, 15000);
+  assert.equal(subSnap.data().currency, "FC");
 });
 
 test("sendChatMessage : crée le message avec senderId/receiverId/status déterminés côté serveur", async () => {

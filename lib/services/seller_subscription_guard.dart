@@ -15,8 +15,8 @@ import '../providers/subscription_provider.dart';
 ///
 /// Si l'abonnement est absent, inactif ou expiré, le vendeur est redirigé
 /// vers l'écran d'abonnement et la fonction renvoie `false` (publication
-/// bloquée). C'est ce qui garantit que l'abonnement de 10 $ sert
-/// réellement à débloquer la publication.
+/// bloquée). C'est ce qui garantit que l'abonnement (7 $ ou 15 000 FC)
+/// sert réellement à débloquer la publication.
 bool checkSellerSubscription(BuildContext context, WidgetRef ref) {
   final user = ref.read(authNotifierProvider).currentUser;
   if (user == null) {

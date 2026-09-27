@@ -62,6 +62,7 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     required String planName,
     required double price,
     required String manualPaymentReference,
+    String currency = 'USD',
     int durationDays = 30,
   }) async {
     final user = _auth.currentUser;
@@ -90,7 +91,7 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
       'planId': planId,
       'planName': planName,
       'amount': price,
-      'currency': 'USD',
+      'currency': currency,
       'durationDays': durationDays,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),

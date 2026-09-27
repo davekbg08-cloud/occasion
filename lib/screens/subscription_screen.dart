@@ -25,8 +25,16 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     {
       'id': 'seller_monthly',
       'name': 'Vendeur Mensuel',
-      'price': 10,
+      'price': 7,
       'currency': 'USD',
+      'duration': '1 mois',
+      'benefit': 'Publication des annonces',
+    },
+    {
+      'id': 'seller_monthly_fc',
+      'name': 'Vendeur Mensuel',
+      'price': 15000,
+      'currency': 'FC',
       'duration': '1 mois',
       'benefit': 'Publication des annonces',
     },
@@ -67,6 +75,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             planId: plan['id'] as String,
             planName: plan['name'] as String,
             price: (plan['price'] as num).toDouble(),
+            currency: plan['currency'] as String? ?? 'USD',
             manualPaymentReference: reference,
           );
 

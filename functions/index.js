@@ -1539,8 +1539,14 @@ exports.deleteStatus = onCall(async (request) => {
 const SUBSCRIPTION_PLANS = {
   seller_monthly: {
     name: "Vendeur Mensuel",
-    amount: 10,
+    amount: 7,
     currency: "USD",
+    durationDays: 30,
+  },
+  seller_monthly_fc: {
+    name: "Vendeur Mensuel",
+    amount: 15000,
+    currency: "FC",
     durationDays: 30,
   },
 };
