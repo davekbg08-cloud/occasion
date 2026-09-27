@@ -12,6 +12,7 @@ import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
 import '../services/status_service.dart';
+import '../services/video_compression_service.dart';
 import '../theme/app_theme.dart';
 
 class AddStatusScreen extends ConsumerStatefulWidget {
@@ -133,7 +134,8 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     // Quota vidéo quotidien / vidéo trop lourde : messages déjà rédigés
     // pour l'utilisateur, affichés tels quels plutôt que noyés dans le
     // message générique ci-dessous.
-    if (message.contains('Limite atteinte') || message.contains('8 Mo')) {
+    if (message.contains('Limite atteinte') ||
+        message.contains('${VideoCompressionService.maxOutputMegabytes} Mo')) {
       return message.replaceFirst('Exception: ', '');
     }
     return 'Publication impossible pour le moment.';

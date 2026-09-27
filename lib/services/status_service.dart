@@ -156,7 +156,10 @@ class StatusService {
         // uniquement le plafond de taille, sans recompression.
         final videoBytes = await mediaFile.readAsBytes();
         if (videoBytes.lengthInBytes > VideoCompressionService.maxOutputBytes) {
-          throw Exception('La vidéo doit faire moins de 8 Mo (30s max).');
+          throw Exception(
+            'La vidéo doit faire moins de '
+            '${VideoCompressionService.maxOutputMegabytes} Mo (30s max).',
+          );
         }
         final uploadTask = ref.putData(
           videoBytes,

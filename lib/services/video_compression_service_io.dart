@@ -5,11 +5,13 @@ import 'package:video_compress/video_compress.dart';
 
 import 'video_compression_service.dart';
 
-// Du plus proche du 720p cible au plus compact, si la taille dépasse
-// encore le plafond après une première passe.
+// Du plus net au plus compact, si la taille dépasse encore le plafond
+// après une passe. Démarre en 540p : sous 5 Mo pour 30 s, un passage en
+// 720p dépasserait presque toujours et ne ferait que rallonger l'attente
+// (chaque palier est un transcodage complet sur le téléphone).
 const _qualityLadder = [
-  VideoQuality.Res1280x720Quality,
   VideoQuality.Res960x540Quality,
+  VideoQuality.Res640x480Quality,
   VideoQuality.MediumQuality,
   VideoQuality.LowQuality,
 ];
@@ -70,7 +72,8 @@ Future<CompressedVideo> compressVideoImpl(
   }
 
   throw const VideoCompressionException(
-    'La vidéo reste trop lourde après compression (max 8 Mo). '
+    'La vidéo reste trop lourde après compression '
+    '(max ${VideoCompressionService.maxOutputMegabytes} Mo). '
     'Réessaie avec une vidéo plus courte.',
   );
 }
