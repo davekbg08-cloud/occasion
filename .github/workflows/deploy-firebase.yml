@@ -95,5 +95,19 @@ jobs:
 
       # Ne déploie qu'après que tout ce qui précède soit passé — jamais un
       # déploiement en prod sur du code dont les tests échouent.
+      # Une seconde tentative automatique : l'étape qui pose la permission
+      # d'invocation des fonctions planifiées (reconcilePawapayDeposits/
+      # Payouts) échoue par intermittence côté Google ("Failed to set the
+      # IAM Policy") puis passe à la relance, avec les mêmes droits. Le
+      # déploiement est idempotent, le relancer ne change rien à ce qui a
+      # déjà réussi.
       - name: Deploy to Firebase (functions + firestore rules/indexes + storage rules)
-        run: firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive
+        run: |
+          deploy() {
+            firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive
+          }
+          if ! deploy; then
+            echo "::warning::Déploiement en échec, nouvelle tentative dans 30 s."
+            sleep 30
+            deploy
+          fi
