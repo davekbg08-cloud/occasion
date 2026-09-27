@@ -1384,10 +1384,12 @@ exports.deleteChat = onCall(async (request) => {
 // correspond pas. Les vidéos déjà publiées sur Firebase Storage restent
 // lisibles telles quelles (aucune migration).
 
-const R2_ACCOUNT_ID = defineSecret("R2_ACCOUNT_ID");
+// L'ID de compte Cloudflare n'est pas secret (il figure dans l'adresse
+// API S3 publique du compartiment) : seules les deux clés du jeton le sont.
+const R2_ACCOUNT_ID = "c5fc6cd0419101796af7b6316a790ab4";
 const R2_ACCESS_KEY_ID = defineSecret("R2_ACCESS_KEY_ID");
 const R2_SECRET_ACCESS_KEY = defineSecret("R2_SECRET_ACCESS_KEY");
-const R2_SECRETS = [R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY];
+const R2_SECRETS = [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY];
 const R2_BUCKET = "occasion-videos";
 const R2_PUBLIC_BASE_URL = "https://pub-db36f0bd4a5b4bae811c7e3731c8e355.r2.dev";
 /** Doit rester aligné avec VideoCompressionService.maxOutputBytes (app). */
@@ -1396,7 +1398,7 @@ const R2_UPLOAD_URL_TTL_SECONDS = 600;
 
 function r2Credentials() {
   return {
-    accountId: R2_ACCOUNT_ID.value(),
+    accountId: R2_ACCOUNT_ID,
     accessKeyId: R2_ACCESS_KEY_ID.value(),
     secretAccessKey: R2_SECRET_ACCESS_KEY.value(),
   };

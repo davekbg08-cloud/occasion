@@ -2791,11 +2791,9 @@ test("createStatusVideoUpload : refuse d'emblée quand le quota vidéo du jour e
 test("createStatusVideoUpload : délivre une adresse présignée dans le dossier du vendeur et l'URL publique correspondante", async () => {
   const { R2_PUBLIC_BASE_URL } = functions._testables;
   const previous = {
-    id: process.env.R2_ACCOUNT_ID,
     key: process.env.R2_ACCESS_KEY_ID,
     secret: process.env.R2_SECRET_ACCESS_KEY,
   };
-  process.env.R2_ACCOUNT_ID = "acct";
   process.env.R2_ACCESS_KEY_ID = "AK";
   process.env.R2_SECRET_ACCESS_KEY = "SK";
   try {
@@ -2805,6 +2803,7 @@ test("createStatusVideoUpload : délivre une adresse présignée dans le dossier
       auth: { uid: "seller-r2-ok" },
     });
     const upload = new URL(result.uploadUrl);
+    assert.equal(upload.host, "c5fc6cd0419101796af7b6316a790ab4.r2.cloudflarestorage.com");
     assert.ok(upload.pathname.startsWith("/occasion-videos/statuses/seller-r2-ok/"));
     assert.ok(result.publicUrl.startsWith(`${R2_PUBLIC_BASE_URL}/statuses/seller-r2-ok/`));
     assert.equal(
@@ -2814,7 +2813,6 @@ test("createStatusVideoUpload : délivre une adresse présignée dans le dossier
     assert.equal(result.contentType, "video/mp4");
   } finally {
     for (const [name, value] of [
-      ["R2_ACCOUNT_ID", previous.id],
       ["R2_ACCESS_KEY_ID", previous.key],
       ["R2_SECRET_ACCESS_KEY", previous.secret],
     ]) {
