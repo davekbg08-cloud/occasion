@@ -8,6 +8,7 @@ import '../models/review.dart';
 import '../providers/product_provider.dart';
 import '../providers/review_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fullscreen_image_viewer.dart';
 
 class SellerPublicProfileScreen extends ConsumerWidget {
   const SellerPublicProfileScreen({super.key, required this.sellerId});
@@ -41,14 +42,23 @@ class SellerPublicProfileScreen extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              CircleAvatar(
-                radius: 36,
-                backgroundImage: seller.profileImageUrl == null
+              InkWell(
+                customBorder: const CircleBorder(),
+                onTap: seller.profileImageUrl == null
                     ? null
-                    : NetworkImage(seller.profileImageUrl!),
-                child: seller.profileImageUrl == null
-                    ? const Icon(Icons.person, size: 36)
-                    : null,
+                    : () => FullscreenImageViewer.open(
+                        context,
+                        imageUrls: [seller.profileImageUrl!],
+                      ),
+                child: CircleAvatar(
+                  radius: 36,
+                  backgroundImage: seller.profileImageUrl == null
+                      ? null
+                      : NetworkImage(seller.profileImageUrl!),
+                  child: seller.profileImageUrl == null
+                      ? const Icon(Icons.person, size: 36)
+                      : null,
+                ),
               ),
               const SizedBox(height: 12),
               Row(
