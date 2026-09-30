@@ -287,6 +287,61 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Modifie le nom affiché — répercuté à la fois sur `users/{uid}` (source
+  /// de vérité privée) et `publicProfiles/{uid}` (même miroir que
+  /// [updateProfilePhoto], c'est ce second document que lisent le
+  /// répertoire, les autres conversations, les annonces...).
+  Future<void> updateName(String name) async {
+    final firebaseUser = _auth.currentUser;
+    final currentUser = state.currentUser;
+    if (firebaseUser == null || currentUser == null) {
+      throw StateError('Connecte-toi avant de modifier ton nom.');
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Le nom ne peut pas être vide.');
+    }
+
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      await _users.doc(firebaseUser.uid).set({
+        'name': trimmed,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await _firestore.collection('publicProfiles').doc(firebaseUser.uid).set({
+        'id': firebaseUser.uid,
+        'name': trimmed,
+        'role': currentUser.role.name,
+        'profileImageUrl': currentUser.profileImageUrl,
+        'identityStatus': currentUser.identityStatus.firestoreValue,
+        'sellerStatus': currentUser.identityStatus.firestoreValue,
+        'phoneVerified': currentUser.phoneVerified,
+        'createdAt': currentUser.createdAt,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      state = state.copyWith(
+        isLoading: false,
+        clearError: true,
+        user: currentUser.copyWith(name: trimmed),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Echec modification nom',
+        name: 'AuthNotifier.updateName',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      state = state.copyWith(
+        isAuthenticated: true,
+        isLoading: false,
+        user: currentUser,
+        errorMessage: 'Impossible de modifier le nom. Réessaie.',
+      );
+      rethrow;
+    }
+  }
+
   Future<void> logout() async {
     await _auth.signOut();
     state = state.copyWith(

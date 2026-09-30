@@ -68,7 +68,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
     if (!isSeller && sellers.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 96,
+      height: 108,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -77,7 +77,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
             _StatusBubble(
               label: tr('Mon statut'),
               onTap: () => context.push('/add-status'),
-              child: const Icon(Icons.add, size: 26),
+              child: const Icon(Icons.add, size: 30),
             ),
           for (final status in sellers)
             _StatusBubble(
@@ -117,12 +117,12 @@ class _StatusBubble extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(40),
         child: SizedBox(
-          width: 64,
+          width: 74,
           child: Column(
             children: [
               Container(
-                width: 56,
-                height: 56,
+                width: 66,
+                height: 66,
                 padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -161,15 +161,15 @@ class _Avatar extends StatelessWidget {
       final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
       return Text(
         initial,
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
       );
     }
     return OccasionImage.thumbnail(
       imageUrl,
-      width: 52,
-      height: 52,
-      cacheWidth: 104,
-      cacheHeight: 104,
+      width: 62,
+      height: 62,
+      cacheWidth: 124,
+      cacheHeight: 124,
     );
   }
 }

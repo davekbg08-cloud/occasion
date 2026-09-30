@@ -10,6 +10,7 @@ import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
 import '../services/payment_settlement_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -73,6 +74,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             isSeller: isSeller,
             isLoading: authState.isLoading,
             onEditPhoto: user == null ? null : _choosePhotoSource,
+            onEditName: user == null ? null : () => _editName(user.name),
           ),
           const SizedBox(height: 8),
           if (authState.isAuthenticated && user != null) ...[
@@ -152,6 +154,50 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _editName(String currentName) async {
+    final controller = TextEditingController(text: currentName);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('Modifier le nom')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          decoration: InputDecoration(hintText: tr('Ton nom')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('Annuler')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: Text(tr('Enregistrer')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newName == null || newName.isEmpty || newName == currentName) return;
+
+    try {
+      await ref.read(authNotifierProvider.notifier).updateName(newName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('Nom mis à jour.'))));
+    } catch (_) {
+      if (!mounted) return;
+      final message =
+          ref.read(authNotifierProvider).errorMessage ??
+          'Impossible de modifier le nom.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
   Future<void> _logout(BuildContext context, String userId) async {
     await NotificationService.clearToken(userId);
     if (!context.mounted) return;
@@ -185,13 +231,20 @@ class _ProfileAvatar extends StatelessWidget {
       );
     }
 
-    return ClipOval(
-      child: OccasionImage.thumbnail(
-        url,
-        width: size,
-        height: size,
-        cacheWidth: (size * 2).round(),
-        cacheHeight: (size * 2).round(),
+    // Toucher la photo l'agrandit plein écran (même visionneuse que les
+    // photos de messagerie) — le bouton appareil photo juste à côté reste
+    // le seul moyen de la CHANGER, ceci ne fait que la montrer en grand.
+    return InkWell(
+      customBorder: const CircleBorder(),
+      onTap: () => FullscreenImageViewer.open(context, imageUrls: [url]),
+      child: ClipOval(
+        child: OccasionImage.thumbnail(
+          url,
+          width: size,
+          height: size,
+          cacheWidth: (size * 2).round(),
+          cacheHeight: (size * 2).round(),
+        ),
       ),
     );
   }
@@ -206,6 +259,7 @@ class _ProfileHeader extends StatelessWidget {
     required this.isSeller,
     required this.isLoading,
     required this.onEditPhoto,
+    required this.onEditName,
   });
 
   final String? imageUrl;
@@ -215,6 +269,7 @@ class _ProfileHeader extends StatelessWidget {
   final bool isSeller;
   final bool isLoading;
   final VoidCallback? onEditPhoto;
+  final VoidCallback? onEditName;
 
   @override
   Widget build(BuildContext context) {
@@ -236,14 +291,29 @@ class _ProfileHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      if (onEditName != null)
+                        InkWell(
+                          onTap: onEditName,
+                          borderRadius: BorderRadius.circular(16),
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.edit_outlined, size: 16),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(details, style: TextStyle(color: Colors.grey[400])),

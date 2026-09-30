@@ -82,6 +82,20 @@ class StatusService {
     }
   }
 
+  /// Durée de vie d'un statut dans le fil public (façon « stories »
+  /// WhatsApp/Instagram) — au-delà, il n'apparaît plus dans [feed]/
+  /// [fetchMoreFeed] ni dans les bulles de l'accueil, même si le document
+  /// reste en base (aucune suppression : le vendeur le retrouve toujours
+  /// dans son propre historique via [sellerStatuses]). Évite que le fil
+  /// s'encombre indéfiniment de contenu ancien, indiscernable du récent.
+  static const feedTtl = Duration(hours: 24);
+
+  /// `createdAt` est stocké en millisecondes depuis l'epoch (voir
+  /// `Status.toMap`/`fromMap`), jamais un `Timestamp` Firestore — le filtre
+  /// doit comparer avec le même type, sinon la requête ne renvoie rien.
+  static int _feedCutoffMillis() =>
+      DateTime.now().subtract(feedTtl).millisecondsSinceEpoch;
+
   /// Première page du feed, en temps réel (les nouveaux statuts et les
   /// likes apparaissent immédiatement). Les pages suivantes sont chargées
   /// via [fetchMoreFeed], qui paginé avec un curseur Firestore plutôt que
@@ -91,6 +105,7 @@ class StatusService {
   }) {
     return _statuses
         .where('active', isEqualTo: true)
+        .where('createdAt', isGreaterThan: _feedCutoffMillis())
         .orderBy('createdAt', descending: true)
         .limit(pageSize)
         .snapshots()
@@ -105,6 +120,7 @@ class StatusService {
   }) async {
     final snap = await _statuses
         .where('active', isEqualTo: true)
+        .where('createdAt', isGreaterThan: _feedCutoffMillis())
         .orderBy('createdAt', descending: true)
         .startAfterDocument(after)
         .limit(pageSize)
