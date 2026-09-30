@@ -3474,7 +3474,7 @@ async function pawapayRequest(method, path, body) {
   const response = await fetch(`${pawapayBaseUrl()}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${PAWAPAY_API_TOKEN.value()}`,
+      Authorization: `Bearer ${String(PAWAPAY_API_TOKEN.value() || "").trim()}`,
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
