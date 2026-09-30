@@ -23,6 +23,24 @@ class SearchScreen extends ConsumerWidget {
     }
     final query = ref.read(searchQueryProvider);
     final filters = ref.read(searchFiltersProvider);
+    final hasActiveSearch =
+        query.trim().isNotEmpty ||
+        (filters['city'] as String? ?? '').isNotEmpty;
+    // Bouton toujours actif (voir plus bas) : explique pourquoi rien ne se
+    // passe plutôt qu'un simple bouton grisé et muet — ça ressemblait à un
+    // bug ("j'appuie et il ne se passe rien") alors que c'était voulu.
+    if (!hasActiveSearch) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr(
+              "Tape d'abord un mot-clé ou une ville avant d'enregistrer une recherche.",
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     try {
       await ref
           .read(searchAlertServiceProvider)
@@ -53,11 +71,6 @@ class SearchScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final resultsAsync = ref.watch(searchResultsProvider);
-    final query = ref.watch(searchQueryProvider);
-    final filters = ref.watch(searchFiltersProvider);
-    final hasActiveSearch =
-        query.trim().isNotEmpty ||
-        (filters['city'] as String? ?? '').isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -66,7 +79,7 @@ class SearchScreen extends ConsumerWidget {
           IconButton(
             tooltip: tr('Enregistrer cette recherche'),
             icon: const Icon(Icons.bookmark_add_outlined),
-            onPressed: hasActiveSearch ? () => _saveSearch(context, ref) : null,
+            onPressed: () => _saveSearch(context, ref),
           ),
           IconButton(
             tooltip: tr('Mes alertes de recherche'),

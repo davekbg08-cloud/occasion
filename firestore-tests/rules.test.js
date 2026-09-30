@@ -1823,6 +1823,40 @@ test("régression : publicProfiles.phoneVerified ne peut jamais être auto-attri
   );
 });
 
+test("régression : enregistrer une recherche (forme exacte écrite par SearchAlertService.create) réussit, avec mot-clé seul, ville seule, ou les deux", async () => {
+  // Reproduit exactement {...alert.toJson(), 'createdAt': ...} pour les
+  // trois combinaisons réellement atteignables depuis l'écran Rechercher
+  // (le bouton signet est désactivé tant qu'aucun des deux n'est
+  // renseigné, donc "les deux vides" n'est jamais envoyé par l'app).
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("searchAlerts").doc("kw-only").set({
+      id: "kw-only",
+      userId: "buyer1",
+      keyword: "iphone",
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    buyer.collection("searchAlerts").doc("city-only").set({
+      id: "city-only",
+      userId: "buyer1",
+      city: "Kinshasa",
+      createdAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    buyer.collection("searchAlerts").doc("both").set({
+      id: "both",
+      userId: "buyer1",
+      keyword: "iphone",
+      city: "Kinshasa",
+      category: "Électronique",
+      createdAt: new Date(),
+    })
+  );
+});
+
 test("searchAlerts : un utilisateur peut créer, lire et supprimer sa propre alerte", async () => {
   const buyer = testEnv.authenticatedContext("buyer1").firestore();
   await assertSucceeds(
