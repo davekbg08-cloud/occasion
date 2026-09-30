@@ -89,15 +89,24 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           // être identifiable comme un bouton au premier coup d'œil, pas
           // juste du texte cliquable.
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: FilledButton.icon(
-              onPressed: () => context.push('/directory'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
+            padding: const EdgeInsets.only(right: 12),
+            // Taille contrainte à la main : sans ça, le bouton dépassait la
+            // hauteur de la barre (AppBar la centre verticalement mais
+            // coupe ce qui ne rentre pas), rendant le texte illisible.
+            child: SizedBox(
+              height: 36,
+              child: FilledButton.icon(
+                onPressed: () => context.push('/directory'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  visualDensity: VisualDensity.compact,
+                  textStyle: const TextStyle(fontSize: 14),
+                ),
+                icon: const Icon(Icons.people_alt_outlined, size: 18),
+                label: Text(tr('Répertoire')),
               ),
-              icon: const Icon(Icons.people_alt_outlined, size: 20),
-              label: Text(tr('Répertoire')),
             ),
           ),
         ],
