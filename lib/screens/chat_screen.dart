@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +13,7 @@ import '../models/report.dart';
 import '../models/status.dart' show StatusType;
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/presence_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
 import '../widgets/forward_message_sheet.dart';
@@ -37,11 +40,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _didInitialScroll = false;
   bool _isUploadingMedia = false;
   double _uploadProgress = 0;
+  bool _hasNotifiedTyping = false;
+  Timer? _typingStopTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _inputController.addListener(_onInputChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final uid = ref.read(authNotifierProvider).currentUser?.id ?? '';
       ref
@@ -73,13 +79,62 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Annonce "en train d'écrire" dès la première frappe non vide, puis
+  /// l'efface automatiquement après un court délai d'inactivité (pas
+  /// besoin d'attendre l'envoi ou la fermeture de l'écran) — même principe
+  /// que la plupart des messageries. `_hasNotifiedTyping` évite de
+  /// réécrire `true` à chaque frappe (une seule écriture RTDB tant qu'on
+  /// continue de taper).
+  void _onInputChanged() {
+    final me = ref.read(authNotifierProvider).currentUser;
+    if (me == null) return;
+    final hasText = _inputController.text.trim().isNotEmpty;
+
+    if (hasText) {
+      if (!_hasNotifiedTyping) {
+        _hasNotifiedTyping = true;
+        unawaited(
+          ref
+              .read(presenceServiceProvider)
+              .setTyping(chatId: widget.chat.id, uid: me.id, isTyping: true),
+        );
+      }
+      _typingStopTimer?.cancel();
+      _typingStopTimer = Timer(
+        const Duration(seconds: 4),
+        () => _stopTyping(me.id),
+      );
+    } else if (_hasNotifiedTyping) {
+      _stopTyping(me.id);
+    }
+  }
+
+  void _stopTyping(String uid) {
+    _typingStopTimer?.cancel();
+    if (!_hasNotifiedTyping) return;
+    _hasNotifiedTyping = false;
+    unawaited(
+      ref
+          .read(presenceServiceProvider)
+          .setTyping(chatId: widget.chat.id, uid: uid, isTyping: false),
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onScroll);
+    _inputController.removeListener(_onInputChanged);
+    _typingStopTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
     try {
+      final me = ref.read(authNotifierProvider).currentUser;
+      if (me != null && _hasNotifiedTyping) {
+        ref
+            .read(presenceServiceProvider)
+            .setTyping(chatId: widget.chat.id, uid: me.id, isTyping: false);
+      }
       ref.read(chatNotifierProvider.notifier).clearMessages();
     } catch (_) {
       // Best-effort : si le ProviderScope est déjà en cours de démontage
@@ -351,6 +406,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final listingTitle = chat.listingTitle?.trim();
 
+    // Présence/frappe de l'AUTRE personne uniquement — jamais la mienne
+    // (aucun sens de m'auto-afficher "en train d'écrire"). `valueOrNull`
+    // reste `null` tant que le flux Realtime Database n'a pas encore émis
+    // (connexion en cours) : traité comme "pas d'info", pas "hors ligne",
+    // pour ne pas afficher un faux "Hors ligne" pendant une fraction de
+    // seconde à l'ouverture de l'écran.
+    final isOtherTyping =
+        ref
+            .watch(typingProvider((chatId: widget.chat.id, otherUid: otherId)))
+            .valueOrNull ??
+        false;
+    final presence = ref.watch(presenceStatusProvider(otherId)).valueOrNull;
+    final String? statusText;
+    final Color statusColor;
+    if (isOtherTyping) {
+      statusText = tr("en train d'écrire...");
+      statusColor = AppColors.primary;
+    } else if (presence != null) {
+      statusText = presence.isOnline ? tr('En ligne') : tr('Hors ligne');
+      statusColor = presence.isOnline
+          ? Colors.greenAccent
+          : AppColors.textSecondary;
+    } else {
+      statusText = null;
+      statusColor = AppColors.textSecondary;
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -396,7 +478,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (listingTitle != null && listingTitle.isNotEmpty)
+                  if (statusText != null)
+                    Text(
+                      statusText,
+                      style: TextStyle(color: statusColor, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  else if (listingTitle != null && listingTitle.isNotEmpty)
                     Text(
                       listingTitle,
                       style: const TextStyle(

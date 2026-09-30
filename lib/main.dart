@@ -21,6 +21,7 @@ import 'models/chat.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
+import 'providers/presence_provider.dart';
 import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
@@ -444,6 +445,14 @@ class _AuthGate extends ConsumerWidget {
       if (previous == null) return;
       if (previous.currentUser?.id != next.currentUser?.id) {
         ref.read(chatNotifierProvider.notifier).resetForUserChange();
+        // Déconnexion (ou changement de compte) : bascule tout de suite à
+        // "hors ligne" pour l'ancien compte plutôt que d'attendre la
+        // détection de coupure réseau (onDisconnect), meilleure UX qu'une
+        // simple fermeture d'app.
+        final previousId = previous.currentUser?.id;
+        if (previousId != null) {
+          unawaited(ref.read(presenceServiceProvider).stop(previousId));
+        }
       }
     });
 
@@ -474,6 +483,7 @@ class _AuthGate extends ConsumerWidget {
         isBuyer: currentUser.isBuyer,
       );
     });
+    ref.read(presenceServiceProvider).start(currentUser.id);
 
     return const MainNav();
   }
