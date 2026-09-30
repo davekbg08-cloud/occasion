@@ -46,12 +46,20 @@ class DefaultFirebaseOptions {
     }
   }
 
+  // `databaseURL` (Realtime Database, région europe-west1 — voir
+  // presence_service.dart) : requis explicitement par le package
+  // `firebase_database`, qui ne le devine pas automatiquement pour une
+  // base régionale (uniquement pour l'ancien format us-central1).
+  static const String _databaseURL =
+      'https://occasion-10cdb-default-rtdb.europe-west1.firebasedatabase.app';
+
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyDsZ-F8Tpl77yZUxkRkXOr-HnGrfr6OcbM',
     appId: '1:101610899328:web:94ef5e76085b599b486365',
     messagingSenderId: '101610899328',
     projectId: 'occasion-10cdb',
     authDomain: 'occasion-10cdb.firebaseapp.com',
+    databaseURL: _databaseURL,
     storageBucket: 'occasion-10cdb.firebasestorage.app',
     measurementId: 'G-C7WDKKRSMD',
   );
@@ -61,6 +69,7 @@ class DefaultFirebaseOptions {
     appId: '1:101610899328:android:8145ca9b4fbab568486365',
     messagingSenderId: '101610899328',
     projectId: 'occasion-10cdb',
+    databaseURL: _databaseURL,
     storageBucket: 'occasion-10cdb.firebasestorage.app',
   );
 
@@ -69,6 +78,7 @@ class DefaultFirebaseOptions {
     appId: '1:101610899328:ios:1ef95a310386d06c486365',
     messagingSenderId: '101610899328',
     projectId: 'occasion-10cdb',
+    databaseURL: _databaseURL,
     storageBucket: 'occasion-10cdb.firebasestorage.app',
     iosBundleId: 'com.example.occasion',
   );

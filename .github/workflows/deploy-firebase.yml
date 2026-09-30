@@ -19,6 +19,7 @@ on:
       - "firestore.indexes.json"
       - "storage.rules"
       - "storage.cors.json"
+      - "database.rules.json"
       - ".github/workflows/deploy-firebase.yml"
   workflow_dispatch:
 
@@ -101,10 +102,10 @@ jobs:
       # IAM Policy") puis passe à la relance, avec les mêmes droits. Le
       # déploiement est idempotent, le relancer ne change rien à ce qui a
       # déjà réussi.
-      - name: Deploy to Firebase (functions + firestore rules/indexes + storage rules)
+      - name: Deploy to Firebase (functions + firestore rules/indexes + storage rules + database rules)
         run: |
           deploy() {
-            firebase deploy --only functions,firestore,storage --project occasion-10cdb --non-interactive
+            firebase deploy --only functions,firestore,storage,database --project occasion-10cdb --non-interactive
           }
           if ! deploy; then
             echo "::warning::Déploiement en échec, nouvelle tentative dans 30 s."
