@@ -26,6 +26,8 @@ class Message {
     this.mediaHeight,
     this.forwardedFromChatId,
     this.forwardedFromMessageId,
+    this.deletedFor = const [],
+    this.deletedForEveryone = false,
   });
 
   final String id;
@@ -50,9 +52,23 @@ class Message {
   final String? forwardedFromChatId;
   final String? forwardedFromMessageId;
 
+  /// Uid des utilisateurs ayant choisi "Supprimer pour moi" — écrit
+  /// exclusivement par la Cloud Function callable `deleteChatMessage`
+  /// (voir `functions/index.js`), jamais par le client directement. Un
+  /// message dans cette liste doit être filtré de l'affichage de
+  /// l'utilisateur concerné, mais reste intact pour l'autre participant.
+  final List<String> deletedFor;
+
+  /// `true` une fois que l'expéditeur a choisi "Supprimer pour tout le
+  /// monde" — `content`/`mediaUrl` sont alors définitivement vidés côté
+  /// serveur, remplacés par une marque "Message supprimé" affichée aux
+  /// deux participants (voir `_Bubble` dans `chat_screen.dart`).
+  final bool deletedForEveryone;
+
   bool get isRead => status == MessageStatus.read;
   bool get hasMedia => mediaUrl != null && mediaUrl!.isNotEmpty;
   bool get isForwarded => forwardedFromMessageId != null;
+  bool isDeletedFor(String uid) => deletedFor.contains(uid);
 
   factory Message.fromMap(Map<String, dynamic> map) {
     final mediaTypeRaw = map['mediaType'] as String?;
@@ -77,6 +93,10 @@ class Message {
       mediaHeight: (map['mediaHeight'] as num?)?.toInt(),
       forwardedFromChatId: map['forwardedFromChatId'] as String?,
       forwardedFromMessageId: map['forwardedFromMessageId'] as String?,
+      deletedFor:
+          (map['deletedFor'] as List?)?.whereType<String>().toList() ??
+          const [],
+      deletedForEveryone: map['deletedForEveryone'] as bool? ?? false,
     );
   }
 
@@ -95,6 +115,8 @@ class Message {
     if (forwardedFromChatId != null) 'forwardedFromChatId': forwardedFromChatId,
     if (forwardedFromMessageId != null)
       'forwardedFromMessageId': forwardedFromMessageId,
+    if (deletedFor.isNotEmpty) 'deletedFor': deletedFor,
+    if (deletedForEveryone) 'deletedForEveryone': deletedForEveryone,
   };
 
   Message copyWith({MessageStatus? status}) {
@@ -112,6 +134,8 @@ class Message {
       mediaHeight: mediaHeight,
       forwardedFromChatId: forwardedFromChatId,
       forwardedFromMessageId: forwardedFromMessageId,
+      deletedFor: deletedFor,
+      deletedForEveryone: deletedForEveryone,
     );
   }
 }

@@ -194,4 +194,60 @@ void main() {
       expect(updated.forwardedFromMessageId, message.forwardedFromMessageId);
     });
   });
+
+  group('Message — suppression ("pour moi" / "pour tout le monde")', () {
+    test(
+      'par défaut : deletedFor vide, deletedForEveryone faux, isDeletedFor faux',
+      () {
+        final message = _message();
+        expect(message.deletedFor, isEmpty);
+        expect(message.deletedForEveryone, isFalse);
+        expect(message.isDeletedFor('buyer1'), isFalse);
+      },
+    );
+
+    test(
+      'isDeletedFor ne vaut vrai que pour un uid présent dans deletedFor',
+      () {
+        final restored = Message.fromMap({
+          ..._message().toMap(),
+          'id': 'msg1',
+          'deletedFor': ['buyer1'],
+        });
+        expect(restored.isDeletedFor('buyer1'), isTrue);
+        expect(restored.isDeletedFor('seller1'), isFalse);
+      },
+    );
+
+    test(
+      'deletedForEveryone fait un aller-retour identique via toMap/fromMap',
+      () {
+        final restored = Message.fromMap({
+          ..._message().toMap(),
+          'id': 'msg1',
+          'content': '',
+          'deletedForEveryone': true,
+        });
+        expect(restored.deletedForEveryone, isTrue);
+        expect(restored.content, isEmpty);
+        final roundTripped = Message.fromMap({
+          ...restored.toMap(),
+          'id': 'msg1',
+        });
+        expect(roundTripped.deletedForEveryone, isTrue);
+      },
+    );
+
+    test('copyWith préserve deletedFor/deletedForEveryone', () {
+      final restored = Message.fromMap({
+        ..._message().toMap(),
+        'id': 'msg1',
+        'deletedFor': ['buyer1'],
+        'deletedForEveryone': true,
+      });
+      final updated = restored.copyWith(status: MessageStatus.read);
+      expect(updated.deletedFor, ['buyer1']);
+      expect(updated.deletedForEveryone, isTrue);
+    });
+  });
 }

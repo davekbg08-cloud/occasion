@@ -14,6 +14,7 @@ class Chat {
     this.lastSenderId,
     this.buyerUnreadCount = 0,
     this.sellerUnreadCount = 0,
+    this.hiddenFor = const [],
   });
 
   final String id;
@@ -30,6 +31,15 @@ class Chat {
   final String? lastSenderId;
   final int buyerUnreadCount;
   final int sellerUnreadCount;
+
+  /// Uid des participants ayant choisi "Supprimer pour moi" — écrit
+  /// exclusivement par la Cloud Function callable `deleteChatForMe`
+  /// (voir `functions/index.js`). La conversation reste intacte pour
+  /// l'autre participant, et réapparaît automatiquement dès qu'un nouveau
+  /// message arrive (`writeChatMessage` réinitialise ce champ à `[]`).
+  final List<String> hiddenFor;
+
+  bool isHiddenFor(String uid) => hiddenFor.contains(uid);
 
   /// Compteur de messages non lus propre à [userId] — jamais celui de
   /// l'autre participant (contrairement à l'ancien `unreadCount` partagé).
@@ -74,6 +84,8 @@ class Chat {
       lastSenderId: map['lastSenderId'] as String?,
       buyerUnreadCount: map['buyerUnreadCount'] as int? ?? legacyUnread,
       sellerUnreadCount: map['sellerUnreadCount'] as int? ?? legacyUnread,
+      hiddenFor:
+          (map['hiddenFor'] as List?)?.whereType<String>().toList() ?? const [],
     );
   }
 
@@ -93,6 +105,7 @@ class Chat {
     'lastSenderId': lastSenderId,
     'buyerUnreadCount': buyerUnreadCount,
     'sellerUnreadCount': sellerUnreadCount,
+    if (hiddenFor.isNotEmpty) 'hiddenFor': hiddenFor,
   };
 
   Chat copyWith({
@@ -117,6 +130,7 @@ class Chat {
       lastSenderId: lastSenderId ?? this.lastSenderId,
       buyerUnreadCount: buyerUnreadCount ?? this.buyerUnreadCount,
       sellerUnreadCount: sellerUnreadCount ?? this.sellerUnreadCount,
+      hiddenFor: hiddenFor,
     );
   }
 

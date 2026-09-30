@@ -615,6 +615,11 @@ service cloud.firestore {
         && request.resource.data.get('lastMessage', null) == resource.data.get('lastMessage', null)
         && request.resource.data.get('lastMessageAt', null) == resource.data.get('lastMessageAt', null)
         && request.resource.data.get('lastSenderId', null) == resource.data.get('lastSenderId', null)
+        // "Supprimer pour moi" (deleteChatForMe) et sa remise à zéro à
+        // l'arrivée d'un nouveau message (writeChatMessage) passent
+        // exclusivement par l'Admin SDK — jamais modifiable ici, sans quoi
+        // un participant pourrait masquer la conversation pour L'AUTRE.
+        && request.resource.data.get('hiddenFor', []) == resource.data.get('hiddenFor', [])
         && (
           request.resource.data.get('participants', null) == resource.data.get('participants', null)
           || (

@@ -821,6 +821,42 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
+  /// "Supprimer pour moi" : retire [chatId] de MA liste uniquement — voir
+  /// `ChatService.deleteChatForMe`. Retiré localement tout de suite (même
+  /// principe optimiste que [deleteChat]) ; le flux `userChats` confirmera
+  /// ensuite (déjà filtré côté service).
+  Future<void> deleteChatForMe(String chatId) async {
+    try {
+      await _service.deleteChatForMe(chatId);
+      state = state.copyWith(
+        chats: state.chats.where((chat) => chat.id != chatId).toList(),
+        clearError: true,
+      );
+    } catch (error) {
+      state = state.copyWith(error: error.toString());
+    }
+  }
+
+  /// Supprime [messageId] du chat [chatId] — voir `ChatService.deleteMessage`
+  /// pour la distinction "pour moi"/"pour tout le monde". Aucune mise à
+  /// jour optimiste locale : le flux `chatMessages` (déjà écouté tant que
+  /// la conversation est ouverte) reflète le document mis à jour dès la
+  /// confirmation serveur. L'erreur n'est jamais posée dans
+  /// [ChatState.error] (réservé aux échecs d'ENVOI, affiché par un
+  /// libellé dédié dans `chat_screen.dart`) : laissée à l'appelant, qui
+  /// affiche son propre SnackBar contextuel.
+  Future<void> deleteMessage({
+    required String chatId,
+    required String messageId,
+    required bool forEveryone,
+  }) {
+    return _service.deleteMessage(
+      chatId: chatId,
+      messageId: messageId,
+      forEveryone: forEveryone,
+    );
+  }
+
   void clearMessages() {
     state = state.copyWith(clearActiveChat: true);
   }

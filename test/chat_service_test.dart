@@ -191,4 +191,53 @@ void main() {
       },
     );
   });
+
+  group('ChatService.userChats — "Supprimer pour moi" (hiddenFor)', () {
+    late FakeFirebaseFirestore firestore;
+    late ChatService service;
+
+    setUp(() {
+      firestore = FakeFirebaseFirestore();
+      service = ChatService(firestore);
+    });
+
+    test(
+      'un chat masqué pour cet utilisateur (hiddenFor) est exclu de son flux, '
+      'jamais de celui de l\'autre participant',
+      () async {
+        await firestore.collection('chats').doc('chat1').set({
+          'buyerId': 'buyer1',
+          'sellerId': 'seller1',
+          'buyerName': 'Acheteur',
+          'sellerName': 'Vendeur',
+          'lastMessageAt': 1000,
+          'hiddenFor': ['buyer1'],
+        });
+
+        final buyerChats = await service.userChats('buyer1').first;
+        expect(buyerChats, isEmpty);
+
+        final sellerChats = await service.userChats('seller1').first;
+        expect(sellerChats, hasLength(1));
+      },
+    );
+
+    test(
+      'un chat non masqué (hiddenFor absent) reste visible pour les deux',
+      () async {
+        await firestore.collection('chats').doc('chat1').set({
+          'buyerId': 'buyer1',
+          'sellerId': 'seller1',
+          'buyerName': 'Acheteur',
+          'sellerName': 'Vendeur',
+          'lastMessageAt': 1000,
+        });
+
+        final buyerChats = await service.userChats('buyer1').first;
+        final sellerChats = await service.userChats('seller1').first;
+        expect(buyerChats, hasLength(1));
+        expect(sellerChats, hasLength(1));
+      },
+    );
+  });
 }

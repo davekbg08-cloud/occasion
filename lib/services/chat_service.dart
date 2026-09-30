@@ -133,6 +133,11 @@ class ChatService {
         .map(
           (snap) => snap.docs
               .map((doc) => Chat.fromMap({...doc.data(), 'id': doc.id}))
+              // "Supprimer pour moi" (voir deleteChatForMe) : masqué
+              // uniquement de la liste de CET utilisateur, jamais un
+              // filtre côté serveur (l'autre participant continue de voir
+              // la conversation normalement).
+              .where((chat) => !chat.isHiddenFor(userId))
               .toList(),
         );
   }
@@ -280,6 +285,35 @@ class ChatService {
   Future<void> deleteChat(String chatId) async {
     await _functions.httpsCallable('deleteChat').call(<String, dynamic>{
       'chatId': chatId,
+    });
+  }
+
+  /// Délègue à la Cloud Function callable `deleteChatForMe` (Admin SDK) :
+  /// masque la conversation uniquement pour l'appelant (`hiddenFor`),
+  /// contrairement à [deleteChat] qui la supprime définitivement pour les
+  /// deux participants. Réapparaît automatiquement dès qu'un nouveau
+  /// message arrive (voir `functions/index.js::writeChatMessage`).
+  Future<void> deleteChatForMe(String chatId) async {
+    await _functions.httpsCallable('deleteChatForMe').call(<String, dynamic>{
+      'chatId': chatId,
+    });
+  }
+
+  /// Délègue à la Cloud Function callable `deleteChatMessage` (Admin SDK) :
+  /// [forEveryone] false ("Supprimer pour moi") ajoute l'appelant à
+  /// `deletedFor` — invisible uniquement de son côté. [forEveryone] true
+  /// ("Supprimer pour tout le monde") vide `content`/`mediaUrl` du
+  /// document, visible des deux participants — réservé à l'expéditeur, le
+  /// serveur le revérifie (jamais fait confiance au seul `isMe` client).
+  Future<void> deleteMessage({
+    required String chatId,
+    required String messageId,
+    required bool forEveryone,
+  }) async {
+    await _functions.httpsCallable('deleteChatMessage').call(<String, dynamic>{
+      'chatId': chatId,
+      'messageId': messageId,
+      'forEveryone': forEveryone,
     });
   }
 }

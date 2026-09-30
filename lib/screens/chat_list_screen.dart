@@ -158,7 +158,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   chat: chat,
                   currentUserId: me?.id ?? '',
                   onOpen: () => context.push('/chat-room', extra: chat),
-                  onDelete: () => _confirmDelete(chat),
+                  onDelete: (forEveryone) =>
+                      _confirmDelete(chat, forEveryone: forEveryone),
                   onShareInfo: () => _shareInfo(chat),
                 );
               },
@@ -166,12 +167,32 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     );
   }
 
-  Future<void> _confirmDelete(Chat chat) async {
+  /// [forEveryone] false ("Supprimer pour moi") : masque uniquement ma
+  /// liste, l'autre participant garde la conversation intacte, et elle me
+  /// revient automatiquement au prochain message (voir
+  /// `ChatNotifier.deleteChatForMe`) — pas de confirmation nécessaire,
+  /// rien d'irréversible. [forEveryone] true : suppression définitive pour
+  /// les deux participants (`ChatNotifier.deleteChat`, inchangé).
+  Future<void> _confirmDelete(Chat chat, {required bool forEveryone}) async {
+    if (!forEveryone) {
+      await ref.read(chatNotifierProvider.notifier).deleteChatForMe(chat.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('Conversation supprimée pour vous.'))),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr('Supprimer la conversation ?')),
-        content: Text(tr('Elle disparaîtra de votre liste de messages.')),
+        title: Text(tr('Supprimer pour tout le monde ?')),
+        content: Text(
+          tr(
+            "L'autre personne perdra aussi accès à cette conversation. "
+            'Action irréversible.',
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -217,7 +238,7 @@ class _ChatTile extends StatelessWidget {
   final Chat chat;
   final String currentUserId;
   final VoidCallback onOpen;
-  final VoidCallback onDelete;
+  final void Function(bool forEveryone) onDelete;
   final VoidCallback onShareInfo;
 
   @override
@@ -332,7 +353,8 @@ class _ChatTile extends StatelessWidget {
                           color: AppColors.textSecondary,
                         ),
                         onSelected: (value) {
-                          if (value == 'delete') onDelete();
+                          if (value == 'delete_for_me') onDelete(false);
+                          if (value == 'delete_for_everyone') onDelete(true);
                           if (value == 'share') onShareInfo();
                         },
                         itemBuilder: (context) => [
@@ -344,13 +366,20 @@ class _ChatTile extends StatelessWidget {
                             ),
                           ),
                           PopupMenuItem(
-                            value: 'delete',
+                            value: 'delete_for_me',
+                            child: ListTile(
+                              leading: Icon(Icons.delete_outline),
+                              title: Text(tr('Supprimer pour moi')),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete_for_everyone',
                             child: ListTile(
                               leading: Icon(
-                                Icons.delete_outline,
+                                Icons.delete_forever,
                                 color: Colors.red,
                               ),
-                              title: Text(tr('Supprimer conversation')),
+                              title: Text(tr('Supprimer pour tout le monde')),
                             ),
                           ),
                         ],

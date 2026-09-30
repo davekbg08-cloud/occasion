@@ -366,6 +366,37 @@ test("un acheteur ne peut pas modifier le compteur non-lu du vendeur", async () 
   );
 });
 
+test("un participant ne peut pas modifier hiddenFor directement (passe par deleteChatForMe) — jamais masquer la conversation pour L'AUTRE", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("chats").doc("chat1").update({ hiddenFor: ["seller1"] })
+  );
+});
+
+test("un participant peut toujours modifier une métadonnée libre (listingTitle) tant que hiddenFor reste inchangé", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+      buyerUnreadCount: 0,
+      sellerUnreadCount: 0,
+      hiddenFor: ["buyer1"],
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("chats").doc("chat1").update({ listingTitle: "Nouveau titre" })
+  );
+});
+
 test("un acheteur ne peut plus incrémenter son propre compteur non-lu (serveur uniquement)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("chats").doc("chat1").set({
@@ -758,6 +789,39 @@ test("aucun participant ne peut modifier unreadProcessed/unreadIncrementApplied 
       .collection("messages")
       .doc("m1")
       .update({ unreadProcessed: true, unreadIncrementApplied: false })
+  );
+});
+
+test("aucun participant ne peut modifier deletedFor/deletedForEveryone sur un message (passe par deleteChatMessage)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("chats").doc("chat1").set({
+      buyerId: "buyer1",
+      sellerId: "seller1",
+    });
+    await ctx.firestore().collection("chats").doc("chat1").collection("messages").doc("m1").set({
+      senderId: "buyer1",
+      receiverId: "seller1",
+      content: "Bonjour",
+      status: "sent",
+      sentAt: Date.now(),
+    });
+  });
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ deletedFor: ["seller1"] })
+  );
+  await assertFails(
+    buyer
+      .collection("chats")
+      .doc("chat1")
+      .collection("messages")
+      .doc("m1")
+      .update({ content: "", deletedForEveryone: true })
   );
 });
 

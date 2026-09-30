@@ -74,4 +74,54 @@ void main() {
       expect(chat.sellerUnreadCount, 0);
     });
   });
+
+  group('Chat.hiddenFor ("Supprimer pour moi")', () {
+    test('absent du document : isHiddenFor est toujours faux', () {
+      final chat = _chat();
+      expect(chat.isHiddenFor('buyer1'), isFalse);
+      expect(chat.hiddenFor, isEmpty);
+    });
+
+    test(
+      'fromMap lit hiddenFor et isHiddenFor ne vaut vrai que pour cet uid',
+      () {
+        final chat = Chat.fromMap({
+          'id': 'chat1',
+          'buyerId': 'buyer1',
+          'sellerId': 'seller1',
+          'buyerName': 'Acheteur',
+          'sellerName': 'Vendeur',
+          'hiddenFor': ['buyer1'],
+        });
+        expect(chat.isHiddenFor('buyer1'), isTrue);
+        expect(chat.isHiddenFor('seller1'), isFalse);
+      },
+    );
+
+    test('toMap round-trip préserve hiddenFor', () {
+      final chat = Chat.fromMap({
+        'id': 'chat1',
+        'buyerId': 'buyer1',
+        'sellerId': 'seller1',
+        'buyerName': 'Acheteur',
+        'sellerName': 'Vendeur',
+        'hiddenFor': ['buyer1'],
+      });
+      final roundTripped = Chat.fromMap(chat.toMap());
+      expect(roundTripped.hiddenFor, ['buyer1']);
+    });
+
+    test('copyWith préserve hiddenFor (jamais réinitialisé à vide)', () {
+      final chat = Chat.fromMap({
+        'id': 'chat1',
+        'buyerId': 'buyer1',
+        'sellerId': 'seller1',
+        'buyerName': 'Acheteur',
+        'sellerName': 'Vendeur',
+        'hiddenFor': ['buyer1'],
+      });
+      final updated = chat.copyWith(lastMessage: 'Salut');
+      expect(updated.hiddenFor, ['buyer1']);
+    });
+  });
 }

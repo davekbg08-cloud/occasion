@@ -1554,6 +1554,258 @@ test("deleteChat : rejette un appel non authentifié et un utilisateur qui ne pa
   assert.equal(chatSnap.exists, true, "un appel rejeté ne doit rien supprimer");
 });
 
+test("deleteChatForMe : masque la conversation uniquement pour l'appelant (hiddenFor)", async () => {
+  const chatId = "chat-hide-basic";
+  await seedChat(chatId);
+
+  const result = await functions.deleteChatForMe.run({
+    data: { chatId },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.hidden, true);
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.exists, true, "rien n'est réellement supprimé");
+  assert.deepEqual(chatSnap.data().hiddenFor, ["buyer1"]);
+});
+
+test("deleteChatForMe : idempotent — rejouer n'ajoute pas de doublon dans hiddenFor", async () => {
+  const chatId = "chat-hide-idempotent";
+  await seedChat(chatId);
+
+  await functions.deleteChatForMe.run({ data: { chatId }, auth: { uid: "buyer1" } });
+  await functions.deleteChatForMe.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.deepEqual(chatSnap.data().hiddenFor, ["buyer1"]);
+});
+
+test("deleteChatForMe : un nouveau message réinitialise hiddenFor (réapparaît pour tout le monde)", async () => {
+  const chatId = "chat-hide-reappear";
+  await seedChat(chatId);
+  await functions.deleteChatForMe.run({ data: { chatId }, auth: { uid: "buyer1" } });
+
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg-after-hide", content: "Bonjour" },
+    auth: { uid: "seller1" },
+  });
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.deepEqual(chatSnap.data().hiddenFor, []);
+});
+
+test("deleteChatForMe : rejette un appel non authentifié et un utilisateur qui ne participe pas", async () => {
+  const chatId = "chat-hide-rejects";
+  await seedChat(chatId);
+
+  await assert.rejects(
+    () => functions.deleteChatForMe.run({ data: { chatId }, auth: undefined }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+  await assert.rejects(
+    () => functions.deleteChatForMe.run({ data: { chatId }, auth: { uid: "outsider" } }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  const chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.deepEqual(
+    chatSnap.data().hiddenFor ?? [],
+    [],
+    "un appel rejeté ne doit rien masquer"
+  );
+});
+
+test('deleteChatMessage "pour moi" : ajoute l\'appelant à deletedFor, laisse le contenu intact pour l\'autre participant', async () => {
+  const chatId = "chat-msg-delete-for-me";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  const result = await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: false },
+    auth: { uid: "seller1" },
+  });
+  assert.equal(result.deleted, true);
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg1").get();
+  assert.deepEqual(msgSnap.data().deletedFor, ["seller1"]);
+  assert.equal(msgSnap.data().content, "Bonjour", "le contenu reste intact, seul l'affichage de seller1 doit le filtrer");
+  assert.equal(msgSnap.data().deletedForEveryone ?? false, false);
+});
+
+test('deleteChatMessage "pour moi" : idempotent — rejouer n\'ajoute pas de doublon', async () => {
+  const chatId = "chat-msg-delete-for-me-idempotent";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: false },
+    auth: { uid: "seller1" },
+  });
+  await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: false },
+    auth: { uid: "seller1" },
+  });
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg1").get();
+  assert.deepEqual(msgSnap.data().deletedFor, ["seller1"]);
+});
+
+test('deleteChatMessage "pour tout le monde" : réservé à l\'expéditeur, vide le contenu/média pour les deux participants', async () => {
+  const chatId = "chat-msg-delete-everyone";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: {
+      chatId,
+      clientMessageId: "msg1",
+      content: "Regarde",
+      mediaUrl: "https://firebasestorage.googleapis.com/v0/b/x/o/chatMedia%2Fchat-msg-delete-everyone%2Fbuyer1%2Fseller1%2Fmsg1.jpg?alt=media",
+      mediaType: "image",
+    },
+    auth: { uid: "buyer1" },
+  });
+
+  const result = await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: true },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.deleted, true);
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg1").get();
+  assert.equal(msgSnap.data().content, "");
+  assert.equal(msgSnap.data().mediaUrl, undefined, "mediaUrl doit être entièrement effacé, pas juste vidé");
+  assert.equal(msgSnap.data().deletedForEveryone, true);
+  assert.ok(msgSnap.data().deletedAt);
+});
+
+test('deleteChatMessage "pour tout le monde" : un non-expéditeur est rejeté, rien n\'est modifié', async () => {
+  const chatId = "chat-msg-delete-everyone-rejects";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await assert.rejects(
+    () =>
+      functions.deleteChatMessage.run({
+        data: { chatId, messageId: "msg1", forEveryone: true },
+        auth: { uid: "seller1" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+
+  const msgSnap = await db.collection("chats").doc(chatId).collection("messages").doc("msg1").get();
+  assert.equal(msgSnap.data().content, "Bonjour", "le message ne doit jamais être modifié par un appel rejeté");
+  assert.equal(msgSnap.data().deletedForEveryone ?? false, false);
+});
+
+test('deleteChatMessage "pour tout le monde" : idempotent, jamais d\'erreur sur un message déjà supprimé', async () => {
+  const chatId = "chat-msg-delete-everyone-idempotent";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: true },
+    auth: { uid: "buyer1" },
+  });
+  const replay = await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: true },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(replay.deleted, true);
+});
+
+test('deleteChatMessage "pour tout le monde" : met à jour l\'aperçu de la conversation UNIQUEMENT si c\'était le dernier message', async () => {
+  const chatId = "chat-msg-delete-last-preview";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Premier" },
+    auth: { uid: "buyer1" },
+  });
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg2", content: "Dernier" },
+    auth: { uid: "buyer1" },
+  });
+
+  // Supprimer un message qui N'EST PAS le dernier ne doit jamais toucher
+  // l'aperçu affiché dans la liste des conversations.
+  await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg1", forEveryone: true },
+    auth: { uid: "buyer1" },
+  });
+  let chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().lastMessage, "Dernier");
+
+  // Supprimer le DERNIER message doit refléter la suppression dans l'aperçu.
+  await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "msg2", forEveryone: true },
+    auth: { uid: "buyer1" },
+  });
+  chatSnap = await db.collection("chats").doc(chatId).get();
+  assert.equal(chatSnap.data().lastMessage, "Message supprimé");
+});
+
+test("deleteChatMessage : rejette un appel non authentifié et un utilisateur qui ne participe pas à la conversation", async () => {
+  const chatId = "chat-msg-delete-rejects";
+  await seedChat(chatId);
+  await functions.sendChatMessage.run({
+    data: { chatId, clientMessageId: "msg1", content: "Bonjour" },
+    auth: { uid: "buyer1" },
+  });
+
+  await assert.rejects(
+    () =>
+      functions.deleteChatMessage.run({
+        data: { chatId, messageId: "msg1", forEveryone: false },
+        auth: undefined,
+      }),
+    (err) => {
+      assert.equal(err.code, "unauthenticated");
+      return true;
+    }
+  );
+  await assert.rejects(
+    () =>
+      functions.deleteChatMessage.run({
+        data: { chatId, messageId: "msg1", forEveryone: false },
+        auth: { uid: "outsider" },
+      }),
+    (err) => {
+      assert.equal(err.code, "permission-denied");
+      return true;
+    }
+  );
+});
+
+test("deleteChatMessage : un message déjà inexistant est idempotent (jamais d'erreur)", async () => {
+  const chatId = "chat-msg-delete-missing";
+  await seedChat(chatId);
+
+  const result = await functions.deleteChatMessage.run({
+    data: { chatId, messageId: "never-existed", forEveryone: false },
+    auth: { uid: "buyer1" },
+  });
+  assert.equal(result.deleted, true);
+});
+
 test("applyPushResult : un succès FCM réel fait passer un message de sent à delivered", async () => {
   const chatId = "chat-delivered-basic";
   const messageId = "msg-delivered-1";

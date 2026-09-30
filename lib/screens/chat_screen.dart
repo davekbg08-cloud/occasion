@@ -360,6 +360,111 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  /// Menu d'appui long sur une bulle : transférer (déjà existant), et les
+  /// deux modes de suppression — "pour moi" (toujours proposé, jamais de
+  /// confirmation : n'affecte que mon propre affichage, rien d'irréversible
+  /// pour l'autre participant) et "pour tout le monde" (uniquement pour
+  /// l'expéditeur de ce message, confirmation requise — irréversible et
+  /// visible des deux côtés, même garde que `_confirmDelete` dans
+  /// `chat_list_screen.dart` pour une conversation entière).
+  Future<void> _showMessageActions(Message message, bool isMe) async {
+    final alreadyDeletedForEveryone = message.deletedForEveryone;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!alreadyDeletedForEveryone)
+                ListTile(
+                  leading: const Icon(Icons.shortcut, color: Colors.white),
+                  title: Text(
+                    tr('Transférer'),
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop('forward'),
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.white),
+                title: Text(
+                  tr('Supprimer pour moi'),
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.of(sheetContext).pop('delete_for_me'),
+              ),
+              if (isMe && !alreadyDeletedForEveryone)
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: Text(
+                    tr('Supprimer pour tout le monde'),
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop('delete_for_everyone'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case 'forward':
+        await _showForwardSheet(message);
+      case 'delete_for_me':
+        await _deleteMessage(message, forEveryone: false);
+      case 'delete_for_everyone':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(tr('Supprimer pour tout le monde ?')),
+            content: Text(
+              tr(
+                "L'autre personne verra que ce message a été supprimé. "
+                'Action irréversible.',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(tr('Annuler')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(tr('Supprimer')),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          await _deleteMessage(message, forEveryone: true);
+        }
+    }
+  }
+
+  Future<void> _deleteMessage(
+    Message message, {
+    required bool forEveryone,
+  }) async {
+    try {
+      await ref
+          .read(chatNotifierProvider.notifier)
+          .deleteMessage(
+            chatId: widget.chat.id,
+            messageId: message.id,
+            forEveryone: forEveryone,
+          );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('Impossible de supprimer ce message.'))),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Une erreur de persistance locale (ChatState.error, ex. l'écriture
@@ -397,7 +502,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ),
       ),
     );
-    final messages = ref.watch(chatMessagesProvider(widget.chat.id));
+    // "Supprimer pour moi" (voir `ChatNotifier.deleteMessage`) : filtré
+    // uniquement de MON affichage, jamais du document Firestore lui-même
+    // — l'autre participant continue de voir ce message normalement.
+    final messages = ref
+        .watch(chatMessagesProvider(widget.chat.id))
+        .where((m) => !m.isDeletedFor(myId))
+        .toList();
     final otherName = chat.otherUserName(myId);
     final otherImage = chat.otherUserProfileImage(myId)?.trim();
     final otherId = chat.otherUserId(myId);
@@ -592,14 +703,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     .read(chatNotifierProvider.notifier)
                                     .retryMessage(widget.chat.id, message.id)
                               : null,
-                          // Transférer un message pas encore confirmé par
-                          // le serveur échouerait (`forwardChatMessage` ne
-                          // trouverait pas encore le document source) —
-                          // uniquement disponible une fois envoyé/livré/lu.
-                          onForward:
+                          // Transférer/supprimer un message pas encore
+                          // confirmé par le serveur échouerait (le document
+                          // source n'existe pas encore) — uniquement
+                          // disponible une fois envoyé/livré/lu.
+                          onLongPress:
                               message.status != MessageStatus.sending &&
                                   message.status != MessageStatus.failed
-                              ? () => _showForwardSheet(message)
+                              ? () => _showMessageActions(message, isMe)
                               : null,
                         ),
                       ],
@@ -631,7 +742,7 @@ class _Bubble extends StatelessWidget {
     required this.message,
     required this.isMe,
     this.onRetry,
-    this.onForward,
+    this.onLongPress,
   });
 
   final Message message;
@@ -644,12 +755,13 @@ class _Bubble extends StatelessWidget {
 
   /// Non-null uniquement pour un message déjà confirmé par le serveur
   /// (jamais `sending`/`failed`, voir `chat_screen.dart::build`) — appui
-  /// long pour ouvrir le choix de conversation cible.
-  final VoidCallback? onForward;
+  /// long pour ouvrir le menu transférer/supprimer.
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final failed = message.status == MessageStatus.failed;
+    final deleted = message.deletedForEveryone;
     // Texte sombre sur la bulle turquoise (lisibilité), clair ailleurs.
     final textColor = isMe && !failed
         ? AppColors.onPrimary
@@ -660,7 +772,7 @@ class _Bubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onTap: onRetry,
-        onLongPress: onForward,
+        onLongPress: onLongPress,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
@@ -683,34 +795,52 @@ class _Bubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (message.isForwarded)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.shortcut, size: 12, color: metaColor),
-                      const SizedBox(width: 3),
-                      Text(
-                        tr('Transféré'),
-                        style: TextStyle(
-                          color: metaColor,
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
-                        ),
+              if (deleted)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.block, size: 14, color: metaColor),
+                    const SizedBox(width: 5),
+                    Text(
+                      tr('Message supprimé'),
+                      style: TextStyle(
+                        color: metaColor,
+                        fontSize: 14,
+                        fontStyle: FontStyle.italic,
                       ),
-                    ],
+                    ),
+                  ],
+                )
+              else ...[
+                if (message.isForwarded)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.shortcut, size: 12, color: metaColor),
+                        const SizedBox(width: 3),
+                        Text(
+                          tr('Transféré'),
+                          style: TextStyle(
+                            color: metaColor,
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              if (message.hasMedia) _MediaContent(message: message),
-              if (message.content.isNotEmpty)
-                Padding(
-                  padding: EdgeInsets.only(top: message.hasMedia ? 6 : 0),
-                  child: Text(
-                    message.content,
-                    style: TextStyle(color: textColor, fontSize: 15),
+                if (message.hasMedia) _MediaContent(message: message),
+                if (message.content.isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.only(top: message.hasMedia ? 6 : 0),
+                    child: Text(
+                      message.content,
+                      style: TextStyle(color: textColor, fontSize: 15),
+                    ),
                   ),
-                ),
+              ],
               const SizedBox(height: 3),
               Row(
                 mainAxisSize: MainAxisSize.min,

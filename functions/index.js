@@ -1020,6 +1020,10 @@ async function writeChatMessage({
       lastMessage: lastMessagePreview,
       lastMessageAt: sentAt,
       lastSenderId: uid,
+      // Un nouveau message fait toujours réapparaître la conversation pour
+      // quiconque l'avait masquée via "Supprimer pour moi" (deleteChatForMe)
+      // — comme WhatsApp, il y a désormais du nouveau contenu à voir.
+      hiddenFor: [],
     });
     return { chatId, messageId: clientMessageId, alreadyExisted: false };
   });
@@ -1362,6 +1366,127 @@ exports.deleteChat = onCall(async (request) => {
   await db.recursiveDelete(chatRef.collection("messages"));
 
   return { deleted: true };
+});
+
+/**
+ * "Supprimer pour moi" : masque une conversation UNIQUEMENT pour
+ * l'appelant, contrairement à `deleteChat` (suppression définitive pour
+ * les deux participants). Rien n'est réellement supprimé — `hiddenFor`
+ * est une pure préférence d'affichage, filtrée côté client par
+ * `ChatService.userChats`. Réapparaît automatiquement dès qu'un nouveau
+ * message arrive (voir `writeChatMessage`, qui réinitialise toujours
+ * `hiddenFor: []`), comme WhatsApp. Idempotent : rejouer sur un chat déjà
+ * masqué (ou déjà supprimé) ne modifie rien de plus.
+ */
+exports.deleteChatForMe = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!chatId || typeof chatId !== "string") {
+    throw new HttpsError("invalid-argument", "chatId requis.");
+  }
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const chatSnap = await chatRef.get();
+  if (!chatSnap.exists) {
+    return { hidden: true };
+  }
+  const chatData = chatSnap.data();
+  if (chatData.buyerId !== uid && chatData.sellerId !== uid) {
+    throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+  }
+
+  await chatRef.update({ hiddenFor: FieldValue.arrayUnion(uid) });
+  return { hidden: true };
+});
+
+/**
+ * Supprime un message : "pour moi" (`forEveryone: false`, ajoute
+ * l'appelant à `deletedFor` — invisible uniquement de son côté, l'autre
+ * participant continue de le voir normalement) ou "pour tout le monde"
+ * (`forEveryone: true`, vide `content`/`mediaUrl` du document, visible des
+ * DEUX participants, réservé à l'expéditeur — comme WhatsApp). Jamais une
+ * suppression Firestore du document lui-même : sa position chronologique
+ * et les accusés de lecture déjà appliqués (`status`/`readAt`, voir
+ * `markChatAsRead`) restent nécessaires même après suppression du
+ * contenu. Idempotent dans les deux cas.
+ */
+exports.deleteChatMessage = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentification requise.");
+  }
+  const chatId = request.data?.chatId;
+  if (!isValidDocId(chatId, 200)) {
+    throw new HttpsError("invalid-argument", "chatId invalide.");
+  }
+  const messageId = request.data?.messageId;
+  if (!isValidDocId(messageId, 128)) {
+    throw new HttpsError("invalid-argument", "messageId invalide.");
+  }
+  const forEveryone = request.data?.forEveryone === true;
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const msgRef = chatRef.collection("messages").doc(messageId);
+
+  return db.runTransaction(async (tx) => {
+    const chatSnap = await tx.get(chatRef);
+    if (!chatSnap.exists) {
+      throw new HttpsError("not-found", "Conversation introuvable.");
+    }
+    const chatData = chatSnap.data();
+    if (uid !== chatData.buyerId && uid !== chatData.sellerId) {
+      throw new HttpsError("permission-denied", "Vous ne participez pas à cette conversation.");
+    }
+
+    const msgSnap = await tx.get(msgRef);
+    if (!msgSnap.exists) {
+      return { deleted: true };
+    }
+    const msgData = msgSnap.data();
+
+    if (forEveryone) {
+      if (msgData.senderId !== uid) {
+        throw new HttpsError(
+          "permission-denied",
+          "Seul l'expéditeur peut supprimer ce message pour tout le monde."
+        );
+      }
+      if (msgData.deletedForEveryone === true) {
+        return { deleted: true };
+      }
+      tx.update(msgRef, {
+        content: "",
+        mediaUrl: FieldValue.delete(),
+        mediaType: FieldValue.delete(),
+        mediaWidth: FieldValue.delete(),
+        mediaHeight: FieldValue.delete(),
+        deletedForEveryone: true,
+        deletedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Si ce message était le dernier affiché dans la liste des
+      // conversations, son aperçu doit refléter la suppression plutôt que
+      // de continuer à montrer un contenu qui n'existe plus. Comparaison
+      // exacte (expéditeur + horodatage) : sans correspondance, on laisse
+      // l'aperçu tel quel plutôt que de risquer d'écraser celui d'un
+      // message plus récent.
+      if (
+        chatData.lastSenderId === msgData.senderId &&
+        chatData.lastMessageAt === msgData.sentAt
+      ) {
+        tx.update(chatRef, { lastMessage: "Message supprimé" });
+      }
+    } else {
+      if (Array.isArray(msgData.deletedFor) && msgData.deletedFor.includes(uid)) {
+        return { deleted: true };
+      }
+      tx.update(msgRef, { deletedFor: FieldValue.arrayUnion(uid) });
+    }
+    return { deleted: true };
+  });
 });
 
 /**
