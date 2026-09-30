@@ -89,10 +89,24 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: tr('Répertoire'),
-            icon: const Icon(Icons.people_alt_outlined, color: Colors.white),
-            onPressed: () => context.push('/directory'),
+          // Bouton texte + icône plutôt qu'une simple IconButton avec
+          // tooltip (seulement visible au survol/appui long, peu probable
+          // d'être découvert sur mobile) — le répertoire doit être visible
+          // au premier coup d'œil, pas caché derrière une icône muette.
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton.icon(
+              onPressed: () => context.push('/directory'),
+              icon: const Icon(
+                Icons.people_alt_outlined,
+                color: Colors.white,
+                size: 20,
+              ),
+              label: Text(
+                tr('Répertoire'),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
           ),
         ],
         bottom: PreferredSize(
@@ -501,6 +515,18 @@ class _EmptyChats extends StatelessWidget {
                 fontSize: 14,
               ),
             ),
+          ),
+          const SizedBox(height: 20),
+          // Point d'entrée le plus visible vers le répertoire : sans
+          // conversation, cet écran était vide à part une icône discrète
+          // dans l'AppBar — peu probable qu'un nouvel utilisateur la
+          // remarque, alors que le répertoire est justement pensé comme un
+          // moyen d'attirer des gens qui n'ouvriraient pas l'app pour
+          // acheter/vendre.
+          FilledButton.icon(
+            onPressed: () => context.push('/directory'),
+            icon: const Icon(Icons.people_alt_outlined),
+            label: Text(tr('Découvrir le répertoire')),
           ),
         ],
       ),
