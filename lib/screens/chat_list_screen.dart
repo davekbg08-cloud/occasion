@@ -81,31 +81,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.grey[900],
-        title: Text(
-          widget.title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        // Titre "Échanges" retiré à la demande de l'utilisatrice : l'onglet
+        // sélectionné en bas l'indique déjà, et ça laisse la place au
+        // bouton Répertoire, désormais le seul élément de cette barre.
         actions: [
-          // Bouton texte + icône plutôt qu'une simple IconButton avec
-          // tooltip (seulement visible au survol/appui long, peu probable
-          // d'être découvert sur mobile) — le répertoire doit être visible
-          // au premier coup d'œil, pas caché derrière une icône muette.
+          // Vrai bouton bleu plein (plus un simple bouton texte) : doit
+          // être identifiable comme un bouton au premier coup d'œil, pas
+          // juste du texte cliquable.
           Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: FilledButton.icon(
               onPressed: () => context.push('/directory'),
-              icon: const Icon(
-                Icons.people_alt_outlined,
-                color: Colors.white,
-                size: 20,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
               ),
-              label: Text(
-                tr('Répertoire'),
-                style: const TextStyle(color: Colors.white),
-              ),
+              icon: const Icon(Icons.people_alt_outlined, size: 20),
+              label: Text(tr('Répertoire')),
             ),
           ),
         ],
