@@ -162,6 +162,11 @@ class _DashboardContent extends ConsumerWidget {
             title: tr('Statistiques'),
             route: '/seller-statistics',
           ),
+          _DashboardAction(
+            icon: Icons.auto_awesome_outlined,
+            title: tr('Mes statuts'),
+            route: '/my-statuses',
+          ),
         ],
       ),
     );

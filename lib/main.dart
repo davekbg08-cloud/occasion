@@ -36,6 +36,7 @@ import 'screens/directory_screen.dart';
 import 'screens/id_scan_screen.dart';
 import 'screens/loyalty_points_screen.dart';
 import 'screens/my_listings_screen.dart';
+import 'screens/my_statuses_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/orders_screen.dart';
 import 'screens/payment_screen.dart';
@@ -259,6 +260,11 @@ class OccasionApp extends StatelessWidget {
           role: UserRole.seller,
           child: SellerStatisticsScreen(),
         ),
+      ),
+      GoRoute(
+        path: '/my-statuses',
+        builder: (_, _) =>
+            const _RoleGuard(role: UserRole.seller, child: MyStatusesScreen()),
       ),
       GoRoute(
         path: '/loyalty-points',

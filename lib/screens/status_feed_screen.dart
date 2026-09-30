@@ -44,7 +44,6 @@ class StatusFeedScreen extends ConsumerStatefulWidget {
 class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
-  bool _didInitialSellerJump = false;
 
   @override
   void initState() {
@@ -82,30 +81,22 @@ class _StatusFeedScreenState extends ConsumerState<StatusFeedScreen> {
         : ref
               .watch(blockedUserIdsProvider(currentUser.id))
               .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
+    // Uniquement les statuts DU VENDEUR dont la bulle a été touchée (jamais
+    // le fil global mélangé) — même principe que WhatsApp/Instagram : ouvrir
+    // une bulle ne montre que le contenu de cette personne, du plus récent
+    // au plus ancien (déjà l'ordre de `statusState.statuses`, voir
+    // `StatusService.feed`). Seul point d'entrée de cet écran
+    // (`StatusStrip.onTap`) fournit toujours un `initialSellerId` ; le
+    // filtre ne s'applique donc simplement pas si jamais ce n'était pas le
+    // cas.
     final visibleStatuses = statusState.statuses
         .where((status) => !blockedIds.contains(status.sellerId))
+        .where(
+          (status) =>
+              widget.initialSellerId == null ||
+              status.sellerId == widget.initialSellerId,
+        )
         .toList();
-
-    if (!_didInitialSellerJump &&
-        widget.initialSellerId != null &&
-        visibleStatuses.isNotEmpty) {
-      _didInitialSellerJump = true;
-      final index = visibleStatuses.indexWhere(
-        (status) => status.sellerId == widget.initialSellerId,
-      );
-      if (index != -1) {
-        // Pris en compte dès ce build (pas de setState) : la première page
-        // active est la bonne sans flash de la page 0 au premier frame.
-        // Le PageController lui-même ne peut être positionné qu'une fois
-        // attaché au PageView, donc après ce build (jumpToPage sans saut
-        // visible, page jamais réellement affichée à l'index 0).
-        _currentPage = index;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_pageController.hasClients) return;
-          _pageController.jumpToPage(index);
-        });
-      }
-    }
 
     // Marque la page actuellement affichée comme vue (pilote la couleur
     // de sa bulle "stories" sur l'accueil) — `markViewed` est lui-même
