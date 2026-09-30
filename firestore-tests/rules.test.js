@@ -999,6 +999,50 @@ test("régression : un utilisateur ne peut plus écrire `favoris` à une valeur 
   );
 });
 
+test("régression : ajouter une annonce aux favoris (forme exacte écrite par favoris_provider.dart) réussit désormais", async () => {
+  // Reproduit EXACTEMENT la forme du document envoyé par
+  // FavorisNotifier.toggleFavori après correction — avant ce correctif,
+  // un cinquième champ ('createdAt', en plus de 'dateAjout') faisait
+  // échouer cet appel en silence (hasOnly() dans validFavori() refuse
+  // toute clé hors ['id', 'utilisateurId', 'annonceId', 'dateAjout']),
+  // sans qu'aucune erreur ne remonte jamais à l'écran : le cœur
+  // "favoris" ne faisait donc jamais rien.
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertSucceeds(
+    buyer.collection("favoris").doc("fav1").set({
+      id: "fav1",
+      utilisateurId: "buyer1",
+      annonceId: "annonce1",
+      dateAjout: new Date(),
+    })
+  );
+});
+
+test("régression : la forme AVANT correctif (champ `createdAt` en trop) est bien refusée — preuve du bug", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("favoris").doc("fav1").set({
+      id: "fav1",
+      utilisateurId: "buyer1",
+      annonceId: "annonce1",
+      dateAjout: new Date(),
+      createdAt: new Date(),
+    })
+  );
+});
+
+test("favoris : impossible de créer un favori au nom d'un autre utilisateur", async () => {
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("favoris").doc("fav1").set({
+      id: "fav1",
+      utilisateurId: "buyer2",
+      annonceId: "annonce1",
+      dateAjout: new Date(),
+    })
+  );
+});
+
 test("régression : `messagesCount` ne peut être incrémenté que de +1 exactement par un non-propriétaire (jamais une valeur arbitraire)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx

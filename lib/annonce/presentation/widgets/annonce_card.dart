@@ -12,6 +12,28 @@ class AnnonceCard extends ConsumerWidget {
 
   final Annonce annonce;
 
+  /// `toggleFavori` peut échouer (hors ligne, règles refusées...) — sans
+  /// ce try/catch, `IconButton.onPressed` (un simple `VoidCallback`)
+  /// laissait l'erreur dans un Future jamais attendu : aucun retour
+  /// visible pour l'utilisateur, le cœur restait figé sans qu'on sache
+  /// pourquoi (voir la régression corrigée dans favoris_provider.dart).
+  Future<void> _toggleFavori(
+    BuildContext context,
+    WidgetRef ref,
+    String userId,
+  ) async {
+    try {
+      await ref.read(favorisProvider(userId).notifier).toggleFavori(annonce.id);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de mettre à jour les favoris. Réessaie.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(authNotifierProvider).currentUser;
@@ -51,9 +73,7 @@ class AnnonceCard extends ConsumerWidget {
                     ),
                     onPressed: userId.isEmpty
                         ? null
-                        : () => ref
-                              .read(favorisProvider(userId).notifier)
-                              .toggleFavori(annonce.id),
+                        : () => _toggleFavori(context, ref, userId),
                   )
                 : null,
           ),

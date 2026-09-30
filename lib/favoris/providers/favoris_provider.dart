@@ -56,9 +56,20 @@ class FavorisNotifier extends StateNotifier<List<Favori>> {
       createdAt: DateTime.now(),
     );
 
+    // RÉGRESSION : `{...favori.toJson(), 'createdAt': ...}` ajoutait un
+    // CINQUIÈME champ ('createdAt', en plus de 'dateAjout' déjà présent
+    // dans toJson()) — `validFavori()` (firestore.rules) exige EXACTEMENT
+    // les clés ['id', 'utilisateurId', 'annonceId', 'dateAjout'] via
+    // `hasOnly()`, donc CHAQUE ajout aux favoris était rejeté en silence
+    // (PERMISSION_DENIED jamais remonté à l'écran, voir toggleFavori dans
+    // annonce_card.dart : Future non attendu par l'IconButton). N'écrit
+    // que les champs attendus par la règle, avec l'horodatage serveur
+    // directement sur 'dateAjout' (jamais l'heure locale du téléphone).
     await docRef.set({
-      ...favori.toJson(),
-      'createdAt': FieldValue.serverTimestamp(),
+      'id': favori.id,
+      'utilisateurId': favori.userId,
+      'annonceId': favori.annonceId,
+      'dateAjout': FieldValue.serverTimestamp(),
     });
     state = [...state, favori];
   }
