@@ -9,6 +9,7 @@ import '../providers/directory_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/user_display.dart';
+import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -159,26 +160,41 @@ class _DirectoryTile extends StatelessWidget {
         ? '?'
         : user.name.characters.first.toUpperCase();
 
+    final hasPhoto =
+        user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty;
+
     return ListTile(
       onTap: onOpen,
-      leading: ClipOval(
-        child: (user.profileImageUrl == null || user.profileImageUrl!.isEmpty)
-            ? CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.surfaceHigh,
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+      // Distinct du tap sur le reste de la fiche (onOpen, ouvre la
+      // conversation) : tapoter précisément la photo l'agrandit plutôt,
+      // même geste que sur un profil (voir `profile_screen.dart`/
+      // `seller_public_profile_screen.dart`).
+      leading: GestureDetector(
+        onTap: hasPhoto
+            ? () => FullscreenImageViewer.open(
+                context,
+                imageUrls: [user.profileImageUrl!],
               )
-            : OccasionImage.thumbnail(
-                user.profileImageUrl,
-                width: 48,
-                height: 48,
-              ),
+            : null,
+        child: ClipOval(
+          child: !hasPhoto
+              ? CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.surfaceHigh,
+                  child: Text(
+                    initial,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              : OccasionImage.thumbnail(
+                  user.profileImageUrl,
+                  width: 48,
+                  height: 48,
+                ),
+        ),
       ),
       title: Row(
         children: [

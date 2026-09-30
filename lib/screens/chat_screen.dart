@@ -565,14 +565,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       ),
                     ),
                   )
-                : ClipOval(
-                    child: OccasionImage.thumbnail(
-                      otherImage,
-                      width: 36,
-                      height: 36,
-                      cacheWidth: 72,
-                      cacheHeight: 72,
-                      semanticsLabel: 'Photo de profil de $otherName',
+                // Agrandit la photo au toucher — même geste que sur un
+                // profil (voir `profile_screen.dart`/
+                // `seller_public_profile_screen.dart`/`directory_screen.dart`).
+                : GestureDetector(
+                    onTap: () => FullscreenImageViewer.open(
+                      context,
+                      imageUrls: [otherImage],
+                    ),
+                    child: ClipOval(
+                      child: OccasionImage.thumbnail(
+                        otherImage,
+                        width: 36,
+                        height: 36,
+                        cacheWidth: 72,
+                        cacheHeight: 72,
+                        semanticsLabel: 'Photo de profil de $otherName',
+                      ),
                     ),
                   ),
             const SizedBox(width: 10),

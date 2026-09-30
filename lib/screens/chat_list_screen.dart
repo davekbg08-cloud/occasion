@@ -10,6 +10,7 @@ import '../providers/chat_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/user_display.dart';
+import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
@@ -477,14 +478,22 @@ class _ChatAvatar extends StatelessWidget {
               ),
             ),
           )
-        : ClipOval(
-            child: OccasionImage.thumbnail(
-              url,
-              width: 52,
-              height: 52,
-              cacheWidth: 104,
-              cacheHeight: 104,
-              semanticsLabel: 'Photo de profil de $name',
+        // Agrandit la photo au toucher, distinct du tap sur le reste de la
+        // fiche (InkWell parent, ouvre la conversation) — même geste que
+        // sur un profil (voir `profile_screen.dart`/
+        // `seller_public_profile_screen.dart`/`directory_screen.dart`/
+        // l'en-tête de `chat_screen.dart`).
+        : GestureDetector(
+            onTap: () => FullscreenImageViewer.open(context, imageUrls: [url]),
+            child: ClipOval(
+              child: OccasionImage.thumbnail(
+                url,
+                width: 52,
+                height: 52,
+                cacheWidth: 104,
+                cacheHeight: 104,
+                semanticsLabel: 'Photo de profil de $name',
+              ),
             ),
           );
     return Container(
