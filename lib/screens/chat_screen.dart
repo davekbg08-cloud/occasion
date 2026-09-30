@@ -12,6 +12,7 @@ import '../models/status.dart' show StatusType;
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/action_feedback.dart';
 import '../widgets/forward_message_sheet.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/fullscreen_video_viewer.dart';
@@ -137,6 +138,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           // et la bulle optimiste affichée — jamais avant, jamais si la
           // sauvegarde locale échoue (voir ChatNotifier.sendMessage).
           onQueued: () {
+            playActionFeedback();
             _inputController.clear();
             _scrollToBottom();
           },
@@ -182,6 +184,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             },
           );
       if (!mounted) return;
+      playActionFeedback();
       _inputController.clear();
       _scrollToBottom();
     } catch (error) {

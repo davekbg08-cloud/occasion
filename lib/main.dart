@@ -31,6 +31,7 @@ import 'screens/annonce_detail_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
+import 'screens/directory_screen.dart';
 import 'screens/id_scan_screen.dart';
 import 'screens/loyalty_points_screen.dart';
 import 'screens/my_listings_screen.dart';
@@ -331,6 +332,10 @@ class OccasionApp extends StatelessWidget {
                 },
           );
         },
+      ),
+      GoRoute(
+        path: '/directory',
+        builder: (context, state) => const _AuthGuard(child: DirectoryScreen()),
       ),
       GoRoute(
         path: '/open-chat',
@@ -677,7 +682,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       NavigationDestination(
         icon: _MessageBadge(unreadCount: unreadCount),
         selectedIcon: const Icon(Icons.chat_bubble),
-        label: tr('Messages'),
+        label: tr('Échanges'),
       ),
       NavigationDestination(
         icon: Icon(Icons.person_outline),
@@ -791,8 +796,17 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
           sellerId: sellerId,
           buyerName: buyerName,
           sellerName: sellerName,
-          buyerProfileImageUrl: me.id == buyerId ? me.profileImageUrl : null,
-          sellerProfileImageUrl: me.id == sellerId ? me.profileImageUrl : null,
+          // L'appelant peut fournir explicitement la photo de l'AUTRE
+          // partie quand il l'a déjà sous la main (ex. le répertoire, qui
+          // vient de lire publicProfiles) — sinon, dérivée de `me`
+          // uniquement quand `me` est ce côté-là de la conversation (seul
+          // cas où on est sûr de la photo).
+          buyerProfileImageUrl:
+              widget.args['buyerProfileImageUrl'] as String? ??
+              (me.id == buyerId ? me.profileImageUrl : null),
+          sellerProfileImageUrl:
+              widget.args['sellerProfileImageUrl'] as String? ??
+              (me.id == sellerId ? me.profileImageUrl : null),
           listingId: listingId,
           listingTitle: listingTitle,
         );
@@ -811,7 +825,7 @@ class _OpenChatScreenState extends ConsumerState<_OpenChatScreen> {
 
         if (snapshot.hasError || !snapshot.hasData) {
           return Scaffold(
-            appBar: AppBar(title: Text(tr('Messages'))),
+            appBar: AppBar(title: Text(tr('Échanges'))),
             body: Center(
               child: Text(
                 tr("Impossible d'ouvrir cette conversation pour le moment."),
@@ -856,7 +870,7 @@ class _ChatByIdScreenState extends ConsumerState<_ChatByIdScreen> {
         final chat = snapshot.data;
         if (snapshot.hasError || chat == null) {
           return Scaffold(
-            appBar: AppBar(title: Text(tr('Messages'))),
+            appBar: AppBar(title: Text(tr('Échanges'))),
             body: Center(
               child: Text(tr("Impossible d'ouvrir cette conversation.")),
             ),

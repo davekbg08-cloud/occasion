@@ -84,6 +84,11 @@ class ProductCard extends ConsumerWidget {
         currentUserId != null &&
         product.sellerId != null &&
         currentUserId != product.sellerId;
+    // "Contacter" n'est plus réservé aux acheteurs : un vendeur qui
+    // parcourt le marketplace peut aussi contacter un autre vendeur (même
+    // logique que sur les statuts). `canModerate` capture déjà exactement
+    // "ce n'est pas ma propre annonce, et je suis connecté".
+    final showSellerContact = !showBuyerActions && canModerate;
     final loyaltyPoints = estimateLoyaltyPoints(
       product.price,
       product.currency,
@@ -295,6 +300,19 @@ class ProductCard extends ConsumerWidget {
                         ),
                       ),
                     ],
+                  ),
+                ] else if (showSellerContact) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openPrivateMessage(context, ref),
+                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                      label: Text(tr('Contacter')),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
                   ),
                 ],
               ],

@@ -88,8 +88,14 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
     final currentUser = ref.watch(authNotifierProvider).currentUser;
 
     final loadedAnnonce = annonceAsync.valueOrNull;
-    final showStickyActions =
-        loadedAnnonce != null && (currentUser == null || currentUser.isBuyer);
+    final isOwnListing =
+        currentUser != null && loadedAnnonce?.userId == currentUser.id;
+    // "Contacter" n'est plus réservé aux acheteurs : un vendeur peut aussi
+    // contacter un autre vendeur (même logique que sur les statuts, voir
+    // `status_feed_screen.dart`). Masquée uniquement sur sa propre annonce
+    // (rien à s'acheter ni se contacter soi-même).
+    final showStickyActions = loadedAnnonce != null && !isOwnListing;
+    final canAddToCart = currentUser == null || currentUser.isBuyer;
 
     return Scaffold(
       bottomNavigationBar: showStickyActions
@@ -97,6 +103,7 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
               annonce: loadedAnnonce,
               onContact: _contactSeller,
               onAddToCart: _addToCart,
+              canAddToCart: canAddToCart,
             )
           : null,
       appBar: AppBar(
@@ -366,11 +373,13 @@ class _DetailActions extends ConsumerWidget {
     required this.annonce,
     required this.onContact,
     required this.onAddToCart,
+    required this.canAddToCart,
   });
 
   final Annonce annonce;
   final void Function(ProductModel product) onContact;
   final void Function(ProductModel product) onAddToCart;
+  final bool canAddToCart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -393,14 +402,18 @@ class _DetailActions extends ConsumerWidget {
                 label: Text(tr('Contacter')),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: product == null ? null : () => onAddToCart(product),
-                icon: const Icon(Icons.shopping_cart_outlined),
-                label: Text(tr('Au panier')),
+            if (canAddToCart) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: product == null
+                      ? null
+                      : () => onAddToCart(product),
+                  icon: const Icon(Icons.shopping_cart_outlined),
+                  label: Text(tr('Au panier')),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

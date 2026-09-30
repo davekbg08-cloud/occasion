@@ -8,6 +8,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/subscription_provider.dart';
 import '../../services/phone_number_validator.dart';
 import '../../shared/models/annonce.dart';
+import '../../utils/action_feedback.dart';
 import '../../utils/currencies.dart';
 import '../providers/annonce_provider.dart';
 import '../../widgets/occasion_image.dart';
@@ -213,6 +214,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
       next.whenOrNull(
         data: (annonce) {
           if (annonce == null) return;
+          if (!_isEditing) playActionFeedback();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(

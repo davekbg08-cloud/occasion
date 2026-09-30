@@ -14,7 +14,7 @@ import '../widgets/occasion_image.dart';
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({
     super.key,
-    this.title = 'Messages',
+    this.title = 'Échanges',
     this.emptySubtitle =
         'Trouvez un article qui vous plaît et écrivez au vendeur : vos échanges apparaîtront ici.',
   });
@@ -87,6 +87,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: tr('Répertoire'),
+            icon: const Icon(Icons.people_alt_outlined, color: Colors.white),
+            onPressed: () => context.push('/directory'),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: Size.fromHeight(showFilters ? 49 : 1),
           child: Column(
