@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/user_display.dart';
 import '../widgets/occasion_image.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
@@ -207,6 +208,8 @@ class _ChatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = chat.otherUserName(currentUserId);
+    final otherId = chat.otherUserId(currentUserId);
+    final displayName = displayNameWithTag(name, otherId);
     final image = chat.otherUserProfileImage(currentUserId)?.trim();
     final unreadCount = chat.unreadCountFor(currentUserId);
     final unread = unreadCount > 0;
@@ -234,7 +237,7 @@ class _ChatTile extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          name,
+                          displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

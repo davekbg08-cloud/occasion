@@ -16,6 +16,7 @@ import '../providers/chat_provider.dart';
 import '../providers/presence_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/action_feedback.dart';
+import '../utils/user_display.dart';
 import '../widgets/forward_message_sheet.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/fullscreen_video_viewer.dart';
@@ -470,7 +471,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    otherName,
+                    displayNameWithTag(otherName, otherId),
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w600,

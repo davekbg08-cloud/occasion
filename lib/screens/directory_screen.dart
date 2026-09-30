@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../providers/directory_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/user_display.dart';
 import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -183,7 +184,7 @@ class _DirectoryTile extends StatelessWidget {
         children: [
           Flexible(
             child: Text(
-              user.name.isEmpty ? tr('Utilisateur') : user.name,
+              displayNameWithTag(user.name, user.id),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
