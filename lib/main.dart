@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
@@ -19,7 +18,6 @@ import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
-import 'providers/app_update_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
@@ -35,7 +33,6 @@ import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
 import 'screens/directory_screen.dart';
-import 'screens/force_update_screen.dart';
 import 'screens/id_scan_screen.dart';
 import 'screens/loyalty_points_screen.dart';
 import 'screens/my_listings_screen.dart';
@@ -94,7 +91,7 @@ Future<void> main() async {
   unawaited(NotificationService.init(appNavigatorKey));
 }
 
-class OccasionApp extends ConsumerWidget {
+class OccasionApp extends StatelessWidget {
   const OccasionApp({super.key});
 
   static final _router = GoRouter(
@@ -416,17 +413,7 @@ class OccasionApp extends ConsumerWidget {
   );
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Mise à jour forcée (Android uniquement — le web se redéploie tout
-    // seul, voir deploy-pages.yml) : écrase TOUT le reste de l'app, quel
-    // que soit l'écran/la route en cours, tant que la version installée
-    // est sous le seuil configuré (`appConfig/androidVersion`). Vérifié
-    // ici plutôt que par route pour ne jamais dépendre d'un garde oublié
-    // sur un futur écran.
-    final forceUpdate = !kIsWeb && Platform.isAndroid
-        ? ref.watch(forceUpdateRequiredProvider)
-        : false;
-
+  Widget build(BuildContext context) {
     // Changement de langue : tout l'arbre est reconstruit (clé de la
     // langue), y compris les widgets constants qui appellent tr().
     return ValueListenableBuilder<String>(
@@ -438,9 +425,7 @@ class OccasionApp extends ConsumerWidget {
         routerConfig: _router,
         builder: (context, child) => KeyedSubtree(
           key: ValueKey(language),
-          child: forceUpdate
-              ? const ForceUpdateScreen()
-              : child ?? const SizedBox.shrink(),
+          child: child ?? const SizedBox.shrink(),
         ),
       ),
     );
