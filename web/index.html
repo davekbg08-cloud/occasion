@@ -20,6 +20,15 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Occasion, plateforme d'achat et de vente d'articles.">
 
+  <!-- Couleur de la barre d'adresse/barre de statut (navigateur ET PWA
+       installée "Ajouter à l'écran d'accueil") : doit correspondre au fond
+       réel de l'app (AppColors.background, lib/theme/app_theme.dart),
+       jamais rester sur #0175C2 (bleu par défaut du gabarit `flutter
+       create`, jamais personnalisé jusqu'ici) — sinon Android peint un
+       bandeau dans cette couleur erronée par-dessus le contenu réel,
+       visible comme une zone floue/décalée en haut de l'écran. -->
+  <meta name="theme-color" content="#0F1720">
+
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
