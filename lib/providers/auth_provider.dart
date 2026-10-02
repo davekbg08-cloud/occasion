@@ -65,10 +65,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
        super(const AuthState(isAuthenticated: false, isLoading: true)) {
     _authSubscription = _auth.authStateChanges().listen(
       (firebaseUser) {
+        _initialAuthTimeout?.cancel();
         if (_isRegistering) return;
         _restoreSession(firebaseUser);
       },
       onError: (error) {
+        _initialAuthTimeout?.cancel();
         state = state.copyWith(
           isAuthenticated: false,
           isLoading: false,
@@ -78,12 +80,34 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
       },
     );
+    // Filet de sécurité : sur certains appareils (Google Play Services
+    // obsolète/absent, SDK Firebase Auth natif qui ne répond jamais),
+    // `authStateChanges()` peut ne JAMAIS émettre le moindre événement —
+    // ni succès ni erreur. Sans ce timeout, `isLoading` restait alors
+    // bloqué à `true` pour toujours : l'app ne dépassait jamais l'écran du
+    // logo (`_AuthGate`), indéfiniment, sans aucun moyen de s'en sortir.
+    // Bascule vers l'écran "Réessayer" (même état que l'échec réseau
+    // ci-dessus) : son bouton appelle `retryRestoreSession`, qui relit
+    // `_auth.currentUser` directement — un getter synchrone côté SDK,
+    // jamais dépendant de ce flux potentiellement bloqué — donc capable
+    // de réussir même si `authStateChanges()` reste muet pour toujours.
+    _initialAuthTimeout = Timer(const Duration(seconds: 15), () {
+      if (!state.isLoading) return;
+      state = state.copyWith(
+        isAuthenticated: false,
+        isLoading: false,
+        clearUser: true,
+        clearSelectedRole: true,
+        errorMessage: 'Connexion à Firebase impossible. Réessaie.',
+      );
+    });
   }
 
   final firebase_auth.FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
   final FirebaseStorage _storage;
   StreamSubscription<firebase_auth.User?>? _authSubscription;
+  Timer? _initialAuthTimeout;
   bool _isRegistering = false;
 
   CollectionReference<Map<String, dynamic>> get _users =>
@@ -516,6 +540,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    _initialAuthTimeout?.cancel();
     super.dispose();
   }
 }
