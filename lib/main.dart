@@ -95,76 +95,94 @@ Future<void> main() async {
   // sur l'écran blanc natif, avant même que le moindre code Dart de l'app
   // n'ait la main. Voir _FirebaseBootstrap, qui fait ce travail maintenant
   // APRÈS runApp(), avec un timeout et un écran "Réessayer" fonctionnel.
-  runApp(const ProviderScope(child: _FirebaseBootstrap()));
+  runApp(const ProviderScope(child: FirebaseBootstrap()));
 }
 
-/// Initialise Firebase (+ langue, Crashlytics, notifications) APRÈS le tout
-/// premier affichage Flutter — jamais avant, voir le commentaire de
-/// `main()`. Affiche le logo pendant l'initialisation, et un écran
-/// "Réessayer" fonctionnel (jamais un blocage indéfini) si
-/// `Firebase.initializeApp()` échoue ou dépasse 60s — le cas réel observé
-/// sur un appareil bas de gamme sous forte pression mémoire.
+/// Vraie initialisation Firebase (+ langue, Crashlytics, notifications) —
+/// extraite de [FirebaseBootstrap] pour rester remplaçable en test (voir
+/// `FirebaseBootstrap.bootstrap`), jamais appelée directement ailleurs.
+Future<void> _realBootstrap() async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  ).timeout(const Duration(seconds: 60));
+  FirestoreBootstrap.configure(FirebaseFirestore.instance);
+
+  // Crashlytics n'est pas disponible sur le web : on capte les crashs
+  // uniquement sur mobile/desktop. Ne peut être câblé qu'une fois Firebase
+  // initialisé (Crashlytics en dépend), donc jamais avant ce point.
+  if (!kIsWeb) {
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+  }
+
+  // Best-effort, non bloquant : un échec ici ne doit jamais empêcher
+  // l'affichage du reste de l'app (voir le commentaire historique sur
+  // l'ancien appel dans main()).
+  unawaited(NotificationService.init(appNavigatorKey));
+
+  // Local uniquement (SharedPreferences), jamais réseau — très peu probable
+  // de dépasser ce délai, mais couvert quand même par cohérence avec le
+  // reste de ce bootstrap : aucune étape ne doit pouvoir bloquer
+  // indéfiniment l'écran de chargement.
+  try {
+    await AppLanguage.load().timeout(const Duration(seconds: 5));
+  } catch (_) {
+    // Retombe sur la langue par défaut (français) déjà posée par
+    // AppLanguage.current — jamais bloquant.
+  }
+}
+
+/// Initialise Firebase APRÈS le tout premier affichage Flutter — jamais
+/// avant, voir le commentaire de `main()`. Affiche le logo pendant
+/// l'initialisation, et un écran "Réessayer" fonctionnel (jamais un
+/// blocage indéfini) si [bootstrap] échoue ou dépasse son propre délai —
+/// le cas réel observé sur un appareil bas de gamme sous forte pression
+/// mémoire.
 ///
-/// RÉGRESSION CORRIGÉE : un premier seuil à 20s avait cassé la mise à jour
-/// pour des appareils dont l'initialisation Firebase est simplement LENTE
-/// (jamais bloquée indéfiniment — avant ce bootstrap, aucun timeout
-/// n'existait et ça finissait par réussir). 60s laisse largement le temps à
-/// une connexion lente d'aboutir, tout en gardant un filet contre un vrai
-/// blocage permanent.
-class _FirebaseBootstrap extends StatefulWidget {
-  const _FirebaseBootstrap();
+/// RÉGRESSION CORRIGÉE une première fois : un seuil à 20s avait cassé la
+/// mise à jour pour des appareils dont l'initialisation Firebase est
+/// simplement LENTE (jamais bloquée indéfiniment — avant ce bootstrap,
+/// aucun timeout n'existait et ça finissait par réussir). Porté à 60s.
+///
+/// [bootstrap] est remplaçable UNIQUEMENT en test (voir
+/// `test/firebase_bootstrap_test.dart`) — jamais fourni en production, où
+/// [_realBootstrap] s'applique toujours.
+class FirebaseBootstrap extends StatefulWidget {
+  const FirebaseBootstrap({super.key, this.bootstrap});
+
+  final Future<void> Function()? bootstrap;
 
   @override
-  State<_FirebaseBootstrap> createState() => _FirebaseBootstrapState();
+  State<FirebaseBootstrap> createState() => _FirebaseBootstrapState();
 }
 
-class _FirebaseBootstrapState extends State<_FirebaseBootstrap> {
+class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
   late Future<void> _bootstrapFuture;
 
   @override
   void initState() {
     super.initState();
-    _bootstrapFuture = _bootstrap();
+    _bootstrapFuture = _runBootstrap();
   }
 
-  Future<void> _bootstrap() async {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(const Duration(seconds: 60));
-    FirestoreBootstrap.configure(FirebaseFirestore.instance);
-
-    // Crashlytics n'est pas disponible sur le web : on capte les crashs
-    // uniquement sur mobile/desktop. Ne peut être câblé qu'une fois Firebase
-    // initialisé (Crashlytics en dépend), donc jamais avant ce point.
-    if (!kIsWeb) {
-      FlutterError.onError =
-          FirebaseCrashlytics.instance.recordFlutterFatalError;
-      PlatformDispatcher.instance.onError = (error, stack) {
-        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-        return true;
-      };
-    }
-
-    // Best-effort, non bloquant : un échec ici ne doit jamais empêcher
-    // l'affichage du reste de l'app (voir le commentaire historique sur
-    // l'ancien appel dans main()).
-    unawaited(NotificationService.init(appNavigatorKey));
-
-    // Local uniquement (SharedPreferences), jamais réseau — très peu
-    // probable de dépasser ce délai, mais couvert quand même par cohérence
-    // avec le reste de ce bootstrap : aucune étape ne doit pouvoir bloquer
-    // indéfiniment l'écran de chargement.
-    try {
-      await AppLanguage.load().timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Retombe sur la langue par défaut (français) déjà posée par
-      // AppLanguage.current — jamais bloquant.
-    }
+  Future<void> _runBootstrap() {
+    final future = (widget.bootstrap ?? _realBootstrap)();
+    // FutureBuilder ne s'abonne qu'à la prochaine frame (après ce
+    // setState) : un rejet survenant avant cet abonnement remonterait
+    // comme erreur non gérée au niveau de la zone Dart, alors que
+    // FutureBuilder la traite quand même correctement une fois abonné —
+    // `.ignore()` évite seulement ce bruit (le flag "géré" côté zone),
+    // sans empêcher FutureBuilder de recevoir la valeur/l'erreur.
+    future.ignore();
+    return future;
   }
 
   void _retry() {
     setState(() {
-      _bootstrapFuture = _bootstrap();
+      _bootstrapFuture = _runBootstrap();
     });
   }
 
