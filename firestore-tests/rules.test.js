@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { serverTimestamp } = require("firebase/firestore");
 const {
   initializeTestEnvironment,
   assertFails,
@@ -1165,7 +1166,7 @@ test("un acheteur ne peut pas modifier le saleState de l'annonce d'un autre", as
   );
 });
 
-test("l'historique de prix d'une annonce est lisible par tous, même sans être connecté", async () => {
+test("l'historique de prix d'une annonce est lisible par tout utilisateur connecté, jamais sans connexion (comme l'annonce elle-même)", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx
       .firestore()
@@ -1180,15 +1181,12 @@ test("l'historique de prix d'une annonce est lisible par tous, même sans être 
       .doc("entry1")
       .set({ oldPrice: 1000, newPrice: 800, currency: "FC" });
   });
-  const anonymous = testEnv.unauthenticatedContext().firestore();
+  const entry = (db) =>
+    db.collection("annonces").doc("annonce1").collection("priceHistory").doc("entry1");
   await assertSucceeds(
-    anonymous
-      .collection("annonces")
-      .doc("annonce1")
-      .collection("priceHistory")
-      .doc("entry1")
-      .get()
+    entry(testEnv.authenticatedContext("buyer1").firestore()).get()
   );
+  await assertFails(entry(testEnv.unauthenticatedContext().firestore()).get());
 });
 
 test("un client ne peut jamais écrire dans l'historique de prix d'une annonce", async () => {
@@ -2197,4 +2195,79 @@ test("admins : un utilisateur ne voit que son propre document admin et ne peut j
   await assertSucceeds(admin.collection("admins").doc("admin1").get());
   await assertFails(user.collection("admins").doc("admin1").get());
   await assertFails(user.collection("admins").doc("user1").set({ since: 1 }));
+});
+
+// ---------------------------------------------------------------------------
+// Relecture finale des règles
+// ---------------------------------------------------------------------------
+
+test("régression : un vendeur ne peut plus supprimer son profil public (remise à zéro de sa note)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("publicProfiles").doc("seller1").set({
+      id: "seller1",
+      name: "Vendeur",
+      ratingSum: 2,
+      ratingCount: 2,
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(seller.collection("publicProfiles").doc("seller1").delete());
+});
+
+test("statuts et catalogue de cadeaux : jamais lisibles sans connexion", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("statuses").doc("s1").set({
+      sellerId: "seller1",
+      status: "published",
+      active: true,
+    });
+    await ctx.firestore().collection("giftCatalogItems").doc("g1").set({
+      sellerId: "seller1",
+      isActive: true,
+    });
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(anonymous.collection("statuses").doc("s1").get());
+  await assertSucceeds(buyer.collection("statuses").doc("s1").get());
+  await assertFails(anonymous.collection("giftCatalogItems").doc("g1").get());
+  await assertSucceeds(buyer.collection("giftCatalogItems").doc("g1").get());
+});
+
+function report(overrides) {
+  return {
+    reporterId: "user1",
+    targetId: "annonce1",
+    targetType: "product",
+    reason: "scam",
+    details: null,
+    status: "pending",
+    createdAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+test("signalement : accepté au format exact de l'app, refusé déjà « traité », avec champ inconnu ou sous un autre id", async () => {
+  const user = testEnv.authenticatedContext("user1").firestore();
+  const reports = user.collection("reports");
+  await assertSucceeds(reports.doc("user1_product_annonce1").set(report()));
+  await assertFails(
+    reports.doc("user1_product_annonce2").set(report({ targetId: "annonce2", status: "resolved" }))
+  );
+  await assertFails(
+    reports.doc("user1_product_annonce3").set(report({ targetId: "annonce3", priority: "high" }))
+  );
+  await assertFails(reports.doc("n-importe-quoi").set(report({ targetId: "annonce4" })));
+  await assertFails(
+    reports.doc("user1_product_annonce5").set(report({ targetId: "annonce5", reporterId: "user2" }))
+  );
+});
+
+test("collections héritées utilisateurs/signalements : entièrement verrouillées", async () => {
+  const user = testEnv.authenticatedContext("user1").firestore();
+  await assertFails(user.collection("utilisateurs").doc("user1").set({ nom: "x" }));
+  await assertFails(user.collection("utilisateurs").doc("user1").get());
+  await assertFails(
+    user.collection("signalements").doc("s1").set({ utilisateurId: "user1" })
+  );
 });

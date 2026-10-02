@@ -41,6 +41,9 @@
     },
     "ui": {
       "enabled": false
+    },
+    "database": {
+      "port": 9000
     }
   },
   "flutter": {

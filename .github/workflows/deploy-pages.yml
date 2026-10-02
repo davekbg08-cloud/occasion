@@ -61,7 +61,7 @@ jobs:
         run: npm install -g firebase-tools
 
       - name: Run Firestore rules tests against emulator
-        run: firebase emulators:exec --only firestore --project demo-occasion "npm --prefix firestore-tests test"
+        run: firebase emulators:exec --only firestore,database --project demo-occasion "npm --prefix firestore-tests test"
 
       - name: Build web release
         # --pwa-strategy=none : ne génère pas de service worker Flutter. Le

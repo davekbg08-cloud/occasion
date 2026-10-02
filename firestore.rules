@@ -122,12 +122,6 @@ service cloud.firestore {
         );
     }
 
-    function isConversationParticipant(conversationId) {
-      return signedIn()
-        && exists(/databases/$(database)/documents/conversations/$(conversationId))
-        && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
-    }
-
     function validAnnonce(data) {
       return hasOnly(data, [
         'id', 'sellerId', 'userId', 'title', 'titre', 'description',
@@ -248,37 +242,6 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
-    function validMessage(data) {
-      return hasOnly(data, [
-        'id', 'conversationId', 'expediteurId', 'destinataireId',
-        'contenu', 'lu', 'dateEnvoi'
-      ])
-      && stringField(data, 'conversationId', 128)
-      && stringField(data, 'expediteurId', 128)
-      && stringField(data, 'destinataireId', 128)
-      && stringField(data, 'contenu', 4000)
-      && data.lu is bool
-      && data.dateEnvoi is timestamp;
-    }
-
-    function validConversation(data) {
-      return hasOnly(data, ['id', 'participants', 'dernierMessage', 'dateDernierMessage'])
-        && data.participants is list
-        && data.participants.size() >= 2
-        && stringField(data, 'dernierMessage', 1000)
-        && data.dateDernierMessage is timestamp;
-    }
-
-    function validSignalement(data) {
-      return hasOnly(data, ['id', 'annonceId', 'utilisateurId', 'motif', 'description', 'date', 'statut'])
-        && stringField(data, 'annonceId', 128)
-        && stringField(data, 'utilisateurId', 128)
-        && stringField(data, 'motif', 160)
-        && optionalString(data, 'description', 2000)
-        && data.date is timestamp
-        && stringField(data, 'statut', 40);
-    }
-
     function validCategorie(data) {
       return hasOnly(data, ['id', 'nom', 'icone', 'ordre'])
         && stringField(data, 'nom', 120)
@@ -382,7 +345,7 @@ service cloud.firestore {
       // l'annonce elle-même une fois publiée), jamais modifiable par un
       // client.
       match /priceHistory/{entryId} {
-        allow read: if true;
+        allow read: if signedIn();
         allow write: if false;
       }
     }
@@ -502,11 +465,16 @@ service cloud.firestore {
         && (!('identityStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.identityStatus))
         && (!('sellerStatus' in request.resource.data) || isClientSettableIdentityStatus(request.resource.data.sellerStatus))
         && (!('phoneVerified' in request.resource.data) || request.resource.data.phoneVerified == false);
-      allow delete: if isOwner(userId);
+      // Supprimer puis recréer son profil public remettait sa note à zéro
+      // (avis négatifs effacés). La suppression de compte passe par la Cloud
+      // Function `deleteAccount`, qui anonymise ce document.
+      allow delete: if false;
     }
 
+    // Collection héritée : plus aucun code de l'app ne l'utilise (seul
+    // `occasion_firestore_repositories.dart` y écrivait, importé nulle part).
     match /utilisateurs/{userId} {
-      allow read, create, update, delete: if isOwner(userId);
+      allow read, write: if false;
     }
 
     match /favoris/{favoriId} {
@@ -532,8 +500,13 @@ service cloud.firestore {
     }
 
     match /statuses/{statusId} {
-      allow read: if isPublishedStatus(resource.data)
-        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      // Connexion exigée, comme pour les annonces : aucun parcours anonyme
+      // n'existe dans l'app.
+      allow read: if signedIn()
+        && (
+          isPublishedStatus(resource.data)
+          || resource.data.sellerId == request.auth.uid
+        );
       // Publier un statut est un avantage de l'abonnement vendeur : exigé
       // ici (et revérifié par onNewStatus), plus seulement dans l'app.
       allow create: if signedIn()
@@ -872,16 +845,30 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Ancien système de signalement, remplacé par `reports` (même cas que
+    // `utilisateurs` : plus aucun appelant).
     match /signalements/{signalementId} {
-      allow create: if signedIn()
-        && request.resource.data.utilisateurId == request.auth.uid
-        && validSignalement(request.resource.data);
-      allow read, update, delete: if false;
+      allow read, write: if false;
     }
 
+    // Format exact de ModerationService.submitReport : id déterministe
+    // (un seul signalement par personne et par cible), toujours 'pending' —
+    // jamais un signalement déjà « traité » ni des champs arbitraires.
     match /reports/{reportId} {
       allow create: if signedIn()
-        && request.resource.data.reporterId == request.auth.uid;
+        && request.resource.data.reporterId == request.auth.uid
+        && hasOnly(request.resource.data, [
+          'reporterId', 'targetId', 'targetType', 'reason', 'details',
+          'status', 'createdAt'
+        ])
+        && stringField(request.resource.data, 'targetId', 128)
+        && request.resource.data.targetType in ['user', 'product', 'status', 'message']
+        && stringField(request.resource.data, 'reason', 60)
+        && optionalNullableString(request.resource.data, 'details', 2000)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && reportId == request.auth.uid + '_' + request.resource.data.targetType
+          + '_' + request.resource.data.targetId;
       allow read: if signedIn() && isAdmin();
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'reviewedBy'])
@@ -933,8 +920,11 @@ service cloud.firestore {
     // gagnés chez ce même vendeur. Géré directement par le vendeur
     // propriétaire (pas de débit financier ici, juste du contenu).
     match /giftCatalogItems/{itemId} {
-      allow read: if resource.data.isActive == true
-        || (signedIn() && resource.data.sellerId == request.auth.uid);
+      allow read: if signedIn()
+        && (
+          resource.data.isActive == true
+          || resource.data.sellerId == request.auth.uid
+        );
       allow create: if signedIn()
         && isSeller()
         && request.resource.data.sellerId == request.auth.uid
