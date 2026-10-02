@@ -43,6 +43,13 @@ test.beforeEach(async () => {
     "publicProfiles",
     "searchAlerts",
     "playPurchases",
+    "statusViews",
+    "statusDailyCounters",
+    "loyaltyPoints",
+    "giftCatalogItems",
+    "giftRedemptions",
+    "payoutAccounts",
+    "utilisateurs",
   ]);
 });
 
@@ -3336,4 +3343,199 @@ test("confirmPlayPurchase : refuse un abonnement Google Play non actif (annulé/
       assert.equal(purchaseSnap.exists, false);
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// Suppression de compte (deleteAccount / deleteUserData)
+// ---------------------------------------------------------------------------
+
+function fakeDeletionDeps() {
+  const calls = { storage: [], presence: [], auth: [] };
+  return {
+    calls,
+    deps: {
+      deleteStorageFiles: async (uid) => calls.storage.push(uid),
+      deleteRealtimePresence: async (uid) => calls.presence.push(uid),
+      deleteAuthUser: async (uid) => calls.auth.push(uid),
+    },
+  };
+}
+
+test("deleteUserData : efface ou anonymise toutes les données de la personne, jamais celles des autres", async () => {
+  const { deleteUserData, DELETED_USER_NAME } = functions._testables;
+  const uid = "partant";
+  const other = "autre";
+
+  await db.collection("users").doc(uid).set({
+    name: "Alice",
+    phone: "+243800000000",
+    role: "seller",
+    referralCode: "ALICE1",
+  });
+  await db.collection("users").doc(uid).collection("devices").doc("d1").set({ token: "t" });
+  await db.collection("users").doc(uid).collection("blockedUsers").doc(other).set({ at: 1 });
+  await db.collection("publicProfiles").doc(uid).set({
+    id: uid,
+    name: "Alice",
+    profileImageUrl: "https://x/alice.jpg",
+    ratingCount: 3,
+  });
+  await db.collection("annonces").doc("a-partant").set({ vendeurId: uid, titre: "Vélo" });
+  await db.collection("annonces").doc("a-partant").collection("viewers").doc("v").set({ at: 1 });
+  await db.collection("annonces").doc("a-autre").set({ vendeurId: other, titre: "Table" });
+  await db.collection("statuses").doc("s-partant").set({ sellerId: uid, likesCount: 1 });
+  await db.collection("statusLikes").doc(`s-partant_${other}`).set({ statusId: "s-partant", userId: other });
+  await db.collection("statuses").doc("s-autre").set({ sellerId: other, likesCount: 1 });
+  await db.collection("statusLikes").doc(`s-autre_${uid}`).set({ statusId: "s-autre", userId: uid });
+  await db.collection("statusViews").doc(`s-autre_${uid}`).set({ statusId: "s-autre", userId: uid });
+  await db.collection("favoris").doc("f").set({ utilisateurId: uid, annonceId: "a-autre" });
+  await db.collection("searchAlerts").doc("al").set({ userId: uid, keyword: "vélo" });
+  await db.collection("notifications").doc("n").set({ recipientId: uid, title: "x" });
+  await db.collection("notifications").doc("n-autre").set({ recipientId: other, title: "x" });
+  await db.collection("chats").doc("c").set({
+    buyerId: uid,
+    sellerId: other,
+    buyerName: "Alice",
+    buyerProfileImageUrl: "https://x/alice.jpg",
+    sellerName: "Bob",
+  });
+  await db.collection("orders").doc("o-pending").set({
+    buyerId: uid,
+    buyerName: "Alice",
+    buyerPhone: "+243800000000",
+    status: "pending_payment",
+  });
+  await db.collection("orders").doc("o-done").set({
+    buyerId: uid,
+    buyerName: "Alice",
+    buyerPhone: "+243800000000",
+    status: "payout_sent",
+  });
+  await db.collection("subscriptions").doc(uid).set({ isActive: true });
+  await db.collection("payoutAccounts").doc(uid).set({ phoneNumber: "0800" });
+  await db.collection("loyaltyPoints").doc(`${uid}_${other}`).set({ buyerId: uid, sellerId: other });
+  await db.collection("giftCatalogItems").doc("g").set({ sellerId: uid, isActive: true });
+  await db.collection("admins").doc(uid).set({ since: 1 });
+
+  const { calls, deps } = fakeDeletionDeps();
+  await deleteUserData(uid, deps);
+
+  const user = (await db.collection("users").doc(uid).get()).data();
+  assert.deepEqual(Object.keys(user).sort(), ["deletedAt", "isDeleted", "name"]);
+  assert.equal(user.name, DELETED_USER_NAME);
+  assert.equal((await db.collection("users").doc(uid).collection("devices").get()).size, 0);
+  assert.equal((await db.collection("users").doc(uid).collection("blockedUsers").get()).size, 0);
+
+  const profile = (await db.collection("publicProfiles").doc(uid).get()).data();
+  assert.equal(profile.name, DELETED_USER_NAME);
+  assert.equal(profile.profileImageUrl, null);
+  assert.equal(profile.isDeleted, true);
+
+  assert.equal((await db.collection("annonces").doc("a-partant").get()).exists, false);
+  assert.equal((await db.collection("annonces").doc("a-partant").collection("viewers").get()).size, 0);
+  assert.equal((await db.collection("annonces").doc("a-autre").get()).exists, true);
+
+  assert.equal((await db.collection("statuses").doc("s-partant").get()).exists, false);
+  assert.equal((await db.collection("statusLikes").doc(`s-partant_${other}`).get()).exists, false);
+  assert.equal((await db.collection("statusLikes").doc(`s-autre_${uid}`).get()).exists, false);
+  assert.equal((await db.collection("statuses").doc("s-autre").get()).data().likesCount, 0);
+
+  for (const [collection, id] of [
+    ["statusViews", `s-autre_${uid}`],
+    ["favoris", "f"],
+    ["searchAlerts", "al"],
+    ["notifications", "n"],
+    ["subscriptions", uid],
+    ["payoutAccounts", uid],
+    ["loyaltyPoints", `${uid}_${other}`],
+    ["giftCatalogItems", "g"],
+    ["admins", uid],
+  ]) {
+    assert.equal(
+      (await db.collection(collection).doc(id).get()).exists,
+      false,
+      `${collection}/${id} aurait dû être supprimé`
+    );
+  }
+  assert.equal((await db.collection("notifications").doc("n-autre").get()).exists, true);
+
+  const chat = (await db.collection("chats").doc("c").get()).data();
+  assert.equal(chat.buyerName, DELETED_USER_NAME);
+  assert.equal(chat.buyerProfileImageUrl, null);
+  assert.equal(chat.sellerName, "Bob");
+
+  const pending = (await db.collection("orders").doc("o-pending").get()).data();
+  assert.equal(pending.status, "cancelled");
+  assert.equal(pending.buyerName, DELETED_USER_NAME);
+  assert.equal(pending.buyerPhone, "");
+  const done = (await db.collection("orders").doc("o-done").get()).data();
+  assert.equal(done.status, "payout_sent", "historique comptable conservé");
+  assert.equal(done.buyerPhone, "");
+
+  assert.deepEqual(calls, { storage: [uid], presence: [uid], auth: [uid] });
+});
+
+test("deleteUserData : relançable après une interruption (aucune erreur au second passage)", async () => {
+  const { deleteUserData } = functions._testables;
+  await db.collection("users").doc("u").set({ name: "A" });
+  await db.collection("favoris").doc("f").set({ utilisateurId: "u" });
+
+  await deleteUserData("u", fakeDeletionDeps().deps);
+  await deleteUserData("u", fakeDeletionDeps().deps);
+
+  assert.equal((await db.collection("favoris").doc("f").get()).exists, false);
+});
+
+test("deleteUserData : le compte Auth n'est jamais supprimé si une étape précédente échoue", async () => {
+  const { deleteUserData } = functions._testables;
+  await db.collection("users").doc("u").set({ name: "A" });
+  const { calls, deps } = fakeDeletionDeps();
+  deps.deleteStorageFiles = async () => {
+    throw new Error("Storage indisponible");
+  };
+
+  await assert.rejects(deleteUserData("u", deps), /Storage indisponible/);
+  assert.deepEqual(calls.auth, []);
+});
+
+test("accountDeletionBlockers : bloque tant que de l'argent ou des points sont en jeu", async () => {
+  const { accountDeletionBlockers } = functions._testables;
+
+  assert.deepEqual(await accountDeletionBlockers("u"), []);
+
+  await db.collection("orders").doc("buyer-done").set({ buyerId: "u", sellerIds: ["s"], status: "completed" });
+  await db.collection("orders").doc("buyer-cancel").set({ buyerId: "u", sellerIds: ["s"], status: "cancelled" });
+  assert.deepEqual(
+    await accountDeletionBlockers("u"),
+    [],
+    "'completed' côté acheteur est terminé pour lui"
+  );
+  assert.deepEqual(
+    await accountDeletionBlockers("s"),
+    ["orders"],
+    "'completed' côté vendeur = reversement encore à envoyer"
+  );
+
+  await db.collection("orders").doc("buyer-paid").set({ buyerId: "u", sellerIds: ["s"], status: "paid" });
+  assert.deepEqual(await accountDeletionBlockers("u"), ["orders"]);
+
+  await db.collection("giftRedemptions").doc("r").set({ buyerId: "x", sellerId: "y", status: "pending" });
+  assert.deepEqual(await accountDeletionBlockers("x"), ["giftRedemptions"]);
+  assert.deepEqual(await accountDeletionBlockers("y"), ["giftRedemptions"]);
+});
+
+test("deleteAccount : refuse sans connexion, et refuse sans rien effacer si une commande est en cours", async () => {
+  await assert.rejects(
+    functions.deleteAccount.run({ data: {} }),
+    (err) => err.code === "unauthenticated"
+  );
+
+  await db.collection("users").doc("u").set({ name: "Alice" });
+  await db.collection("orders").doc("o").set({ buyerId: "u", sellerIds: ["s"], status: "disputed" });
+
+  await assert.rejects(
+    functions.deleteAccount.run({ data: {}, auth: { uid: "u" } }),
+    (err) => err.code === "failed-precondition"
+  );
+  assert.equal((await db.collection("users").doc("u").get()).data().name, "Alice");
 });

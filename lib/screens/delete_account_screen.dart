@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,9 +8,12 @@ import '../providers/auth_provider.dart';
 import '../services/account_deletion_service.dart';
 
 class DeleteAccountScreen extends ConsumerStatefulWidget {
-  const DeleteAccountScreen({super.key, required this.userId});
+  const DeleteAccountScreen({super.key, required this.userId, this.service});
 
   final String userId;
+
+  /// Remplaçable en test uniquement.
+  final AccountDeletionService? service;
 
   @override
   ConsumerState<DeleteAccountScreen> createState() =>
@@ -19,7 +22,7 @@ class DeleteAccountScreen extends ConsumerStatefulWidget {
 
 class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   final _confirmController = TextEditingController();
-  final _service = AccountDeletionService();
+  late final _service = widget.service ?? AccountDeletionService();
   bool _isDeleting = false;
 
   bool get _canDelete =>
@@ -35,42 +38,24 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     setState(() => _isDeleting = true);
 
     try {
-      await _service.deleteAccount(widget.userId);
+      await _service.deleteAccount();
       await ref.read(authNotifierProvider.notifier).logout();
 
       if (mounted) context.go('/auth');
-    } on FirebaseAuthException catch (error) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _isDeleting = false);
-      if (error.code == 'requires-recent-login') {
-        await showDialog<void>(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text(tr('Reconnexion nécessaire')),
-            content: const Text(
-              'Pour des raisons de sécurité, veuillez vous reconnecter '
-              'avant de supprimer définitivement votre compte.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(tr('Suppression impossible.'))));
-      }
-    } catch (_) {
-      setState(() => _isDeleting = false);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(tr('Suppression impossible.'))));
-      }
+      // failed-precondition : commande ou échange de points en cours — le
+      // message du serveur dit précisément quoi terminer avant.
+      final message =
+          error is FirebaseFunctionsException &&
+              error.code == 'failed-precondition' &&
+              (error.message?.isNotEmpty ?? false)
+          ? error.message!
+          : tr('Suppression impossible. Vérifie ta connexion et réessaie.');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -78,7 +63,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(tr('Supprimer mon compte'))),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,13 +81,17 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
             const SizedBox(height: 12),
             const Text(
               'En supprimant votre compte :\n\n'
-              '- Votre profil sera anonymisé\n'
-              '- Vos articles publiés seront supprimés\n'
+              '- Votre profil, votre numéro et votre photo seront effacés\n'
+              '- Vos annonces, statuts, favoris et alertes seront supprimés\n'
+              "- Vos pièces d'identité et votre numéro de reversement "
+              'seront supprimés\n'
               '- Vos conversations resteront visibles pour vos contacts, '
               'mais votre nom apparaîtra comme "Utilisateur supprimé"\n'
               "- Vous perdrez l'accès à votre abonnement en cours\n\n"
-              'Certaines données peuvent être conservées temporairement '
-              'pour des raisons légales, conformément à notre politique de confidentialité.',
+              'Une commande en cours (paiement, séquestre, litige ou '
+              'reversement) doit être terminée avant la suppression. '
+              "L'historique des commandes et paiements est conservé, "
+              'anonymisé, pour des raisons légales.',
             ),
             const SizedBox(height: 24),
             Text(tr('Tapez SUPPRIMER pour confirmer :')),
@@ -115,7 +104,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                 hintText: 'SUPPRIMER',
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: FilledButton(

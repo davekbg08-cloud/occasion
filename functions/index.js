@@ -1859,6 +1859,14 @@ exports.deleteStatus = onCall({ secrets: R2_SECRETS }, async (request) => {
     await assertIsAdmin(uid);
   }
 
+  await deleteStatusWithLikes(statusRef, status);
+
+  return { status: "deleted" };
+});
+
+/** Supprime un statut, tous ses `statusLikes` et son média. */
+async function deleteStatusWithLikes(statusRef, status) {
+  const statusId = statusRef.id;
   const likesSnap = await db
     .collection("statusLikes")
     .where("statusId", "==", statusId)
@@ -1886,9 +1894,290 @@ exports.deleteStatus = onCall({ secrets: R2_SECRETS }, async (request) => {
   }
 
   await deleteStatusMedia(statusId, status.mediaUrl);
+}
 
-  return { status: "deleted" };
-});
+const DELETED_USER_NAME = "Utilisateur supprimé";
+const REALTIME_DATABASE_URL =
+  "https://occasion-10cdb-default-rtdb.europe-west1.firebasedatabase.app";
+
+/**
+ * Commandes où de l'argent est encore en jeu : supprimer le compte
+ * maintenant ferait perdre un paiement, un séquestre, un reversement ou un
+ * arbitrage de litige à l'une des deux parties. Côté vendeur, 'completed'
+ * signifie « reversement pas encore envoyé » (payoutAccounts serait
+ * supprimé avec le compte).
+ */
+const DELETION_BLOCKING_BUYER_ORDER_STATUSES = [
+  "processing_payment",
+  "awaiting_manual_verification",
+  "paid",
+  "disputed",
+];
+const DELETION_BLOCKING_SELLER_ORDER_STATUSES = [
+  ...DELETION_BLOCKING_BUYER_ORDER_STATUSES,
+  "completed",
+];
+
+/**
+ * Raisons empêchant la suppression du compte `uid` (vide = autorisée).
+ * Filtrage en mémoire plutôt qu'en requête : évite un index composite pour
+ * quelques documents par utilisateur.
+ */
+async function accountDeletionBlockers(uid) {
+  const [asBuyer, asSeller, redemptionsAsBuyer, redemptionsAsSeller] =
+    await Promise.all([
+      db.collection("orders").where("buyerId", "==", uid).get(),
+      db.collection("orders").where("sellerIds", "array-contains", uid).get(),
+      db.collection("giftRedemptions").where("buyerId", "==", uid).get(),
+      db.collection("giftRedemptions").where("sellerId", "==", uid).get(),
+    ]);
+  const blockers = [];
+  if (
+    asBuyer.docs.some((d) =>
+      DELETION_BLOCKING_BUYER_ORDER_STATUSES.includes(d.data().status)
+    ) ||
+    asSeller.docs.some((d) =>
+      DELETION_BLOCKING_SELLER_ORDER_STATUSES.includes(d.data().status)
+    )
+  ) {
+    blockers.push("orders");
+  }
+  if (
+    [...redemptionsAsBuyer.docs, ...redemptionsAsSeller.docs].some(
+      (d) => d.data().status === "pending"
+    )
+  ) {
+    blockers.push("giftRedemptions");
+  }
+  return blockers;
+}
+
+async function queryRefs(collection, field, op, value) {
+  const snap = await db.collection(collection).where(field, op, value).get();
+  return snap.docs.map((doc) => doc.ref);
+}
+
+async function deleteStorageFilesOf(uid) {
+  for (const prefix of [
+    `profiles/${uid}/`,
+    `annonces/${uid}/`,
+    `verification/${uid}/`,
+  ]) {
+    await storageBucket.deleteFiles({ prefix, force: true });
+  }
+}
+
+async function deleteRealtimePresenceOf(uid) {
+  const { getDatabaseWithUrl } = require("firebase-admin/database");
+  await getDatabaseWithUrl(REALTIME_DATABASE_URL)
+    .ref(`presence/${uid}`)
+    .remove();
+}
+
+async function deleteAuthUserOf(uid) {
+  const { getAuth } = require("firebase-admin/auth");
+  try {
+    await getAuth().deleteUser(uid);
+  } catch (err) {
+    if (err?.code !== "auth/user-not-found") throw err;
+  }
+}
+
+/**
+ * Efface ou anonymise toutes les données de `uid`. Chaque étape est
+ * idempotente (requêtes rejouées à chaque appel) : un appel interrompu
+ * (timeout, réseau) peut simplement être relancé. Le compte Auth est
+ * supprimé EN DERNIER, pour qu'un échec intermédiaire laisse toujours la
+ * personne en mesure de réessayer.
+ *
+ * Conservés volontairement (obligations légales/comptables, ou données
+ * appartenant à l'autre partie) : commandes, transactions, paiements, avis,
+ * signalements et messages des conversations — anonymisés là où le nom ou
+ * le téléphone de la personne y est recopié.
+ */
+async function deleteUserData(
+  uid,
+  {
+    deleteStorageFiles = deleteStorageFilesOf,
+    deleteRealtimePresence = deleteRealtimePresenceOf,
+    deleteAuthUser = deleteAuthUserOf,
+  } = {}
+) {
+  const userRef = db.collection("users").doc(uid);
+  await userRef.set(
+    { deletionStartedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  const statusesSnap = await db
+    .collection("statuses")
+    .where("sellerId", "==", uid)
+    .get();
+  for (const doc of statusesSnap.docs) {
+    await deleteStatusWithLikes(doc.ref, doc.data());
+  }
+
+  // Ses likes sur les statuts des autres : décrémente leur compteur, sans
+  // jamais recréer un statut déjà supprimé.
+  for (const likeRef of await queryRefs("statusLikes", "userId", "==", uid)) {
+    await db.runTransaction(async (tx) => {
+      const likeSnap = await tx.get(likeRef);
+      if (!likeSnap.exists) return;
+      const statusRef = db
+        .collection("statuses")
+        .doc(likeSnap.data().statusId ?? "_");
+      const statusSnap = await tx.get(statusRef);
+      if (statusSnap.exists) {
+        tx.update(statusRef, { likesCount: FieldValue.increment(-1) });
+      }
+      tx.delete(likeRef);
+    });
+  }
+
+  const writer = db.bulkWriter();
+  // Chaque écriture rejette individuellement : sans les attendre, un échec
+  // passerait inaperçu et le compte Auth serait supprimé quand même.
+  const writes = [];
+  const track = (write) => {
+    write.catch(() => {}); // évite un rejet « non géré » avant Promise.all
+    writes.push(write);
+  };
+
+  const annonceRefs = new Map();
+  for (const field of ["vendeurId", "sellerId", "userId"]) {
+    for (const ref of await queryRefs("annonces", field, "==", uid)) {
+      annonceRefs.set(ref.path, ref);
+    }
+  }
+  for (const ref of annonceRefs.values()) {
+    await db.recursiveDelete(ref, writer);
+  }
+
+  const ownedDocs = [
+    ["statusViews", "userId"],
+    ["statusDailyCounters", "sellerId"],
+    ["favoris", "utilisateurId"],
+    ["searchAlerts", "userId"],
+    ["notifications", "recipientId"],
+    ["loyaltyPoints", "buyerId"],
+    ["loyaltyPoints", "sellerId"],
+    ["giftCatalogItems", "sellerId"],
+  ];
+  for (const [collection, field] of ownedDocs) {
+    for (const ref of await queryRefs(collection, field, "==", uid)) {
+      track(writer.delete(ref));
+    }
+  }
+  for (const collection of [
+    "subscriptions",
+    "payoutAccounts",
+    "sellerStatistics",
+    "utilisateurs",
+    "admins",
+  ]) {
+    track(writer.delete(db.collection(collection).doc(uid)));
+  }
+
+  for (const [field, nameField, photoField] of [
+    ["buyerId", "buyerName", "buyerProfileImageUrl"],
+    ["sellerId", "sellerName", "sellerProfileImageUrl"],
+  ]) {
+    for (const ref of await queryRefs("chats", field, "==", uid)) {
+      track(
+        writer.update(ref, {
+          [nameField]: DELETED_USER_NAME,
+          [photoField]: null,
+        })
+      );
+    }
+  }
+
+  const ordersSnap = await db
+    .collection("orders")
+    .where("buyerId", "==", uid)
+    .get();
+  for (const doc of ordersSnap.docs) {
+    track(
+      writer.update(doc.ref, {
+        buyerName: DELETED_USER_NAME,
+        buyerPhone: "",
+        ...(doc.data().status === "pending_payment"
+          ? { status: "cancelled", updatedAt: FieldValue.serverTimestamp() }
+          : {}),
+      })
+    );
+  }
+
+  track(
+    writer.set(
+      db.collection("publicProfiles").doc(uid),
+      {
+        name: DELETED_USER_NAME,
+        profileImageUrl: null,
+        isDeleted: true,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    )
+  );
+
+  await writer.close();
+  await Promise.all(writes);
+
+  for (const sub of await userRef.listCollections()) {
+    await db.recursiveDelete(sub);
+  }
+  // Écrasement complet (pas de merge) : téléphone, rôle, identité,
+  // parrainage, jetons... ne doivent plus exister nulle part.
+  await userRef.set({
+    name: DELETED_USER_NAME,
+    isDeleted: true,
+    deletedAt: FieldValue.serverTimestamp(),
+  });
+
+  await deleteStorageFiles(uid);
+  try {
+    await deleteRealtimePresence(uid);
+  } catch (err) {
+    console.error(`Présence RTDB non supprimée pour ${uid} :`, err);
+  }
+  await deleteAuthUser(uid);
+}
+
+/**
+ * Suppression complète du compte de l'appelant, côté serveur (Admin SDK) :
+ * contrairement à l'ancienne suppression client, n'exige pas une connexion
+ * récente (`requires-recent-login`), qui laissait des comptes vidés de leurs
+ * données mais toujours actifs.
+ */
+exports.deleteAccount = onCall(
+  { secrets: R2_SECRETS, timeoutSeconds: 540, memory: "512MiB" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Connexion requise.");
+    }
+
+    const blockers = await accountDeletionBlockers(uid);
+    if (blockers.includes("orders")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tu as encore une commande en cours (paiement, séquestre, litige ou " +
+          "reversement en attente). Termine-la avant de supprimer ton compte."
+      );
+    }
+    if (blockers.includes("giftRedemptions")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tu as encore une demande d'échange de points en attente. " +
+          "Attends sa validation ou son refus avant de supprimer ton compte."
+      );
+    }
+
+    await deleteUserData(uid);
+    return { status: "deleted" };
+  }
+);
 
 /**
  * Table canonique des formules vendeur — seule source de vérité pour le
@@ -4139,6 +4428,9 @@ exports.reconcilePawapayPayouts = onSchedule(
 );
 
 exports._testables = {
+  accountDeletionBlockers,
+  deleteUserData,
+  DELETED_USER_NAME,
   r2KeyFromPublicUrl,
   presignR2Put,
   isActiveSubscription,
