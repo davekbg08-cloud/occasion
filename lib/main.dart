@@ -297,6 +297,26 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
                         icon: const Icon(Icons.refresh),
                         label: Text(tr('Réessayer')),
                       ),
+                      // DIAGNOSTIC TEMPORAIRE — à retirer une fois la cause
+                      // exacte confirmée sur un appareil réel. Le texte d'une
+                      // exception Firebase (ex. "[core/network-error]",
+                      // PlatformException(no-app, ...)) ne contient jamais de
+                      // secret (clé API, jeton...) : seulement un code/message
+                      // d'erreur générique, donc sans risque à afficher ici.
+                      // Objectif : qu'une capture d'écran de CET écran suffise
+                      // à connaître l'exception réelle, sans accès à un
+                      // appareil ni à adb logcat.
+                      const SizedBox(height: 20),
+                      SelectableText(
+                        '${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        maxLines: 6,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
                     ],
                   ),
                 ),
