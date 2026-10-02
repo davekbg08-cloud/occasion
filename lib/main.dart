@@ -102,8 +102,15 @@ Future<void> main() async {
 /// premier affichage Flutter — jamais avant, voir le commentaire de
 /// `main()`. Affiche le logo pendant l'initialisation, et un écran
 /// "Réessayer" fonctionnel (jamais un blocage indéfini) si
-/// `Firebase.initializeApp()` échoue ou dépasse 20s — le cas réel observé
+/// `Firebase.initializeApp()` échoue ou dépasse 60s — le cas réel observé
 /// sur un appareil bas de gamme sous forte pression mémoire.
+///
+/// RÉGRESSION CORRIGÉE : un premier seuil à 20s avait cassé la mise à jour
+/// pour des appareils dont l'initialisation Firebase est simplement LENTE
+/// (jamais bloquée indéfiniment — avant ce bootstrap, aucun timeout
+/// n'existait et ça finissait par réussir). 60s laisse largement le temps à
+/// une connexion lente d'aboutir, tout en gardant un filet contre un vrai
+/// blocage permanent.
 class _FirebaseBootstrap extends StatefulWidget {
   const _FirebaseBootstrap();
 
@@ -123,7 +130,7 @@ class _FirebaseBootstrapState extends State<_FirebaseBootstrap> {
   Future<void> _bootstrap() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(const Duration(seconds: 20));
+    ).timeout(const Duration(seconds: 60));
     FirestoreBootstrap.configure(FirebaseFirestore.instance);
 
     // Crashlytics n'est pas disponible sur le web : on capte les crashs
