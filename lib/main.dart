@@ -93,8 +93,8 @@ Future<void> main() async {
   // (Google Play Services obsolète/absent, forte pression mémoire...),
   // runApp() n'était alors JAMAIS appelé : l'app restait figée indéfiniment
   // sur l'écran blanc natif, avant même que le moindre code Dart de l'app
-  // n'ait la main. Voir _FirebaseBootstrap, qui fait ce travail maintenant
-  // APRÈS runApp(), avec un timeout et un écran "Réessayer" fonctionnel.
+  // n'ait la main. Voir FirebaseBootstrap, qui fait ce travail maintenant
+  // APRÈS runApp(), avec un écran "Réessayer" en cas d'échec.
   runApp(const ProviderScope(child: FirebaseBootstrap()));
 }
 
@@ -102,18 +102,11 @@ Future<void> main() async {
 /// extraite de [FirebaseBootstrap] pour rester remplaçable en test (voir
 /// `FirebaseBootstrap.bootstrap`), jamais appelée directement ailleurs.
 ///
-/// RÉGRESSION 1.5.3+20/1.5.4+21 COMPRISE ET CORRIGÉE : un `.timeout()` posé
-/// ici puis retenté en boucle rappelait `Firebase.initializeApp()`
-/// PAR-DESSUS une tentative précédente encore en cours côté natif — le
-/// timeout Dart n'annule jamais l'appel natif sous-jacent, qui continue de
-/// tourner en arrière-plan. Deux initialisations natives simultanées du
-/// même FirebaseApp se bloquant probablement l'une l'autre, ce qui
-/// expliquait un échec systématique, reproductible, indépendant du réseau
-/// (confirmé : plusieurs appareils, plusieurs réseaux, toujours en échec).
-/// Plus JAMAIS de timeout ni de second appel tant que le premier n'a pas
-/// répondu — un seul appel, qui attend aussi longtemps qu'il le faut,
-/// exactement comme la dernière architecture dont on est sûrs qu'elle
-/// fonctionne sur tous les appareils (1.5.0+17).
+/// Sur Android, l'app native [DEFAULT] (créée depuis google-services.json)
+/// doit avoir les mêmes apiKey/databaseURL/storageBucket que
+/// `DefaultFirebaseOptions.android`, sinon cet appel lève
+/// `[core/duplicate-app]` à chaque lancement — verrouillé par
+/// `test/firebase_android_native_options_test.dart`.
 Future<void> _realBootstrap() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirestoreBootstrap.configure(FirebaseFirestore.instance);
@@ -152,21 +145,9 @@ Future<void> _realBootstrap() async {
 /// pour que la personne comprenne qu'il se passe quelque chose plutôt que
 /// de voir un écran figé.
 ///
-/// HISTORIQUE DES CORRECTIFS SUR CET ÉCRAN :
-/// 1. À l'origine, aucun timeout, aucun visuel : un appareil où Firebase
-///    ne répondait jamais restait figé sur le logo, sans indication.
-/// 2. Un timeout + écran "Réessayer" manuel, puis une boucle de réessais
-///    AUTOMATIQUES ont été ajoutés successivement — mais chaque réessai
-///    rappelait `Firebase.initializeApp()` PAR-DESSUS une tentative
-///    précédente encore en cours côté natif (le timeout Dart n'annule
-///    jamais l'appel natif sous-jacent), ce qui causait un échec
-///    systématique et reproductible sur plusieurs appareils/réseaux —
-///    bien pire que le problème initial. Voir le commentaire de
-///    `_realBootstrap`.
-/// 3. Version actuelle : UN SEUL appel, jamais de second appel tant que
-///    le premier n'a pas répondu — seul le VISUEL (logo, indicateur de
-///    progression, indice après 15s) donne un retour pendant l'attente,
-///    aussi longue soit-elle.
+/// Un seul appel à la fois : un `.timeout()` Dart n'annule jamais l'appel
+/// natif sous-jacent, donc "Réessayer" n'est proposé qu'une fois la
+/// tentative précédente terminée.
 ///
 /// [bootstrap] est remplaçable UNIQUEMENT en test (voir
 /// `test/firebase_bootstrap_test.dart`) — jamais fourni en production, où

@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "101610899328",
+    "firebase_url": "https://occasion-10cdb-default-rtdb.europe-west1.firebasedatabase.app",
     "project_id": "occasion-10cdb",
     "storage_bucket": "occasion-10cdb.firebasestorage.app"
   },
