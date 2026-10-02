@@ -135,10 +135,11 @@ void main() {
         await Future.wait([first, second]);
 
         final loaded = await store.load('buyer1');
-        expect(loaded.map((e) => e.clientMessageId).toSet(), {
-          'local-1',
-          'local-2',
-        }, reason: 'aucune des deux entrées ne doit être perdue');
+        expect(
+          loaded.map((e) => e.clientMessageId).toSet(),
+          {'local-1', 'local-2'},
+          reason: 'aucune des deux entrées ne doit être perdue',
+        );
       },
     );
 
