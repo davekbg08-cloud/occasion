@@ -71,6 +71,15 @@ jobs:
 
       - run: flutter pub get
 
+      # Aucune publication si l'analyse ou un test échoue — dont
+      # test/firebase_android_native_options_test.dart, qui aurait bloqué les
+      # versions 1.4.0+16 à 1.5.4+21 (démarrage Android cassé).
+      - name: Analyse statique
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Tests
+        run: flutter test
+
       - name: Installer la clé de signature
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

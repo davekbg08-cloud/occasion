@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core_platform_interface/firebase_core_platform_interface.dart'
+    show MethodChannelFirebase;
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:occasion/firebase_options.dart';
+import 'package:occasion/services/firebase_init.dart';
 
 /// Sur Android, le plugin Gradle google-services transforme
 /// android/app/google-services.json en ressources, et le SDK natif crée
@@ -67,20 +70,72 @@ CoreFirebaseOptions _nativeOptionsFromGoogleServicesJson(String packageName) {
   );
 }
 
+class _UnavailableNative implements TestFirebaseCoreHostApi {
+  @override
+  Future<List<CoreInitializeResponse>> initializeCore() =>
+      throw Exception('services Google Play indisponibles');
+
+  @override
+  Future<CoreInitializeResponse> initializeApp(
+    String appName,
+    CoreFirebaseOptions initializeAppRequest,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<CoreFirebaseOptions> optionsFromResource() =>
+      throw UnimplementedError();
+}
+
+void _simulateNativeDefaultApp(CoreFirebaseOptions nativeOptions) {
+  MethodChannelFirebase.appInstances.clear();
+  MethodChannelFirebase.isCoreInitialized = false;
+  TestFirebaseCoreHostApi.setUp(
+    _NativeDefaultAppFromGoogleServices(nativeOptions),
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.android);
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  test('régression 1.4.0+16 → 1.5.4+21 : une app native incohérente '
+      "(google-services.json sans firebase_url) n'empêche plus le démarrage, "
+      "et l'incohérence est signalée", () async {
+    final stale = _nativeOptionsFromGoogleServicesJson('com.occasion.app')
+      ..databaseURL = null;
+    _simulateNativeDefaultApp(stale);
+
+    final result = await initializeFirebaseApp(
+      options: DefaultFirebaseOptions.android,
+    );
+
+    expect(result.app.name, defaultFirebaseAppName);
+    expect(result.configMismatch?.code, 'duplicate-app');
+  });
+
+  test(
+    "toute autre erreur d'initialisation remonte toujours (jamais masquée)",
+    () async {
+      MethodChannelFirebase.appInstances.clear();
+      MethodChannelFirebase.isCoreInitialized = false;
+      TestFirebaseCoreHostApi.setUp(_UnavailableNative());
+
+      await expectLater(
+        initializeFirebaseApp(options: DefaultFirebaseOptions.android),
+        throwsA(anything),
+      );
+    },
+  );
 
   test(
     'Android : Firebase.initializeApp() accepte DefaultFirebaseOptions.android '
     "face à l'app native créée depuis google-services.json "
     '(com.occasion.app)',
     () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      TestFirebaseCoreHostApi.setUp(
-        _NativeDefaultAppFromGoogleServices(
-          _nativeOptionsFromGoogleServicesJson('com.occasion.app'),
-        ),
+      _simulateNativeDefaultApp(
+        _nativeOptionsFromGoogleServicesJson('com.occasion.app'),
       );
 
       final app = await Firebase.initializeApp(

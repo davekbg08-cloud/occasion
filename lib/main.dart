@@ -16,7 +16,6 @@ import 'l10n/app_language.dart';
 import 'screens/account_settings_screen.dart';
 import 'screens/payout_account_screen.dart';
 import 'theme/app_theme.dart';
-import 'firebase_options.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
 import 'providers/auth_provider.dart';
@@ -60,6 +59,7 @@ import 'search/screens/search_screen.dart';
 import 'services/app_badge_service.dart';
 import 'services/notification_service.dart';
 import 'services/chat_service.dart';
+import 'services/firebase_init.dart';
 import 'services/firestore_bootstrap.dart';
 import 'services/payment_settlement_service.dart';
 import 'services/service_locator.dart';
@@ -102,13 +102,21 @@ Future<void> main() async {
 /// extraite de [FirebaseBootstrap] pour rester remplaçable en test (voir
 /// `FirebaseBootstrap.bootstrap`), jamais appelée directement ailleurs.
 ///
-/// Sur Android, l'app native [DEFAULT] (créée depuis google-services.json)
-/// doit avoir les mêmes apiKey/databaseURL/storageBucket que
-/// `DefaultFirebaseOptions.android`, sinon cet appel lève
-/// `[core/duplicate-app]` à chaque lancement — verrouillé par
+/// Une incohérence entre google-services.json et `DefaultFirebaseOptions`
+/// n'empêche plus l'ouverture (voir [initializeFirebaseApp]) mais est
+/// remontée à Crashlytics ; elle reste aussi verrouillée en amont par
 /// `test/firebase_android_native_options_test.dart`.
 Future<void> _realBootstrap() async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await _initializeFirebaseAndServices();
+  } catch (error, stack) {
+    _reportBootstrapError(error, stack);
+    rethrow;
+  }
+}
+
+Future<void> _initializeFirebaseAndServices() async {
+  final init = await initializeFirebaseApp();
   FirestoreBootstrap.configure(FirebaseFirestore.instance);
 
   // Crashlytics n'est pas disponible sur le web : on capte les crashs
@@ -120,6 +128,15 @@ Future<void> _realBootstrap() async {
       FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
       return true;
     };
+    if (init.configMismatch != null) {
+      unawaited(
+        FirebaseCrashlytics.instance.recordError(
+          init.configMismatch,
+          init.stackTrace,
+          reason: 'google-services.json ≠ DefaultFirebaseOptions',
+        ),
+      );
+    }
   }
 
   // Best-effort, non bloquant : un échec ici ne doit jamais empêcher
@@ -137,6 +154,20 @@ Future<void> _realBootstrap() async {
     // Retombe sur la langue par défaut (français) déjà posée par
     // AppLanguage.current — jamais bloquant.
   }
+}
+
+/// Best-effort : l'app native [DEFAULT] existe souvent même quand
+/// l'initialisation Dart échoue (Android), ce qui suffit à Crashlytics.
+void _reportBootstrapError(Object error, StackTrace stack) {
+  if (kIsWeb) return;
+  try {
+    if (Firebase.apps.isEmpty) return;
+    unawaited(
+      FirebaseCrashlytics.instance
+          .recordError(error, stack, reason: 'démarrage Firebase')
+          .catchError((_) {}),
+    );
+  } catch (_) {}
 }
 
 /// Initialise Firebase APRÈS le tout premier affichage Flutter — jamais
@@ -164,6 +195,7 @@ class FirebaseBootstrap extends StatefulWidget {
 class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
   late Future<void> _bootstrapFuture;
   bool _showSlowHint = false;
+  bool _showErrorDetails = false;
   Timer? _slowHintTimer;
 
   @override
@@ -181,6 +213,7 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
   Future<void> _attempt() {
     _slowHintTimer?.cancel();
     _showSlowHint = false;
+    _showErrorDetails = false;
     _slowHintTimer = Timer(const Duration(seconds: 15), () {
       if (mounted) setState(() => _showSlowHint = true);
     });
@@ -278,26 +311,33 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
                         icon: const Icon(Icons.refresh),
                         label: Text(tr('Réessayer')),
                       ),
-                      // DIAGNOSTIC TEMPORAIRE — à retirer une fois la cause
-                      // exacte confirmée sur un appareil réel. Le texte d'une
-                      // exception Firebase (ex. "[core/network-error]",
-                      // PlatformException(no-app, ...)) ne contient jamais de
-                      // secret (clé API, jeton...) : seulement un code/message
-                      // d'erreur générique, donc sans risque à afficher ici.
-                      // Objectif : qu'une capture d'écran de CET écran suffise
-                      // à connaître l'exception réelle, sans accès à un
-                      // appareil ni à adb logcat.
-                      const SizedBox(height: 20),
-                      SelectableText(
-                        '${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        maxLines: 6,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
-                          fontFamily: 'monospace',
+                      // Un message d'exception Firebase ne contient qu'un
+                      // code/texte générique, jamais de secret : une capture
+                      // de ces détails suffit à diagnostiquer sans adb.
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: () => setState(
+                          () => _showErrorDetails = !_showErrorDetails,
+                        ),
+                        child: Text(
+                          tr('Détails techniques'),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
+                      if (_showErrorDetails)
+                        SelectableText(
+                          '${snapshot.error}',
+                          textAlign: TextAlign.center,
+                          maxLines: 6,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
                     ],
                   ),
                 ),

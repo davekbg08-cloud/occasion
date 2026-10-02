@@ -57,6 +57,27 @@ void main() {
     expect(find.byType(FilledButton), findsNothing);
   });
 
+  testWidgets(
+    "l'erreur technique est masquée par défaut, visible via « Détails techniques »",
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: FirebaseBootstrap(
+            bootstrap: () => Future.error(Exception('[core/duplicate-app]')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('duplicate-app'), findsNothing);
+
+      await tester.tap(find.text('Détails techniques'));
+      await tester.pump();
+
+      expect(find.textContaining('duplicate-app'), findsOneWidget);
+    },
+  );
+
   testWidgets('régression : un échec affiche "Réessayer", et retaper ne lance '
       'JAMAIS un second appel tant que le précédent est encore en vol', (
     tester,
