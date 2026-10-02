@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
@@ -14,5 +14,14 @@
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Sans ça, Android (API 29+, systématique à partir d'Android 15 en
+             mode edge-to-edge) dessine lui-même un bandeau de contraste
+             semi-transparent par-dessus la barre de statut/navigation dès
+             que du contenu est visible derrière elles — quelle que soit la
+             couleur demandée côté Flutter (SystemUiOverlayStyle). Ignoré
+             silencieusement sur les versions d'Android antérieures à l'API
+             29, qui ne connaissent pas ces attributs. -->
+        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
     </style>
 </resources>
