@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'dart:math' as math;
+
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -62,20 +65,49 @@ class ChatState {
 }
 
 class ChatNotifier extends StateNotifier<ChatState> {
+  /// [connectivity] : `true` à chaque (re)connexion au backend — déclenche
+  /// le renvoi immédiat de la boîte d'envoi (voir [flushOutbox]).
+  /// [retryDelay] : délai avant la n-ième tentative automatique (flux
+  /// coupés, envois en échec transitoire) ; remplaçable en test.
   ChatNotifier({
     ChatService? service,
     PendingMessageStore? pendingStore,
     ChatMediaUploadService? mediaUploadService,
+    Stream<bool>? connectivity,
+    Duration Function(int attempt)? retryDelay,
   }) : _service = service ?? ChatService(),
        _pendingStore = pendingStore ?? PendingMessageStore(),
        _mediaUploadService = mediaUploadService ?? ChatMediaUploadService(),
-       super(const ChatState());
+       _retryDelay = retryDelay ?? defaultRetryDelay,
+       super(const ChatState()) {
+    _connectivitySubscription = connectivity?.listen((connected) {
+      if (connected) unawaited(flushOutbox());
+    }, onError: (_) {});
+  }
+
+  /// 1 s, 2 s, 4 s… plafonné à 30 s.
+  static Duration defaultRetryDelay(int attempt) =>
+      Duration(seconds: math.min(30, 1 << math.min(attempt, 5)));
 
   final ChatService _service;
   final PendingMessageStore _pendingStore;
   final ChatMediaUploadService _mediaUploadService;
+  final Duration Function(int attempt) _retryDelay;
+  StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<List<Chat>>? _chatsSubscription;
   StreamSubscription<List<Message>>? _messagesSubscription;
+
+  // Un flux Firestore en erreur (réseau, jeton expiré, indisponibilité) est
+  // TERMINÉ : sans réabonnement, la liste ou la conversation resterait figée
+  // jusqu'au redémarrage de l'app.
+  Timer? _chatsResubscribeTimer;
+  Timer? _messagesResubscribeTimer;
+  int _chatsStreamErrors = 0;
+  int _messagesStreamErrors = 0;
+
+  /// Renvoi automatique différé d'un envoi en échec transitoire, par chat.
+  final Map<String, Timer> _autoRetryTimers = {};
+  bool _flushInProgress = false;
   String? _listeningUserId;
   String? _listeningChatId;
   String? _pendingLoadedForChatId;
@@ -102,14 +134,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (userId.isEmpty || _listeningUserId == userId) return;
 
     _listeningUserId = userId;
-    _chatsSubscription?.cancel();
+    _chatsStreamErrors = 0;
     state = state.copyWith(isLoading: true, clearError: true);
+    _subscribeChats(userId);
+    // Messages restés en attente d'une session précédente (app tuée,
+    // réseau coupé), toutes conversations confondues.
+    unawaited(flushOutbox());
+  }
 
+  void _subscribeChats(String userId) {
+    _chatsResubscribeTimer?.cancel();
+    _chatsSubscription?.cancel();
     try {
       _chatsSubscription = _service
           .userChats(userId)
           .listen(
             (list) {
+              _chatsStreamErrors = 0;
               state = state.copyWith(
                 chats: list,
                 isLoading: false,
@@ -118,11 +159,20 @@ class ChatNotifier extends StateNotifier<ChatState> {
             },
             onError: (Object error) {
               state = state.copyWith(isLoading: false, error: error.toString());
+              _scheduleChatsResubscribe(userId);
             },
           );
     } catch (error) {
       state = state.copyWith(isLoading: false, error: error.toString());
+      _scheduleChatsResubscribe(userId);
     }
+  }
+
+  void _scheduleChatsResubscribe(String userId) {
+    _chatsResubscribeTimer?.cancel();
+    _chatsResubscribeTimer = Timer(_retryDelay(_chatsStreamErrors++), () {
+      if (_listeningUserId == userId) _subscribeChats(userId);
+    });
   }
 
   void listenMessages(String chatId, String currentUserId) {
@@ -142,32 +192,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
         unawaited(_loadPendingForChat(chatId, currentUserId));
       }
 
-      try {
-        _messagesSubscription = _service
-            .chatMessages(chatId)
-            .listen(
-              (list) {
-                state = state.copyWith(
-                  activeChatId: chatId,
-                  messagesByChatId: {
-                    ...state.messagesByChatId,
-                    chatId: _reconcileWithFirestore(chatId, list),
-                  },
-                  clearError: true,
-                );
-                if (currentUserId.isNotEmpty) {
-                  unawaited(
-                    _pruneConfirmedPending(chatId, currentUserId, list),
-                  );
-                }
-              },
-              onError: (Object error) {
-                state = state.copyWith(error: error.toString());
-              },
-            );
-      } catch (error) {
-        state = state.copyWith(error: error.toString());
-      }
+      _messagesStreamErrors = 0;
+      _subscribeMessages(chatId, currentUserId);
     }
 
     if (currentUserId.isEmpty) return;
@@ -182,6 +208,85 @@ class ChatNotifier extends StateNotifier<ChatState> {
           // retentera naturellement).
           state = state.copyWith(error: error.toString());
         });
+  }
+
+  void _subscribeMessages(String chatId, String currentUserId) {
+    _messagesResubscribeTimer?.cancel();
+    _messagesSubscription?.cancel();
+    try {
+      _messagesSubscription = _service
+          .chatMessages(chatId)
+          .listen(
+            (list) {
+              _messagesStreamErrors = 0;
+              state = state.copyWith(
+                activeChatId: chatId,
+                messagesByChatId: {
+                  ...state.messagesByChatId,
+                  chatId: _reconcileWithFirestore(chatId, list),
+                },
+                clearError: true,
+              );
+              if (currentUserId.isNotEmpty) {
+                unawaited(_pruneConfirmedPending(chatId, currentUserId, list));
+              }
+            },
+            onError: (Object error) {
+              state = state.copyWith(error: error.toString());
+              _scheduleMessagesResubscribe(chatId, currentUserId);
+            },
+          );
+    } catch (error) {
+      state = state.copyWith(error: error.toString());
+      _scheduleMessagesResubscribe(chatId, currentUserId);
+    }
+  }
+
+  void _scheduleMessagesResubscribe(String chatId, String currentUserId) {
+    _messagesResubscribeTimer?.cancel();
+    _messagesResubscribeTimer = Timer(_retryDelay(_messagesStreamErrors++), () {
+      if (_listeningChatId == chatId) {
+        _subscribeMessages(chatId, currentUserId);
+      }
+    });
+  }
+
+  /// Renvoie tout ce qui attend dans la boîte d'envoi de l'utilisateur
+  /// connecté, TOUTES conversations confondues (pas seulement celle qui est
+  /// ouverte) : au démarrage, au retour du réseau, au retour au premier
+  /// plan. Même plafond de tentatives automatiques que [retryAllPending],
+  /// jamais un message déjà en vol, toujours le même `clientMessageId`
+  /// (idempotent côté serveur).
+  Future<void> flushOutbox() async {
+    final userId = _listeningUserId;
+    if (userId == null || _flushInProgress) return;
+    _flushInProgress = true;
+    try {
+      final activeChatId = _listeningChatId;
+      if (activeChatId != null) await retryAllPending(activeChatId);
+
+      final entries = await _pendingStore.load(userId);
+      for (final entry in entries) {
+        if (_listeningUserId != userId) return;
+        if (entry.chatId == activeChatId ||
+            _inFlightDispatchIds.contains(entry.clientMessageId) ||
+            entry.attemptCount >= maxAutoRetryAttempts) {
+          continue;
+        }
+        await _dispatchSend(
+          userId: userId,
+          chatId: entry.chatId,
+          clientMessageId: entry.clientMessageId,
+          content: entry.content,
+          basePending: entry,
+        );
+      }
+    } catch (_) {
+      // Best-effort : un prochain déclencheur (réseau, premier plan)
+      // retentera.
+    } finally {
+      _flushInProgress = false;
+    }
   }
 
   /// Recharge, à l'ouverture d'une conversation, les messages
@@ -679,28 +784,29 @@ class ChatNotifier extends StateNotifier<ChatState> {
     required String content,
     required PendingChatMessage basePending,
   }) async {
-    final priorAttempts = _findPending(
-      await _pendingStore.load(userId),
-      chatId,
-      clientMessageId,
-    )?.attemptCount;
-
-    await _pendingStore.upsert(
-      userId,
-      basePending.copyWith(
-        state: PendingMessageState.sending,
-        attemptCount: (priorAttempts ?? basePending.attemptCount) + 1,
-        lastAttemptAt: DateTime.now(),
-      ),
-    );
-
-    // Marque cet id comme réellement en vol pendant toute la durée de
-    // l'appel réseau : c'est ce qui distingue, pour `retryAllPending`, un
-    // envoi activement en cours dans cette session d'un message
-    // simplement restauré `sending` du disque (celui-ci n'a jamais son id
-    // dans cet ensemble, donc jamais bloqué indéfiniment).
-    _inFlightDispatchIds.add(clientMessageId);
+    // Marqué en vol AVANT toute attente : deux déclencheurs simultanés
+    // (retour du réseau + réouverture de la conversation) ne doivent jamais
+    // lancer deux appels pour le même message. C'est aussi ce qui
+    // distingue, pour `retryAllPending`, un envoi activement en cours dans
+    // cette session d'un message simplement restauré `sending` du disque.
+    if (!_inFlightDispatchIds.add(clientMessageId)) return;
+    int? priorAttempts;
     try {
+      priorAttempts = _findPending(
+        await _pendingStore.load(userId),
+        chatId,
+        clientMessageId,
+      )?.attemptCount;
+
+      await _pendingStore.upsert(
+        userId,
+        basePending.copyWith(
+          state: PendingMessageState.sending,
+          attemptCount: (priorAttempts ?? basePending.attemptCount) + 1,
+          lastAttemptAt: DateTime.now(),
+        ),
+      );
+
       final forwardedFromChatId = basePending.forwardedFromChatId;
       final forwardedFromMessageId = basePending.forwardedFromMessageId;
       if (forwardedFromChatId != null && forwardedFromMessageId != null) {
@@ -738,18 +844,53 @@ class ChatNotifier extends StateNotifier<ChatState> {
           target.copyWith(status: MessageStatus.failed),
         );
       }
-      await _pendingStore.upsert(
-        userId,
-        basePending.copyWith(
-          state: PendingMessageState.failed,
-          attemptCount: (priorAttempts ?? basePending.attemptCount) + 1,
-          lastAttemptAt: DateTime.now(),
-          lastErrorCode: _errorCodeOf(error),
-        ),
-      );
+      final attempts = (priorAttempts ?? basePending.attemptCount) + 1;
+      try {
+        await _pendingStore.upsert(
+          userId,
+          basePending.copyWith(
+            state: PendingMessageState.failed,
+            attemptCount: attempts,
+            lastAttemptAt: DateTime.now(),
+            lastErrorCode: _errorCodeOf(error),
+          ),
+        );
+      } catch (_) {
+        // Stockage local indisponible : la bulle reste en échec à l'écran.
+      }
+      if (_isTransient(error) && attempts < maxAutoRetryAttempts) {
+        _scheduleAutoRetry(chatId, attempts);
+      }
     } finally {
       _inFlightDispatchIds.remove(clientMessageId);
     }
+  }
+
+  /// Réseau coupé, délai dépassé, serveur momentanément indisponible :
+  /// retenter a un sens. Jamais pour un refus définitif (droits, données
+  /// invalides, conversation supprimée) — il resterait en échec.
+  bool _isTransient(Object error) =>
+      error is FirebaseFunctionsException &&
+      const {
+        'unavailable',
+        'deadline-exceeded',
+        'internal',
+        'resource-exhausted',
+        'aborted',
+      }.contains(error.code);
+
+  /// Un seul minuteur par conversation : plusieurs échecs rapprochés ne
+  /// déclenchent jamais une rafale de renvois.
+  void _scheduleAutoRetry(String chatId, int attempt) {
+    if (_autoRetryTimers.containsKey(chatId)) return;
+    _autoRetryTimers[chatId] = Timer(_retryDelay(attempt), () {
+      _autoRetryTimers.remove(chatId);
+      if (_listeningChatId == chatId) {
+        unawaited(retryAllPending(chatId));
+      } else {
+        unawaited(flushOutbox());
+      }
+    });
   }
 
   String _errorCodeOf(Object error) {
@@ -870,6 +1011,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   /// concerné, pour ne jamais laisser les messages d'un ancien compte
   /// visibles au suivant.
   void resetForUserChange() {
+    _cancelTimers();
     _chatsSubscription?.cancel();
     _messagesSubscription?.cancel();
     _chatsSubscription = null;
@@ -904,8 +1046,19 @@ class ChatNotifier extends StateNotifier<ChatState> {
     );
   }
 
+  void _cancelTimers() {
+    _chatsResubscribeTimer?.cancel();
+    _messagesResubscribeTimer?.cancel();
+    for (final timer in _autoRetryTimers.values) {
+      timer.cancel();
+    }
+    _autoRetryTimers.clear();
+  }
+
   @override
   void dispose() {
+    _cancelTimers();
+    _connectivitySubscription?.cancel();
     _chatsSubscription?.cancel();
     _messagesSubscription?.cancel();
     super.dispose();
@@ -915,8 +1068,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
 final chatNotifierProvider = StateNotifierProvider<ChatNotifier, ChatState>((
   ref,
 ) {
-  return ChatNotifier();
+  return ChatNotifier(connectivity: _backendConnectivity());
 });
+
+/// `.info/connected` (Realtime Database) : signal de reconnexion fiable sur
+/// Android, iOS et web, déjà utilisé par la présence en ligne.
+Stream<bool> _backendConnectivity() => FirebaseDatabase.instance
+    .ref('.info/connected')
+    .onValue
+    .map((event) => event.snapshot.value == true);
 
 final chatMessagesProvider = Provider.family<List<Message>, String>((
   ref,

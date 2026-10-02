@@ -17,6 +17,17 @@ class ChatService {
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
+  /// 70 s par défaut côté SDK : sur un réseau coupé, le message restait
+  /// affiché « en cours d'envoi » plus d'une minute avant de pouvoir être
+  /// renvoyé. Un renvoi après délai est sans risque (idempotent sur
+  /// `clientMessageId`).
+  static const sendTimeout = Duration(seconds: 20);
+
+  HttpsCallable _sendCallable(String name) => _functions.httpsCallable(
+    name,
+    options: HttpsCallableOptions(timeout: sendTimeout),
+  );
+
   CollectionReference<Map<String, dynamic>> get _chats {
     return _db.collection('chats');
   }
@@ -208,7 +219,7 @@ class ChatService {
     int? mediaWidth,
     int? mediaHeight,
   }) async {
-    await _functions.httpsCallable('sendChatMessage').call(<String, dynamic>{
+    await _sendCallable('sendChatMessage').call(<String, dynamic>{
       'chatId': chatId,
       'clientMessageId': clientMessageId,
       'content': content,
@@ -231,7 +242,7 @@ class ChatService {
     required String targetChatId,
     required String clientMessageId,
   }) async {
-    await _functions.httpsCallable('forwardChatMessage').call(<String, dynamic>{
+    await _sendCallable('forwardChatMessage').call(<String, dynamic>{
       'sourceChatId': sourceChatId,
       'sourceMessageId': sourceMessageId,
       'targetChatId': targetChatId,

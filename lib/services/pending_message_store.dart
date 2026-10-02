@@ -41,11 +41,27 @@ class PendingMessageStore {
     final raw = prefs.getString(_keyFor(userId));
     if (raw == null || raw.isEmpty) return const [];
 
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .cast<Map<String, dynamic>>()
-        .map(PendingChatMessage.fromJson)
-        .toList();
+    // Une valeur illisible (écriture interrompue, ancien format) bloquait
+    // définitivement tout envoi : chaque upsert relisait puis échouait.
+    // Les entrées valides sont gardées, les autres ignorées, et la prochaine
+    // écriture remplace la valeur corrompue.
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return const [];
+    }
+    if (decoded is! List) return const [];
+    final entries = <PendingChatMessage>[];
+    for (final item in decoded) {
+      if (item is! Map<String, dynamic>) continue;
+      try {
+        entries.add(PendingChatMessage.fromJson(item));
+      } catch (_) {
+        // Entrée isolée invalide : ignorée, jamais bloquante pour les autres.
+      }
+    }
+    return entries;
   }
 
   Future<void> upsert(String userId, PendingChatMessage entry) {
