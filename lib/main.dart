@@ -18,6 +18,7 @@ import 'screens/payout_account_screen.dart';
 import 'theme/app_theme.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
+import 'providers/admin_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
@@ -61,7 +62,6 @@ import 'services/notification_service.dart';
 import 'services/chat_service.dart';
 import 'services/firebase_init.dart';
 import 'services/firestore_bootstrap.dart';
-import 'services/payment_settlement_service.dart';
 import 'services/service_locator.dart';
 import 'widgets/occasion_logo.dart';
 
@@ -832,50 +832,34 @@ class _AuthGuard extends ConsumerWidget {
 /// _AuthGuard/_RoleGuard, un utilisateur non-admin ne doit jamais atteindre
 /// l'écran lui-même (avant, seul le bouton était caché côté UI ; l'URL
 /// restait accessible à qui la devinait).
-class _AdminGuard extends ConsumerStatefulWidget {
+class _AdminGuard extends ConsumerWidget {
   const _AdminGuard({required this.child});
 
   final Widget child;
 
   @override
-  ConsumerState<_AdminGuard> createState() => _AdminGuardState();
-}
-
-class _AdminGuardState extends ConsumerState<_AdminGuard> {
-  late final Future<bool> _isAdmin = PaymentSettlementService()
-      .isCurrentUserAdmin();
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNotifierProvider);
     if (authState.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (authState.currentUser == null) return const _AuthPage();
 
-    return FutureBuilder<bool>(
-      future: _isAdmin,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snapshot.data != true) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(tr('Accès réservé aux administrateurs.'))),
-            );
-            context.go('/profile');
-          });
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        return widget.child;
-      },
-    );
+    final isAdmin = ref.watch(isAdminProvider);
+    if (isAdmin.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (isAdmin.valueOrNull != true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('Accès réservé aux administrateurs.'))),
+        );
+        context.go('/profile');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    return child;
   }
 }
 

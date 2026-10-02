@@ -7,10 +7,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../l10n/app_language.dart';
 import '../models/cart_item.dart';
 import '../models/product_model.dart';
+import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../services/payment_config.dart';
-import '../services/payment_settlement_service.dart';
 import '../services/phone_number_validator.dart';
 import '../theme/app_theme.dart';
 import '../utils/currencies.dart';
@@ -69,8 +69,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         final uid = ref.read(authNotifierProvider).currentUser?.id;
         final isTester =
             testers is List && uid != null && testers.contains(uid);
-        available =
-            isTester || await PaymentSettlementService().isCurrentUserAdmin();
+        available = isTester || await ref.read(isAdminProvider.future);
       }
       if (!mounted) return;
       setState(() {

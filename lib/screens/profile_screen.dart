@@ -4,11 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../l10n/app_language.dart';
+import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/subscription_provider.dart';
 import '../services/notification_service.dart';
-import '../services/payment_settlement_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
@@ -391,36 +391,33 @@ class _Section extends StatelessWidget {
 
 /// Outils d'administration : séparés du menu vendeur/acheteur, visibles
 /// uniquement pour un administrateur (le routeur les protège aussi).
-class _AdminSection extends StatelessWidget {
+class _AdminSection extends ConsumerWidget {
   const _AdminSection();
 
   @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: PaymentSettlementService().isCurrentUserAdmin(),
-      builder: (context, snapshot) {
-        if (snapshot.data != true) return const SizedBox.shrink();
-        return _Section(
-          title: tr('Administration'),
-          children: [
-            _ProfileTile(
-              icon: Icons.verified_user_outlined,
-              title: tr('Paiements et reversements'),
-              onTap: () => context.push('/admin/orders'),
-            ),
-            _ProfileTile(
-              icon: Icons.flag_outlined,
-              title: tr('Signalements'),
-              onTap: () => context.push('/admin/reports'),
-            ),
-            _ProfileTile(
-              icon: Icons.stars_outlined,
-              title: tr('Remise à zéro des points'),
-              onTap: () => context.push('/admin/loyalty'),
-            ),
-          ],
-        );
-      },
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(isAdminProvider).valueOrNull != true) {
+      return const SizedBox.shrink();
+    }
+    return _Section(
+      title: tr('Administration'),
+      children: [
+        _ProfileTile(
+          icon: Icons.verified_user_outlined,
+          title: tr('Paiements et reversements'),
+          onTap: () => context.push('/admin/orders'),
+        ),
+        _ProfileTile(
+          icon: Icons.flag_outlined,
+          title: tr('Signalements'),
+          onTap: () => context.push('/admin/reports'),
+        ),
+        _ProfileTile(
+          icon: Icons.stars_outlined,
+          title: tr('Remise à zéro des points'),
+          onTap: () => context.push('/admin/loyalty'),
+        ),
+      ],
     );
   }
 }

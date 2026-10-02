@@ -2164,3 +2164,37 @@ test("annonce : abonnement expiré — l'annonce à 5 photos reste modifiable (e
   await assertFails(ref.set(validAnnonceSeed({ imageUrls: photos(4) })));
   await assertSucceeds(ref.set(validAnnonceSeed({ imageUrls: photos(2) })));
 });
+
+// ---------------------------------------------------------------------------
+// Une seule définition d'admin : admins/{uid}
+// ---------------------------------------------------------------------------
+
+test("catégories : gérées par un admin (admins/{uid}), jamais par un simple claim token.admin ni par un utilisateur", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("admins").doc("admin1").set({ since: 1 });
+  });
+  const categorie = { nom: "Téléphones", icone: "phone", ordre: 1 };
+
+  const admin = testEnv.authenticatedContext("admin1").firestore();
+  await assertSucceeds(admin.collection("categories").doc("c1").set(categorie));
+  await assertSucceeds(admin.collection("categories").doc("c1").delete());
+
+  const claimOnly = testEnv
+    .authenticatedContext("pirate", { admin: true })
+    .firestore();
+  await assertFails(claimOnly.collection("categories").doc("c2").set(categorie));
+
+  const user = testEnv.authenticatedContext("user1").firestore();
+  await assertFails(user.collection("categories").doc("c3").set(categorie));
+});
+
+test("admins : un utilisateur ne voit que son propre document admin et ne peut jamais s'en créer un", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("admins").doc("admin1").set({ since: 1 });
+  });
+  const admin = testEnv.authenticatedContext("admin1").firestore();
+  const user = testEnv.authenticatedContext("user1").firestore();
+  await assertSucceeds(admin.collection("admins").doc("admin1").get());
+  await assertFails(user.collection("admins").doc("admin1").get());
+  await assertFails(user.collection("admins").doc("user1").set({ since: 1 }));
+});

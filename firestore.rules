@@ -891,10 +891,12 @@ service cloud.firestore {
 
     match /categories/{categorieId} {
       allow read: if signedIn();
-      allow create, update: if signedIn()
-        && request.auth.token.admin == true
+      // Même définition d'admin que partout ailleurs (`admins/{uid}`) : le
+      // claim `token.admin` exigé ici auparavant n'était posé par aucun code,
+      // les catégories étaient donc ingérables, même par un vrai admin.
+      allow create, update: if isAdmin()
         && validCategorie(request.resource.data);
-      allow delete: if signedIn() && request.auth.token.admin == true;
+      allow delete: if isAdmin();
     }
 
     match /notifications/{notificationId} {
