@@ -80,27 +80,141 @@ Future<void> main() async {
       statusBarBrightness: Brightness.dark,
     ),
   );
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  FirestoreBootstrap.configure(FirebaseFirestore.instance);
+  // Sans dépendance Firebase (voir service_locator.dart : uniquement des
+  // `registerLazySingleton`, rien n'est réellement construit ici) — jamais
+  // besoin d'attendre Firebase.initializeApp() pour cet appel.
   configureServices();
+  // runApp() est appelé tout de suite, SYNCHRONE, sans le moindre `await`
+  // avant : c'est ce qui retire l'écran de démarrage natif Android
+  // (windowBackground, voir android/.../launch_background.xml) dès la
+  // première image dessinée. Avant ce correctif, Firebase.initializeApp()
+  // et AppLanguage.load() étaient attendus ICI, sans aucun timeout — sur un
+  // appareil où l'initialisation native de Firebase ne répond jamais
+  // (Google Play Services obsolète/absent, forte pression mémoire...),
+  // runApp() n'était alors JAMAIS appelé : l'app restait figée indéfiniment
+  // sur l'écran blanc natif, avant même que le moindre code Dart de l'app
+  // n'ait la main. Voir _FirebaseBootstrap, qui fait ce travail maintenant
+  // APRÈS runApp(), avec un timeout et un écran "Réessayer" fonctionnel.
+  runApp(const ProviderScope(child: _FirebaseBootstrap()));
+}
 
-  // Crashlytics n'est pas disponible sur le web : on capte les crashs
-  // uniquement sur mobile/desktop.
-  if (!kIsWeb) {
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
+/// Initialise Firebase (+ langue, Crashlytics, notifications) APRÈS le tout
+/// premier affichage Flutter — jamais avant, voir le commentaire de
+/// `main()`. Affiche le logo pendant l'initialisation, et un écran
+/// "Réessayer" fonctionnel (jamais un blocage indéfini) si
+/// `Firebase.initializeApp()` échoue ou dépasse 20s — le cas réel observé
+/// sur un appareil bas de gamme sous forte pression mémoire.
+class _FirebaseBootstrap extends StatefulWidget {
+  const _FirebaseBootstrap();
+
+  @override
+  State<_FirebaseBootstrap> createState() => _FirebaseBootstrapState();
+}
+
+class _FirebaseBootstrapState extends State<_FirebaseBootstrap> {
+  late Future<void> _bootstrapFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrapFuture = _bootstrap();
   }
 
-  // Lance l'interface immédiatement. L'initialisation des notifications est
-  // volontairement non bloquante : sur le web, la demande de permission FCM et
-  // flutter_local_notifications peuvent ne jamais se résoudre, ce qui laissait
-  // l'application sur une page blanche tant que runApp() n'était pas appelé.
-  await AppLanguage.load();
-  runApp(const ProviderScope(child: OccasionApp()));
-  unawaited(NotificationService.init(appNavigatorKey));
+  Future<void> _bootstrap() async {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(const Duration(seconds: 20));
+    FirestoreBootstrap.configure(FirebaseFirestore.instance);
+
+    // Crashlytics n'est pas disponible sur le web : on capte les crashs
+    // uniquement sur mobile/desktop. Ne peut être câblé qu'une fois Firebase
+    // initialisé (Crashlytics en dépend), donc jamais avant ce point.
+    if (!kIsWeb) {
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    }
+
+    // Best-effort, non bloquant : un échec ici ne doit jamais empêcher
+    // l'affichage du reste de l'app (voir le commentaire historique sur
+    // l'ancien appel dans main()).
+    unawaited(NotificationService.init(appNavigatorKey));
+
+    // Local uniquement (SharedPreferences), jamais réseau — très peu
+    // probable de dépasser ce délai, mais couvert quand même par cohérence
+    // avec le reste de ce bootstrap : aucune étape ne doit pouvoir bloquer
+    // indéfiniment l'écran de chargement.
+    try {
+      await AppLanguage.load().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Retombe sur la langue par défaut (français) déjà posée par
+      // AppLanguage.current — jamais bloquant.
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _bootstrapFuture = _bootstrap();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _bootstrapFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.dark(),
+            home: const Scaffold(body: Center(child: OccasionLogo(size: 132))),
+          );
+        }
+        if (snapshot.hasError) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.dark(),
+            home: Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.cloud_off,
+                        size: 56,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        tr(
+                          'Connexion impossible. Vérifie ta connexion '
+                          'internet puis réessaie.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: _retry,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(tr('Réessayer')),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        return const OccasionApp();
+      },
+    );
+  }
 }
 
 class OccasionApp extends StatelessWidget {
