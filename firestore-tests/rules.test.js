@@ -1524,7 +1524,7 @@ test("un client ne peut plus du tout modifier likesCount d'un statut (passe par 
   );
 });
 
-test("le propriétaire peut toujours modifier les autres champs de son propre statut", async () => {
+test("régression : un statut n'est plus modifiable du tout par le client, même par son propriétaire (sellerId/createdAt/légende usurpables)", async () => {
   await seed("seller1", { id: "seller1", role: "seller" });
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("statuses").doc("status1").set({
@@ -1538,8 +1538,14 @@ test("le propriétaire peut toujours modifier les autres champs de son propre st
     });
   });
   const seller = testEnv.authenticatedContext("seller1").firestore();
-  await assertSucceeds(
+  await assertFails(
     seller.collection("statuses").doc("status1").update({ caption: "Nouveau" })
+  );
+  await assertFails(
+    seller.collection("statuses").doc("status1").update({ sellerId: "seller2" })
+  );
+  await assertFails(
+    seller.collection("statuses").doc("status1").update({ createdAt: 9999999999999 })
   );
 });
 
@@ -2036,4 +2042,125 @@ test("régression : la collection héritée /conversations (et sa sous-collectio
       .doc("legacy-m1")
       .get()
   );
+});
+
+// ---------------------------------------------------------------------------
+// Abonnement vendeur imposé côté serveur (statuts, photos d'annonces)
+// ---------------------------------------------------------------------------
+
+async function seedSubscription(uid, { isActive = true, daysLeft = 30 } = {}) {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("subscriptions")
+      .doc(uid)
+      .set({
+        userId: uid,
+        isActive,
+        expiryDate: new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000),
+      });
+  });
+}
+
+function newStatus(overrides) {
+  return {
+    id: "s1",
+    sellerId: "seller1",
+    sellerName: "Vendeur test",
+    sellerProfileImageUrl: null,
+    mediaUrl: "https://example.com/photo.jpg",
+    type: "image",
+    caption: null,
+    productId: null,
+    likesCount: 0,
+    status: "published",
+    active: true,
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+test("statut : refusé sans abonnement vendeur actif, même pour un vendeur", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertFails(seller.collection("statuses").doc("s1").set(newStatus()));
+});
+
+test("statut : refusé avec un abonnement expiré ou désactivé", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await seedSubscription("seller1", { daysLeft: -1 });
+  await assertFails(seller.collection("statuses").doc("s1").set(newStatus()));
+  await seedSubscription("seller1", { isActive: false });
+  await assertFails(seller.collection("statuses").doc("s1").set(newStatus()));
+});
+
+test("statut : accepté pour un vendeur abonné, au format exact de l'app", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1");
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(seller.collection("statuses").doc("s1").set(newStatus()));
+});
+
+test("statut : un vendeur abonné ne peut ni gonfler likesCount, ni ajouter un champ inconnu, ni publier pour un autre", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1");
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  const statuses = seller.collection("statuses");
+  await assertFails(statuses.doc("a").set(newStatus({ likesCount: 500 })));
+  await assertFails(statuses.doc("b").set(newStatus({ verified: true })));
+  await assertFails(statuses.doc("c").set(newStatus({ sellerId: "seller2" })));
+  await assertFails(statuses.doc("d").set(newStatus({ type: "gif" })));
+  await assertFails(statuses.doc("e").set(newStatus({ mediaUrl: "javascript:alert(1)" })));
+});
+
+test("statut : un acheteur abonné (rôle buyer) ne peut pas publier", async () => {
+  await seed("buyer1", { id: "buyer1", role: "buyer" });
+  await seedSubscription("buyer1");
+  const buyer = testEnv.authenticatedContext("buyer1").firestore();
+  await assertFails(
+    buyer.collection("statuses").doc("s1").set(newStatus({ sellerId: "buyer1" }))
+  );
+});
+
+const photos = (n) =>
+  Array.from({ length: n }, (_, i) => `https://example.com/${i}.jpg`);
+
+test("annonce : la formule gratuite est limitée à 2 photos", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller.collection("annonces").doc("a2").set(validAnnonceSeed({ imageUrls: photos(2) }))
+  );
+  await assertFails(
+    seller.collection("annonces").doc("a3").set(validAnnonceSeed({ imageUrls: photos(3) }))
+  );
+});
+
+test("annonce : la formule vendeur permet 5 photos", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1");
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller.collection("annonces").doc("a5").set(validAnnonceSeed({ imageUrls: photos(5) }))
+  );
+});
+
+test("annonce : abonnement expiré — l'annonce à 5 photos reste modifiable (ex. vendue), mais ses photos ne peuvent pas changer au-delà de 2", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1", { daysLeft: -1 });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx
+      .firestore()
+      .collection("annonces")
+      .doc("a5")
+      .set(validAnnonceSeed({ imageUrls: photos(5) }));
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  const ref = seller.collection("annonces").doc("a5");
+  await assertSucceeds(
+    ref.set(validAnnonceSeed({ imageUrls: photos(5), saleState: "sold" }))
+  );
+  await assertFails(ref.set(validAnnonceSeed({ imageUrls: photos(4) })));
+  await assertSucceeds(ref.set(validAnnonceSeed({ imageUrls: photos(2) })));
 });

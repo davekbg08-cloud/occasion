@@ -53,6 +53,53 @@ service cloud.firestore {
       return !(field in data) || data[field] is bool;
     }
 
+    function optionalNullableString(data, field, max) {
+      return !(field in data) || data[field] == null || stringField(data, field, max);
+    }
+
+    // Abonnement vendeur actif et non expiré : `subscriptions/{uid}` n'est
+    // écrit que par les Cloud Functions (paiement vérifié), `expiryDate` y
+    // est toujours un timestamp.
+    function hasActiveSubscription() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/subscriptions/$(request.auth.uid))
+        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.get('isActive', false) == true
+        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.get('expiryDate', null) is timestamp
+        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.expiryDate > request.time;
+    }
+
+    // Formule gratuite : 2 photos par annonce ; formule vendeur : 5 (mêmes
+    // valeurs que AnnonceRepositoryImpl). Le cas courant (≤ 2) ne coûte
+    // aucune lecture d'abonnement.
+    function annoncePhotoCount(data) {
+      return data.imageUrls is list ? data.imageUrls.size() : data.images.size();
+    }
+
+    function withinPhotoLimit(data) {
+      return annoncePhotoCount(data) <= 2
+        || (annoncePhotoCount(data) <= 5 && hasActiveSubscription());
+    }
+
+    // Statut tel qu'écrit par StatusService.createStatus — rien d'autre.
+    // `createdAt` est recalé sur l'heure serveur par onNewStatus (les
+    // horloges de téléphone sont souvent fausses : pas de rejet ici).
+    function validStatusCreate(data) {
+      return hasOnly(data, [
+        'id', 'sellerId', 'sellerName', 'sellerProfileImageUrl', 'mediaUrl',
+        'type', 'caption', 'productId', 'likesCount', 'status', 'active',
+        'createdAt'
+      ])
+        && data.type in ['image', 'video']
+        && stringField(data, 'mediaUrl', 2048)
+        && data.mediaUrl.matches('https://.+')
+        && stringField(data, 'sellerName', 160)
+        && optionalNullableString(data, 'sellerProfileImageUrl', 2048)
+        && optionalNullableString(data, 'caption', 2000)
+        && optionalNullableString(data, 'productId', 128)
+        && data.get('likesCount', 0) == 0
+        && data.createdAt is int;
+    }
+
     function isPublishedAnnonce(data) {
       return data.statut in ['active', 'actif', 'published', 'publie']
         || data.status in ['active', 'published']
@@ -299,10 +346,21 @@ service cloud.firestore {
           || request.resource.data.vendeurId == request.auth.uid
           || request.resource.data.userId == request.auth.uid
         )
-        && validAnnonce(request.resource.data);
+        && validAnnonce(request.resource.data)
+        && withinPhotoLimit(request.resource.data);
+      // Limite de photos vérifiée seulement quand les photos changent : un
+      // vendeur dont l'abonnement a expiré peut toujours modifier une
+      // annonce existante à 5 photos (ex. la marquer vendue).
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
-        && annonceUpdateAllowed(resource.data, request.resource.data);
+        && annonceUpdateAllowed(resource.data, request.resource.data)
+        && (
+          (
+            request.resource.data.get('imageUrls', null) == resource.data.get('imageUrls', null)
+            && request.resource.data.get('images', null) == resource.data.get('images', null)
+          )
+          || withinPhotoLimit(request.resource.data)
+        );
       allow delete: if signedIn()
         && isSeller()
         && (
@@ -476,20 +534,20 @@ service cloud.firestore {
     match /statuses/{statusId} {
       allow read: if isPublishedStatus(resource.data)
         || (signedIn() && resource.data.sellerId == request.auth.uid);
+      // Publier un statut est un avantage de l'abonnement vendeur : exigé
+      // ici (et revérifié par onNewStatus), plus seulement dans l'app.
       allow create: if signedIn()
         && isSeller()
         && request.resource.data.sellerId == request.auth.uid
-        && isPublishedStatus(request.resource.data);
-      // `likesCount` n'est plus modifiable côté client du tout : passe
-      // exclusivement par la Cloud Function `toggleStatusLike` (Admin SDK,
-      // contourne ces règles, transaction anti-double-like).
-      // `type`/`mediaUrl` figés aussi : sinon un statut photo (hors quota)
-      // pouvait être transformé en vidéo après coup, contournant la limite
-      // quotidienne de statuts vidéo (`onNewStatus`).
-      allow update: if signedIn()
-        && isSeller()
-        && resource.data.sellerId == request.auth.uid
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['likesCount', 'type', 'mediaUrl']);
+        && isPublishedStatus(request.resource.data)
+        && validStatusCreate(request.resource.data)
+        && hasActiveSubscription();
+      // Aucune modification client : l'app n'en fait jamais, et chaque champ
+      // modifiable était un contournement (likesCount gonflé, photo changée
+      // en vidéo hors quota, sellerId/sellerName usurpés, createdAt repoussé
+      // pour rester en ligne indéfiniment). Les likes passent par
+      // `toggleStatusLike`.
+      allow update: if false;
       // Suppression exclusivement via la Cloud Function `deleteStatus`
       // (Admin SDK) : nettoie aussi le fichier Storage et les `statusLikes`
       // associés, ce qu'une suppression Firestore directe ne ferait pas.

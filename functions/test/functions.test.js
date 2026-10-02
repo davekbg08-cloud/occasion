@@ -2906,8 +2906,17 @@ test("reserveVideoStatusSlot : quota de statuts vidéo par jour, le suivant est 
   assert.equal(await reserveVideoStatusSlot("autre-vendeur", "video-x", now), true);
 });
 
+async function seedActiveSubscription(uid, daysLeft = 30) {
+  await db.collection("subscriptions").doc(uid).set({
+    userId: uid,
+    isActive: true,
+    expiryDate: Timestamp.fromMillis(Date.now() + daysLeft * 86400000),
+  });
+}
+
 test("régression : onNewStatus retire un statut vidéo publié au-delà du quota quotidien", async () => {
   const { statusDayKey, MAX_VIDEO_STATUSES_PER_DAY } = functions._testables;
+  await seedActiveSubscription("seller-plein");
   await db
     .collection("statusDailyCounters")
     .doc(`seller-plein_${statusDayKey()}`)
@@ -3538,4 +3547,144 @@ test("deleteAccount : refuse sans connexion, et refuse sans rien effacer si une 
     (err) => err.code === "failed-precondition"
   );
   assert.equal((await db.collection("users").doc("u").get()).data().name, "Alice");
+});
+
+// ---------------------------------------------------------------------------
+// Verrouillage serveur : statuts et formule gratuite
+// ---------------------------------------------------------------------------
+
+function statusEvent(statusId, statusData, time) {
+  return { data: { data: () => statusData }, params: { statusId }, time };
+}
+
+test("onNewStatus : retire un statut publié sans abonnement actif (client modifié / abonnement expiré)", async () => {
+  const data = { sellerId: "s-sans-abo", type: "image", mediaUrl: null, createdAt: 1 };
+  await db.collection("statuses").doc("st1").set(data);
+  await db.collection("subscriptions").doc("s-sans-abo").set({
+    isActive: true,
+    expiryDate: Timestamp.fromMillis(Date.now() - 1000),
+  });
+
+  await functions.onNewStatus.run(statusEvent("st1", data));
+
+  assert.equal((await db.collection("statuses").doc("st1").get()).exists, false);
+});
+
+test("onNewStatus : garde le statut d'un abonné et recale createdAt sur l'heure serveur", async () => {
+  await seedActiveSubscription("s-abo");
+  const data = {
+    sellerId: "s-abo",
+    type: "image",
+    mediaUrl: null,
+    createdAt: 9999999999999, // horloge de téléphone dans le futur
+  };
+  await db.collection("statuses").doc("st2").set(data);
+
+  const time = "2026-10-02T12:00:00.000Z";
+  await functions.onNewStatus.run(statusEvent("st2", data, time));
+
+  const snap = await db.collection("statuses").doc("st2").get();
+  assert.equal(snap.exists, true);
+  assert.equal(snap.data().createdAt, Date.parse(time));
+});
+
+test("isVideoStatus : une vidéo déclarée « image » est quand même comptée comme vidéo", () => {
+  const { isVideoStatus } = functions._testables;
+  assert.equal(isVideoStatus({ type: "video" }), true);
+  assert.equal(
+    isVideoStatus({ type: "image", mediaUrl: "https://pub.r2.dev/statuses/u/1_a.mp4" }),
+    true
+  );
+  assert.equal(
+    isVideoStatus({
+      type: "image",
+      mediaUrl:
+        "https://firebasestorage.googleapis.com/v0/b/x/o/annonces%2Fu%2Fstatuses%2F1.MP4?alt=media&token=t",
+    }),
+    true
+  );
+  assert.equal(
+    isVideoStatus({ type: "image", mediaUrl: "https://x/o/annonces%2Fu%2Fstatuses%2F1.jpg?alt=media" }),
+    false
+  );
+});
+
+function liveAnnonce(sellerId, extra = {}) {
+  return {
+    vendeurId: sellerId,
+    sellerId,
+    title: "Article",
+    description: "",
+    isPublished: true,
+    active: true,
+    status: "published",
+    statut: "published",
+    ...extra,
+  };
+}
+
+test("formule gratuite : une 2e annonce mise en ligne repasse en brouillon, la 1re reste en ligne", async () => {
+  await db.collection("annonces").doc("premiere").set(liveAnnonce("gratuit"));
+  const seconde = liveAnnonce("gratuit");
+  await db.collection("annonces").doc("seconde").set(seconde);
+
+  await functions.onAnnonceCreated.run({
+    data: { data: () => seconde },
+    params: { annonceId: "seconde" },
+  });
+
+  const second = (await db.collection("annonces").doc("seconde").get()).data();
+  assert.equal(second.isPublished, false);
+  assert.equal(second.active, false);
+  assert.equal(second.status, "draft");
+  assert.equal((await db.collection("annonces").doc("premiere").get()).data().isPublished, true);
+  assert.ok(
+    (await db.collection("notifications").doc("freePlanLimit_seconde").get()).exists,
+    "le vendeur est prévenu"
+  );
+});
+
+test("formule vendeur : plusieurs annonces en ligne autorisées", async () => {
+  await seedActiveSubscription("abonne");
+  await db.collection("annonces").doc("a1").set(liveAnnonce("abonne"));
+  const a2 = liveAnnonce("abonne");
+  await db.collection("annonces").doc("a2").set(a2);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => a2 }, params: { annonceId: "a2" } });
+
+  assert.equal((await db.collection("annonces").doc("a2").get()).data().isPublished, true);
+});
+
+test("formule gratuite : republier un brouillon est vérifié, modifier une annonce déjà en ligne ne dépublie jamais", async () => {
+  await db.collection("annonces").doc("en-ligne").set(liveAnnonce("gratuit2"));
+  const draft = liveAnnonce("gratuit2", {
+    isPublished: false,
+    active: false,
+    status: "draft",
+    statut: "draft",
+  });
+  const republished = liveAnnonce("gratuit2");
+  await db.collection("annonces").doc("brouillon").set(republished);
+
+  await functions.onAnnonceUpdated.run({
+    id: "evt-republish",
+    data: {
+      before: { data: () => draft },
+      after: { data: () => republished },
+    },
+    params: { annonceId: "brouillon" },
+  });
+  assert.equal((await db.collection("annonces").doc("brouillon").get()).data().isPublished, false);
+
+  // Abonnement expiré avec deux annonces déjà en ligne : une simple
+  // modification (ex. vendue) ne touche à rien.
+  await db.collection("annonces").doc("autre-en-ligne").set(liveAnnonce("gratuit2"));
+  const before = liveAnnonce("gratuit2");
+  const after = liveAnnonce("gratuit2", { saleState: "sold" });
+  await functions.onAnnonceUpdated.run({
+    id: "evt-edit",
+    data: { before: { data: () => before }, after: { data: () => after } },
+    params: { annonceId: "autre-en-ligne" },
+  });
+  assert.equal((await db.collection("annonces").doc("autre-en-ligne").get()).data().isPublished, true);
 });

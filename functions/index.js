@@ -689,12 +689,72 @@ exports.onNewMessage = onDocumentCreated(
  * notification (`sendToUser` gère déjà la dédoublonnage par id de
  * document).
  */
+/** = AnnonceRepositoryImpl._freeMaxActiveAnnonces côté app. */
+const FREE_PLAN_MAX_ACTIVE_ANNONCES = 1;
+
+function isLiveAnnonce(annonce) {
+  return annonce?.isPublished === true && annonce?.active === true;
+}
+
+/**
+ * Formule gratuite : une seule annonce en ligne à la fois. Vérifié à chaque
+ * MISE EN LIGNE (création publiée ou brouillon → publié), jamais sur une
+ * simple modification d'une annonce déjà en ligne : l'expiration d'un
+ * abonnement ne dépublie rien d'office. Retourne true si l'annonce a été
+ * repassée en brouillon.
+ */
+async function enforceFreePlanAnnonceLimit(annonceId, annonce) {
+  const sellerId = annonce.vendeurId ?? annonce.sellerId ?? annonce.userId;
+  if (!sellerId) return false;
+  const subscriptionSnap = await db.collection("subscriptions").doc(sellerId).get();
+  if (isActiveSubscription(subscriptionSnap.data())) return false;
+
+  const liveSnap = await db
+    .collection("annonces")
+    .where("vendeurId", "==", sellerId)
+    .where("isPublished", "==", true)
+    .get();
+  const otherLive = liveSnap.docs.filter(
+    (doc) => doc.id !== annonceId && isLiveAnnonce(doc.data())
+  );
+  if (otherLive.length < FREE_PLAN_MAX_ACTIVE_ANNONCES) return false;
+
+  await db.collection("annonces").doc(annonceId).update({
+    active: false,
+    isPublished: false,
+    status: "draft",
+    statut: "draft",
+  });
+  await sendToUser({
+    recipientId: sellerId,
+    notificationId: `freePlanLimit_${annonceId}`,
+    type: "subscription",
+    title: "Annonce non publiée",
+    body:
+      "La formule gratuite permet 1 annonce en ligne. Désactive l'autre " +
+      "annonce ou active la formule vendeur.",
+    route: "/subscription",
+    data: { annonceId },
+  }).catch((err) =>
+    console.error(`Erreur notification limite gratuite ${annonceId} :`, err)
+  );
+  return true;
+}
+
 exports.onAnnonceUpdated = onDocumentUpdated(
   "annonces/{annonceId}",
   async (event) => {
     const before = event.data.before.data();
     const after = event.data.after.data();
     const annonceId = event.params.annonceId;
+
+    if (
+      !isLiveAnnonce(before) &&
+      isLiveAnnonce(after) &&
+      (await enforceFreePlanAnnonceLimit(annonceId, after))
+    ) {
+      return null;
+    }
 
     const oldPrice = before.price;
     const newPrice = after.price;
@@ -775,6 +835,12 @@ exports.onAnnonceCreated = onDocumentCreated(
     const annonce = event.data.data();
     const annonceId = event.params.annonceId;
     if (annonce.isPublished !== true) return null;
+    if (
+      isLiveAnnonce(annonce) &&
+      (await enforceFreePlanAnnonceLimit(annonceId, annonce))
+    ) {
+      return null;
+    }
 
     const sellerId = annonce.sellerId ?? annonce.vendeurId ?? annonce.userId ?? null;
     const title = (annonce.title ?? annonce.titre ?? "").toString();
@@ -1728,13 +1794,43 @@ async function reserveVideoStatusSlot(sellerId, statusId, nowMs = Date.now()) {
   });
 }
 
+/**
+ * Une vidéo déclarée `type: "image"` échapperait sinon au quota vidéo :
+ * l'extension du média fait foi (l'app envoie toujours ses vidéos en .mp4).
+ */
+function isVideoStatus(status) {
+  if (status.type === "video") return true;
+  const url = typeof status.mediaUrl === "string" ? status.mediaUrl : "";
+  const path = decodeURIComponent(url.split("?")[0]).toLowerCase();
+  return /\.(mp4|mov|m4v|webm|3gp)$/.test(path);
+}
+
 exports.onNewStatus = onDocumentCreated(
   { document: "statuses/{statusId}", secrets: R2_SECRETS },
   async (event) => {
   const status = event.data.data();
   const statusId = event.params.statusId;
+  const statusRef = db.collection("statuses").doc(statusId);
 
-  if (status.type === "video" && status.sellerId) {
+  // Même exigence que firestore.rules (défense en profondeur, et abonnement
+  // expiré entre la vérification de l'app et l'écriture).
+  const subscriptionSnap = await db
+    .collection("subscriptions")
+    .doc(status.sellerId ?? "_")
+    .get();
+  if (!status.sellerId || !isActiveSubscription(subscriptionSnap.data())) {
+    console.warn(`Statut ${statusId} retiré : aucun abonnement vendeur actif.`);
+    await statusRef.delete();
+    await deleteStatusMedia(statusId, status.mediaUrl);
+    return null;
+  }
+
+  // Heure serveur : `createdAt` (écrit par le téléphone) pilote l'expiration
+  // à 24 h du fil — une horloge fausse ou modifiée ne doit ni raccourcir ni
+  // prolonger la durée de vie d'un statut.
+  await statusRef.update({ createdAt: Date.parse(event.time) || Date.now() });
+
+  if (isVideoStatus(status)) {
     const allowed = await reserveVideoStatusSlot(status.sellerId, statusId);
     if (!allowed) {
       // Client modifié ou contrôle côté app contourné : on retire le
@@ -1742,7 +1838,7 @@ exports.onNewStatus = onDocumentCreated(
       console.warn(
         `Quota vidéo atteint pour ${status.sellerId} : statut ${statusId} retiré.`
       );
-      await db.collection("statuses").doc(statusId).delete();
+      await statusRef.delete();
       await deleteStatusMedia(statusId, status.mediaUrl);
       return null;
     }
@@ -4429,6 +4525,8 @@ exports.reconcilePawapayPayouts = onSchedule(
 
 exports._testables = {
   accountDeletionBlockers,
+  enforceFreePlanAnnonceLimit,
+  isVideoStatus,
   deleteUserData,
   DELETED_USER_NAME,
   r2KeyFromPublicUrl,
