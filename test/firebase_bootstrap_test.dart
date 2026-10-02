@@ -6,24 +6,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:occasion/main.dart';
 import 'package:occasion/widgets/occasion_logo.dart';
 
-/// Verrouille la mécanique responsable de la régression 1.5.3+20 (timeout
-/// Firebase trop court, voir le commentaire de `FirebaseBootstrap` dans
-/// `lib/main.dart`) : l'écran de chargement pendant l'initialisation,
-/// l'écran "Réessayer" fonctionnel en cas d'échec (jamais un blocage
-/// indéfini), et une nouvelle tentative qui relance bien [bootstrap] sans
-/// jamais rester bloquée sur l'ancien écran d'erreur.
+/// Verrouille la mécanique du bootstrap Firebase : chargement persistant,
+/// réessai automatique indéfini en cas d'échec (jamais d'écran d'erreur
+/// bloquant demandant une action), et l'indice "ça prend du temps" après un
+/// délai prolongé.
 ///
 /// Ne couvre PAS le comportement réel de `Firebase.initializeApp()` sur un
 /// vrai appareil/réseau (hors de portée d'un test automatisé) — seulement
 /// la structure du mécanisme autour.
 void main() {
   testWidgets(
-    "pendant l'initialisation : affiche le logo, jamais l'écran d'erreur",
+    "pendant l'initialisation : affiche le logo, jamais une seule erreur "
+    'bloquante',
     (tester) async {
-      // Jamais résolu pendant ce test : le succès bascule vers OccasionApp,
-      // qui a besoin d'une vraie initialisation Firebase (hors de portée
-      // ici, voir la note en bas de fichier) — seul l'état "en attente"
-      // nous intéresse.
       final completer = Completer<void>();
       await tester.pumpWidget(
         ProviderScope(
@@ -32,82 +27,75 @@ void main() {
       );
 
       expect(find.byType(OccasionLogo), findsOneWidget);
-      expect(
-        find.text(
-          "Connexion impossible. Vérifie ta connexion internet puis réessaie.",
-        ),
-        findsNothing,
-      );
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     },
   );
 
-  testWidgets(
-    "un échec (ou timeout) affiche 'Connexion impossible' + Réessayer, "
-    'jamais un blocage indéfini sur le logo',
-    (tester) async {
-      var callCount = 0;
-      await tester.pumpWidget(
-        ProviderScope(
-          child: FirebaseBootstrap(
-            bootstrap: () async {
-              callCount++;
-              throw TimeoutException('simulé');
-            },
-          ),
+  testWidgets('régression : un échec est retenté automatiquement, sans jamais '
+      "afficher d'écran d'erreur ni demander une action manuelle", (
+    tester,
+  ) async {
+    var callCount = 0;
+    final completers = <Completer<void>>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        child: FirebaseBootstrap(
+          bootstrap: () {
+            callCount++;
+            final completer = Completer<void>();
+            completers.add(completer);
+            return completer.future;
+          },
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
 
-      expect(callCount, 1);
-      expect(
-        find.text(
-          "Connexion impossible. Vérifie ta connexion internet puis réessaie.",
-        ),
-        findsOneWidget,
-      );
-      expect(find.widgetWithText(FilledButton, 'Réessayer'), findsOneWidget);
-      expect(find.byType(OccasionLogo), findsNothing);
-    },
-  );
+    expect(callCount, 1);
+    completers.last.completeError(Exception('échec simulé'));
+    // Laisse le délai de 2s entre tentatives s'écouler, puis la
+    // nouvelle tentative démarrer.
+    await tester.pump(const Duration(seconds: 3));
 
-  testWidgets(
-    "régression : 'Réessayer' relance bien une NOUVELLE tentative (jamais "
-    "bloqué sur le premier échec, jamais besoin de redémarrer l'app)",
-    (tester) async {
-      var callCount = 0;
-      await tester.pumpWidget(
-        ProviderScope(
-          child: FirebaseBootstrap(
-            bootstrap: () async {
-              callCount++;
-              throw Exception('échec simulé');
-            },
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(callCount, 1);
+    expect(
+      callCount,
+      2,
+      reason: 'un échec doit déclencher une nouvelle tentative tout seul',
+    );
+    // Toujours aucun bouton, aucun message d'erreur : seulement le logo.
+    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byType(OccasionLogo), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Réessayer'));
-      await tester.pump();
+    completers.last.completeError(Exception('échec simulé'));
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      callCount,
+      3,
+      reason: 'la boucle doit continuer, pas une seule relance',
+    );
+  });
 
-      // La nouvelle tentative repasse bien par l'écran de chargement —
-      // jamais figée sur l'ancien écran d'erreur en attendant.
-      expect(find.byType(OccasionLogo), findsOneWidget);
+  testWidgets("après ~15s sans succès : affiche un indice 'ça prend du temps', "
+      'toujours sans bouton ni blocage', (tester) async {
+    final completer = Completer<void>();
+    await tester.pumpWidget(
+      ProviderScope(
+        child: FirebaseBootstrap(bootstrap: () => completer.future),
+      ),
+    );
 
-      await tester.pumpAndSettle();
-      expect(
-        callCount,
-        2,
-        reason: 'Réessayer doit appeler bootstrap() une seconde fois',
-      );
-      expect(find.widgetWithText(FilledButton, 'Réessayer'), findsOneWidget);
-    },
-  );
+    expect(
+      find.textContaining('Ça prend plus de temps que prévu'),
+      findsNothing,
+    );
 
-  // Le chemin "succès" (bascule vers OccasionApp/_AuthGate) n'est pas testé
-  // ici : il nécessiterait une vraie initialisation Firebase mockée
-  // (setupFirebaseCoreMocks, absente de ce projet), hors de portée pour
-  // verrouiller spécifiquement la mécanique de timeout/retry visée par ce
-  // fichier.
+    await tester.pump(const Duration(seconds: 16));
+
+    expect(
+      find.textContaining('Ça prend plus de temps que prévu'),
+      findsOneWidget,
+    );
+    expect(find.byType(OccasionLogo), findsOneWidget);
+    expect(find.byType(FilledButton), findsNothing);
+  });
 }

@@ -101,10 +101,14 @@ Future<void> main() async {
 /// Vraie initialisation Firebase (+ langue, Crashlytics, notifications) —
 /// extraite de [FirebaseBootstrap] pour rester remplaçable en test (voir
 /// `FirebaseBootstrap.bootstrap`), jamais appelée directement ailleurs.
+/// UNE SEULE tentative : la persistance (réessayer jusqu'au succès) est
+/// gérée par la boucle de [_FirebaseBootstrapState], pas ici — un budget
+/// par tentative plus court permet de retenter plus vite plutôt que de
+/// rester bloqué très longtemps sur une seule tentative hors d'usage.
 Future<void> _realBootstrap() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
-  ).timeout(const Duration(seconds: 60));
+  ).timeout(const Duration(seconds: 25));
   FirestoreBootstrap.configure(FirebaseFirestore.instance);
 
   // Crashlytics n'est pas disponible sur le web : on capte les crashs
@@ -137,15 +141,22 @@ Future<void> _realBootstrap() async {
 
 /// Initialise Firebase APRÈS le tout premier affichage Flutter — jamais
 /// avant, voir le commentaire de `main()`. Affiche le logo pendant
-/// l'initialisation, et un écran "Réessayer" fonctionnel (jamais un
-/// blocage indéfini) si [bootstrap] échoue ou dépasse son propre délai —
-/// le cas réel observé sur un appareil bas de gamme sous forte pression
-/// mémoire.
+/// l'initialisation, et RÉESSAIE AUTOMATIQUEMENT, indéfiniment, jusqu'au
+/// succès — jamais d'écran d'erreur demandant une action manuelle.
 ///
-/// RÉGRESSION CORRIGÉE une première fois : un seuil à 20s avait cassé la
-/// mise à jour pour des appareils dont l'initialisation Firebase est
-/// simplement LENTE (jamais bloquée indéfiniment — avant ce bootstrap,
-/// aucun timeout n'existait et ça finissait par réussir). Porté à 60s.
+/// HISTORIQUE DES CORRECTIFS SUR CET ÉCRAN :
+/// 1. À l'origine, aucun timeout : un appareil où Firebase ne répondait
+///    jamais restait figé pour toujours sur le logo.
+/// 2. Un timeout de 20s + écran "Réessayer" manuel a été ajouté — mais
+///    20s cassait les connexions simplement LENTES (pas bloquées).
+/// 3. Porté à 60s — toujours insuffisant sur un appareil à connexion très
+///    lente/intermittente (signalé : 4G à ~70 Ko/s) où même 60s ne suffit
+///    pas toujours, et retaper "Réessayer" à répétition était pénible.
+/// 4. Version actuelle : boucle de réessais automatiques, chaque
+///    tentative individuelle bornée à 25s (voir `_realBootstrap`) pour
+///    retenter vite plutôt que d'attendre très longtemps UNE tentative
+///    hors d'usage — c'est la boucle, pas une attente unique, qui assure
+///    la persistance jusqu'à l'ouverture.
 ///
 /// [bootstrap] est remplaçable UNIQUEMENT en test (voir
 /// `test/firebase_bootstrap_test.dart`) — jamais fourni en production, où
@@ -161,29 +172,39 @@ class FirebaseBootstrap extends StatefulWidget {
 
 class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
   late Future<void> _bootstrapFuture;
+  bool _showSlowHint = false;
+  Timer? _slowHintTimer;
 
   @override
   void initState() {
     super.initState();
-    _bootstrapFuture = _runBootstrap();
-  }
-
-  Future<void> _runBootstrap() {
-    final future = (widget.bootstrap ?? _realBootstrap)();
-    // FutureBuilder ne s'abonne qu'à la prochaine frame (après ce
-    // setState) : un rejet survenant avant cet abonnement remonterait
-    // comme erreur non gérée au niveau de la zone Dart, alors que
-    // FutureBuilder la traite quand même correctement une fois abonné —
-    // `.ignore()` évite seulement ce bruit (le flag "géré" côté zone),
-    // sans empêcher FutureBuilder de recevoir la valeur/l'erreur.
-    future.ignore();
-    return future;
-  }
-
-  void _retry() {
-    setState(() {
-      _bootstrapFuture = _runBootstrap();
+    _slowHintTimer = Timer(const Duration(seconds: 15), () {
+      if (mounted) setState(() => _showSlowHint = true);
     });
+    _bootstrapFuture = _runUntilSuccess();
+  }
+
+  /// Ne se résout JAMAIS en erreur : chaque échec est avalé puis retenté
+  /// après un court délai, pour toujours. C'est volontaire (voir le
+  /// commentaire de la classe) — aucun appelant de ce Future n'a donc
+  /// besoin de gérer un état d'erreur.
+  Future<void> _runUntilSuccess() async {
+    final attempt = widget.bootstrap ?? _realBootstrap;
+    while (true) {
+      try {
+        await attempt();
+        return;
+      } catch (_) {
+        if (!mounted) return;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _slowHintTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -195,42 +216,37 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.dark(),
-            home: const Scaffold(body: Center(child: OccasionLogo(size: 132))),
-          );
-        }
-        if (snapshot.hasError) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.dark(),
             home: Scaffold(
               body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.cloud_off,
-                        size: 56,
-                        color: AppColors.textSecondary,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const OccasionLogo(size: 132),
+                    if (_showSlowHint) ...[
+                      const SizedBox(height: 28),
+                      const SizedBox(
+                        width: 26,
+                        height: 26,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        tr(
-                          'Connexion impossible. Vérifie ta connexion '
-                          'internet puis réessaie.',
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          tr(
+                            'Ça prend plus de temps que prévu — vérifie ta '
+                            'connexion internet. Nouvelle tentative en '
+                            'cours...',
+                          ),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
                         ),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: _retry,
-                        icon: const Icon(Icons.refresh),
-                        label: Text(tr('Réessayer')),
                       ),
                     ],
-                  ),
+                  ],
                 ),
               ),
             ),
