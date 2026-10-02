@@ -101,14 +101,21 @@ Future<void> main() async {
 /// Vraie initialisation Firebase (+ langue, Crashlytics, notifications) —
 /// extraite de [FirebaseBootstrap] pour rester remplaçable en test (voir
 /// `FirebaseBootstrap.bootstrap`), jamais appelée directement ailleurs.
-/// UNE SEULE tentative : la persistance (réessayer jusqu'au succès) est
-/// gérée par la boucle de [_FirebaseBootstrapState], pas ici — un budget
-/// par tentative plus court permet de retenter plus vite plutôt que de
-/// rester bloqué très longtemps sur une seule tentative hors d'usage.
+///
+/// RÉGRESSION 1.5.3+20/1.5.4+21 COMPRISE ET CORRIGÉE : un `.timeout()` posé
+/// ici puis retenté en boucle rappelait `Firebase.initializeApp()`
+/// PAR-DESSUS une tentative précédente encore en cours côté natif — le
+/// timeout Dart n'annule jamais l'appel natif sous-jacent, qui continue de
+/// tourner en arrière-plan. Deux initialisations natives simultanées du
+/// même FirebaseApp se bloquant probablement l'une l'autre, ce qui
+/// expliquait un échec systématique, reproductible, indépendant du réseau
+/// (confirmé : plusieurs appareils, plusieurs réseaux, toujours en échec).
+/// Plus JAMAIS de timeout ni de second appel tant que le premier n'a pas
+/// répondu — un seul appel, qui attend aussi longtemps qu'il le faut,
+/// exactement comme la dernière architecture dont on est sûrs qu'elle
+/// fonctionne sur tous les appareils (1.5.0+17).
 Future<void> _realBootstrap() async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  ).timeout(const Duration(seconds: 25));
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirestoreBootstrap.configure(FirebaseFirestore.instance);
 
   // Crashlytics n'est pas disponible sur le web : on capte les crashs
@@ -140,23 +147,26 @@ Future<void> _realBootstrap() async {
 }
 
 /// Initialise Firebase APRÈS le tout premier affichage Flutter — jamais
-/// avant, voir le commentaire de `main()`. Affiche le logo pendant
-/// l'initialisation, et RÉESSAIE AUTOMATIQUEMENT, indéfiniment, jusqu'au
-/// succès — jamais d'écran d'erreur demandant une action manuelle.
+/// avant, voir le commentaire de `main()`. Affiche un visuel de chargement
+/// persistant (logo + indicateur de progression) pendant l'initialisation,
+/// pour que la personne comprenne qu'il se passe quelque chose plutôt que
+/// de voir un écran figé.
 ///
 /// HISTORIQUE DES CORRECTIFS SUR CET ÉCRAN :
-/// 1. À l'origine, aucun timeout : un appareil où Firebase ne répondait
-///    jamais restait figé pour toujours sur le logo.
-/// 2. Un timeout de 20s + écran "Réessayer" manuel a été ajouté — mais
-///    20s cassait les connexions simplement LENTES (pas bloquées).
-/// 3. Porté à 60s — toujours insuffisant sur un appareil à connexion très
-///    lente/intermittente (signalé : 4G à ~70 Ko/s) où même 60s ne suffit
-///    pas toujours, et retaper "Réessayer" à répétition était pénible.
-/// 4. Version actuelle : boucle de réessais automatiques, chaque
-///    tentative individuelle bornée à 25s (voir `_realBootstrap`) pour
-///    retenter vite plutôt que d'attendre très longtemps UNE tentative
-///    hors d'usage — c'est la boucle, pas une attente unique, qui assure
-///    la persistance jusqu'à l'ouverture.
+/// 1. À l'origine, aucun timeout, aucun visuel : un appareil où Firebase
+///    ne répondait jamais restait figé sur le logo, sans indication.
+/// 2. Un timeout + écran "Réessayer" manuel, puis une boucle de réessais
+///    AUTOMATIQUES ont été ajoutés successivement — mais chaque réessai
+///    rappelait `Firebase.initializeApp()` PAR-DESSUS une tentative
+///    précédente encore en cours côté natif (le timeout Dart n'annule
+///    jamais l'appel natif sous-jacent), ce qui causait un échec
+///    systématique et reproductible sur plusieurs appareils/réseaux —
+///    bien pire que le problème initial. Voir le commentaire de
+///    `_realBootstrap`.
+/// 3. Version actuelle : UN SEUL appel, jamais de second appel tant que
+///    le premier n'a pas répondu — seul le VISUEL (logo, indicateur de
+///    progression, indice après 15s) donne un retour pendant l'attente,
+///    aussi longue soit-elle.
 ///
 /// [bootstrap] est remplaçable UNIQUEMENT en test (voir
 /// `test/firebase_bootstrap_test.dart`) — jamais fourni en production, où
@@ -178,27 +188,28 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
   @override
   void initState() {
     super.initState();
+    _bootstrapFuture = _attempt();
+  }
+
+  /// UN SEUL appel — voir le commentaire de la classe pour pourquoi un
+  /// second appel par-dessus serait dangereux. [_retry] (déclenché
+  /// uniquement par une action explicite de la personne, jamais
+  /// automatiquement) attend donc que ce Future soit bien terminé
+  /// (succès ou échec) avant d'en démarrer un nouveau — jamais deux en
+  /// vol en même temps.
+  Future<void> _attempt() {
+    _slowHintTimer?.cancel();
+    _showSlowHint = false;
     _slowHintTimer = Timer(const Duration(seconds: 15), () {
       if (mounted) setState(() => _showSlowHint = true);
     });
-    _bootstrapFuture = _runUntilSuccess();
+    return (widget.bootstrap ?? _realBootstrap)();
   }
 
-  /// Ne se résout JAMAIS en erreur : chaque échec est avalé puis retenté
-  /// après un court délai, pour toujours. C'est volontaire (voir le
-  /// commentaire de la classe) — aucun appelant de ce Future n'a donc
-  /// besoin de gérer un état d'erreur.
-  Future<void> _runUntilSuccess() async {
-    final attempt = widget.bootstrap ?? _realBootstrap;
-    while (true) {
-      try {
-        await attempt();
-        return;
-      } catch (_) {
-        if (!mounted) return;
-        await Future<void>.delayed(const Duration(seconds: 2));
-      }
-    }
+  void _retry() {
+    setState(() {
+      _bootstrapFuture = _attempt();
+    });
   }
 
   @override
@@ -222,21 +233,20 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const OccasionLogo(size: 132),
+                    const SizedBox(height: 28),
+                    const SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
                     if (_showSlowHint) ...[
-                      const SizedBox(height: 28),
-                      const SizedBox(
-                        width: 26,
-                        height: 26,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      ),
                       const SizedBox(height: 16),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32),
                         child: Text(
                           tr(
                             'Ça prend plus de temps que prévu — vérifie ta '
-                            'connexion internet. Nouvelle tentative en '
-                            'cours...',
+                            'connexion internet.',
                           ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
@@ -247,6 +257,48 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
                       ),
                     ],
                   ],
+                ),
+              ),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          // Rare avec un seul appel sans timeout (une vraie erreur de
+          // configuration, pas une lenteur réseau) — un bouton manuel
+          // suffit, jamais de réessai automatique qui risquerait de
+          // relancer un appel par-dessus un autre encore en vol.
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.dark(),
+            home: Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.cloud_off,
+                        size: 56,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        tr(
+                          'Connexion impossible. Vérifie ta connexion '
+                          'internet puis réessaie.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: _retry,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(tr('Réessayer')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
