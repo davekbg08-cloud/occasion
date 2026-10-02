@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Palette de la refonte : bleu nuit, turquoise (marque) et orange (prix).
 class AppColors {
@@ -59,6 +60,19 @@ class AppTheme {
           color: AppColors.textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w600,
+        ),
+        // Sans ce `statusBarColor: transparent` explicite, AppBar calcule
+        // par défaut un statusBarColor OPAQUE (= backgroundColor, voir
+        // Flutter SDK `_systemOverlayStyleForBrightness`) — incompatible
+        // avec le mode edge-to-edge désormais imposé par Android 15 (API
+        // 35, cible par défaut des builds Flutter récents) : le système
+        // ignore alors cette couleur et dessine à la place son propre
+        // bandeau de contraste semi-transparent par-dessus la barre de
+        // statut (effet "flou"/dégradé visible juste au-dessus du logo).
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
         ),
       ),
       cardTheme: CardThemeData(
