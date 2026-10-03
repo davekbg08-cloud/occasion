@@ -164,6 +164,7 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
             final currency = data['currency'] as String? ?? 'FC';
             final reference = data['manualPaymentReference'] as String?;
             final planName = data['planName'] as String?;
+            final requesterId = data['userId'] as String?;
             final date = _toDate(data['updatedAt']);
 
             return Card(
@@ -190,6 +191,8 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                         ),
                       ],
                     ),
+                    if (requesterId != null && requesterId.isNotEmpty)
+                      _RequesterIdentityLine(userId: requesterId),
                     const SizedBox(height: 6),
                     Text(
                       formatPrice(amount, currency),
@@ -481,6 +484,47 @@ class _ReadyForPayoutTabState extends State<_ReadyForPayoutTab> {
               ),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+/// Nom et numéro du compte qui a soumis le paiement manuel (lecture admin
+/// de `users/{uid}`, autorisée par firestore.rules).
+class _RequesterIdentityLine extends StatelessWidget {
+  const _RequesterIdentityLine({required this.userId});
+
+  final String userId;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final name = (data?['name'] as String?)?.trim() ?? '';
+        final phone = (data?['phone'] as String?)?.trim() ?? '';
+        final text = snapshot.connectionState != ConnectionState.done
+            ? '…'
+            : data == null
+            ? tr('Demandeur introuvable')
+            : '${name.isEmpty ? tr('Sans nom') : name} · '
+                  '${phone.isEmpty ? tr('numéro non renseigné') : phone}';
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Icon(Icons.person_outline, size: 16, color: Colors.grey[400]),
+              const SizedBox(width: 6),
+              Expanded(
+                child: SelectableText(
+                  text,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );

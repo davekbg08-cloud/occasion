@@ -57,27 +57,31 @@ service cloud.firestore {
       return !(field in data) || data[field] == null || stringField(data, field, max);
     }
 
-    // Abonnement vendeur actif et non expiré : `subscriptions/{uid}` n'est
-    // écrit que par les Cloud Functions (paiement vérifié), `expiryDate` y
-    // est toujours un timestamp.
+    // Abonnement vendeur actif et non expiré. Lu d'abord sur la copie
+    // `users/{uid}.sellerSubscriptionActive/ExpiresAt` (écrite par les mêmes
+    // Cloud Functions que `subscriptions/{uid}`, jamais par le client) : ce
+    // document est déjà chargé par isSeller(), ce qui reste sous la limite
+    // de 1000 expressions évaluées par requête. Vérifier `subscriptions`
+    // en premier la dépassait sur une annonce complète (~36 champs) à plus
+    // de 2 photos : refus systématique pour les vendeurs abonnés.
     function hasActiveSubscription() {
       return signedIn()
-        && exists(/databases/$(database)/documents/subscriptions/$(request.auth.uid))
-        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.get('isActive', false) == true
-        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.get('expiryDate', null) is timestamp
-        && get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data.expiryDate > request.time;
+        && (sellerSubscriptionMirrorActive() || subscriptionDocActive());
     }
 
-    // Formule gratuite : 2 photos par annonce ; formule vendeur : 5 (mêmes
-    // valeurs que AnnonceRepositoryImpl). Le cas courant (≤ 2) ne coûte
-    // aucune lecture d'abonnement.
-    function annoncePhotoCount(data) {
-      return data.imageUrls is list ? data.imageUrls.size() : data.images.size();
+    function sellerSubscriptionMirrorActive() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user.get('sellerSubscriptionActive', false) == true
+        && user.get('sellerSubscriptionExpiresAt', null) is timestamp
+        && user.sellerSubscriptionExpiresAt > request.time;
     }
 
-    function withinPhotoLimit(data) {
-      return annoncePhotoCount(data) <= 2
-        || (annoncePhotoCount(data) <= 5 && hasActiveSubscription());
+    // Repli pour un abonnement dont la copie `users` manquerait.
+    function subscriptionDocActive() {
+      let sub = get(/databases/$(database)/documents/subscriptions/$(request.auth.uid)).data;
+      return sub.get('isActive', false) == true
+        && sub.get('expiryDate', null) is timestamp
+        && sub.expiryDate > request.time;
     }
 
     // Statut tel qu'écrit par StatusService.createStatus — rien d'autre.
@@ -309,21 +313,16 @@ service cloud.firestore {
           || request.resource.data.vendeurId == request.auth.uid
           || request.resource.data.userId == request.auth.uid
         )
-        && validAnnonce(request.resource.data)
-        && withinPhotoLimit(request.resource.data);
-      // Limite de photos vérifiée seulement quand les photos changent : un
-      // vendeur dont l'abonnement a expiré peut toujours modifier une
-      // annonce existante à 5 photos (ex. la marquer vendue).
+        && validAnnonce(request.resource.data);
+      // Limite de photos de la formule gratuite (2) appliquée par la Cloud
+      // Function onAnnonceCreated/onAnnonceUpdated, PAS ici : validAnnonce
+      // sur une annonce complète (~36 champs) consomme déjà presque toute la
+      // limite de 1000 expressions évaluées par requête, et la moindre
+      // vérification d'abonnement en plus la dépassait — refus de toute
+      // annonce de plus de 2 photos, même pour un vendeur abonné.
       allow update: if signedIn()
         && validAnnonce(request.resource.data)
-        && annonceUpdateAllowed(resource.data, request.resource.data)
-        && (
-          (
-            request.resource.data.get('imageUrls', null) == resource.data.get('imageUrls', null)
-            && request.resource.data.get('images', null) == resource.data.get('images', null)
-          )
-          || withinPhotoLimit(request.resource.data)
-        );
+        && annonceUpdateAllowed(resource.data, request.resource.data);
       allow delete: if signedIn()
         && isSeller()
         && (
@@ -356,7 +355,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId);
+      // Admin : identité (nom, numéro) d'un demandeur d'abonnement ou d'un
+      // client, pour vérifier un paiement manuel.
+      allow read: if isOwner(userId) || isAdmin();
 
       // Création du compte (inscription) : le client choisit son rôle et
       // son statut d'identité initial, mais ne peut jamais se créer déjà

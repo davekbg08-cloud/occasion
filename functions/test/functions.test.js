@@ -3688,3 +3688,46 @@ test("formule gratuite : republier un brouillon est vérifié, modifier une anno
   });
   assert.equal((await db.collection("annonces").doc("autre-en-ligne").get()).data().isPublished, true);
 });
+
+// ---------------------------------------------------------------------------
+// Formule gratuite : 2 photos par annonce (appliqué par les triggers, plus
+// par firestore.rules — voir enforceFreePlanPhotoLimit)
+// ---------------------------------------------------------------------------
+
+const photoUrls = (n) => Array.from({ length: n }, (_, i) => `https://example.com/${i}.jpg`);
+
+test("formule gratuite : une annonce à 3 photos est ramenée à ses 2 premières, le vendeur est prévenu", async () => {
+  const annonce = { vendeurId: "gratuit-photos", imageUrls: photoUrls(3), images: photoUrls(3), isPublished: false };
+  await db.collection("annonces").doc("p3").set(annonce);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => annonce }, params: { annonceId: "p3" } });
+
+  const data = (await db.collection("annonces").doc("p3").get()).data();
+  assert.deepEqual(data.imageUrls, photoUrls(2));
+  assert.deepEqual(data.images, photoUrls(2));
+  assert.ok((await db.collection("notifications").doc("freePlanPhotos_p3_3").get()).exists);
+});
+
+test("formule vendeur : une annonce à 5 photos est gardée telle quelle", async () => {
+  await seedActiveSubscription("abonne-photos");
+  const annonce = { vendeurId: "abonne-photos", imageUrls: photoUrls(5), images: photoUrls(5), isPublished: false };
+  await db.collection("annonces").doc("p5").set(annonce);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => annonce }, params: { annonceId: "p5" } });
+
+  assert.equal((await db.collection("annonces").doc("p5").get()).data().imageUrls.length, 5);
+});
+
+test("abonnement expiré : modifier une annonce à 5 photos sans toucher aux photos ne les réduit jamais", async () => {
+  const before = { vendeurId: "expire-photos", imageUrls: photoUrls(5), price: 10 };
+  const after = { ...before, saleState: "sold" };
+  await db.collection("annonces").doc("e5").set(after);
+
+  await functions.onAnnonceUpdated.run({
+    id: "evt-e5",
+    data: { before: { data: () => before }, after: { data: () => after } },
+    params: { annonceId: "e5" },
+  });
+
+  assert.equal((await db.collection("annonces").doc("e5").get()).data().imageUrls.length, 5);
+});

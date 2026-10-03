@@ -691,6 +691,63 @@ exports.onNewMessage = onDocumentCreated(
  */
 /** = AnnonceRepositoryImpl._freeMaxActiveAnnonces côté app. */
 const FREE_PLAN_MAX_ACTIVE_ANNONCES = 1;
+/** = AnnonceRepositoryImpl._freeMaxImages côté app. */
+const FREE_PLAN_MAX_PHOTOS = 2;
+
+function annoncePhotos(annonce) {
+  if (Array.isArray(annonce?.imageUrls)) return annonce.imageUrls;
+  if (Array.isArray(annonce?.images)) return annonce.images;
+  return [];
+}
+
+/**
+ * Formule gratuite : 2 photos par annonce. Appliqué ici plutôt que dans
+ * firestore.rules, où la moindre vérification d'abonnement ajoutée à
+ * validAnnonce dépassait la limite de 1000 expressions évaluées (refus de
+ * toute annonce de plus de 2 photos, même abonnée). Au-delà, l'annonce est
+ * ramenée à ses 2 premières photos (les autres fichiers sont supprimés) et
+ * le vendeur est prévenu. Retourne true si l'annonce a été modifiée.
+ */
+async function enforceFreePlanPhotoLimit(annonceId, annonce) {
+  const photos = annoncePhotos(annonce);
+  if (photos.length <= FREE_PLAN_MAX_PHOTOS) return false;
+  const sellerId = annonce.vendeurId ?? annonce.sellerId ?? annonce.userId;
+  if (!sellerId) return false;
+  const subscriptionSnap = await db.collection("subscriptions").doc(sellerId).get();
+  if (isActiveSubscription(subscriptionSnap.data())) return false;
+
+  const kept = photos.slice(0, FREE_PLAN_MAX_PHOTOS);
+  await db.collection("annonces").doc(annonceId).update({
+    imageUrls: kept,
+    images: kept,
+  });
+  for (const url of photos.slice(FREE_PLAN_MAX_PHOTOS)) {
+    const path = storagePathFromDownloadUrl(url);
+    if (!path) continue;
+    await storageBucket
+      .file(path)
+      .delete()
+      .catch((err) => {
+        if (err?.code !== 404) {
+          console.error(`Photo en trop non supprimée (${annonceId}) :`, err);
+        }
+      });
+  }
+  await sendToUser({
+    recipientId: sellerId,
+    notificationId: `freePlanPhotos_${annonceId}_${photos.length}`,
+    type: "subscription",
+    title: "Photos limitées à 2",
+    body:
+      "La formule gratuite permet 2 photos par annonce : seules les 2 " +
+      "premières ont été gardées. Active la formule vendeur pour en mettre 5.",
+    route: "/subscription",
+    data: { annonceId },
+  }).catch((err) =>
+    console.error(`Erreur notification limite photos ${annonceId} :`, err)
+  );
+  return true;
+}
 
 function isLiveAnnonce(annonce) {
   return annonce?.isPublished === true && annonce?.active === true;
@@ -747,6 +804,16 @@ exports.onAnnonceUpdated = onDocumentUpdated(
     const before = event.data.before.data();
     const after = event.data.after.data();
     const annonceId = event.params.annonceId;
+
+    if (
+      JSON.stringify(annoncePhotos(before)) !==
+        JSON.stringify(annoncePhotos(after)) &&
+      (await enforceFreePlanPhotoLimit(annonceId, after))
+    ) {
+      // La mise à jour ci-dessus redéclenche ce trigger avec les photos
+      // réduites : le reste du traitement aura lieu à ce moment-là.
+      return null;
+    }
 
     if (
       !isLiveAnnonce(before) &&
@@ -834,6 +901,7 @@ exports.onAnnonceCreated = onDocumentCreated(
   async (event) => {
     const annonce = event.data.data();
     const annonceId = event.params.annonceId;
+    await enforceFreePlanPhotoLimit(annonceId, annonce);
     if (annonce.isPublished !== true) return null;
     if (
       isLiveAnnonce(annonce) &&
@@ -4526,6 +4594,7 @@ exports.reconcilePawapayPayouts = onSchedule(
 exports._testables = {
   accountDeletionBlockers,
   enforceFreePlanAnnonceLimit,
+  enforceFreePlanPhotoLimit,
   isVideoStatus,
   deleteUserData,
   DELETED_USER_NAME,

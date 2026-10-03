@@ -2046,17 +2046,17 @@ test("régression : la collection héritée /conversations (et sa sous-collectio
 // Abonnement vendeur imposé côté serveur (statuts, photos d'annonces)
 // ---------------------------------------------------------------------------
 
+// Comme applySettlement/confirmPlayPurchase : `subscriptions/{uid}` ET sa
+// copie sur `users/{uid}`.
 async function seedSubscription(uid, { isActive = true, daysLeft = 30 } = {}) {
+  const expiryDate = new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000);
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
-    await ctx
-      .firestore()
-      .collection("subscriptions")
-      .doc(uid)
-      .set({
-        userId: uid,
-        isActive,
-        expiryDate: new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000),
-      });
+    const db = ctx.firestore();
+    await db.collection("subscriptions").doc(uid).set({ userId: uid, isActive, expiryDate });
+    await db.collection("users").doc(uid).set(
+      { sellerSubscriptionActive: isActive, sellerSubscriptionExpiresAt: expiryDate },
+      { merge: true }
+    );
   });
 }
 
@@ -2121,47 +2121,8 @@ test("statut : un acheteur abonné (rôle buyer) ne peut pas publier", async () 
   );
 });
 
-const photos = (n) =>
-  Array.from({ length: n }, (_, i) => `https://example.com/${i}.jpg`);
 
-test("annonce : la formule gratuite est limitée à 2 photos", async () => {
-  await seed("seller1", { id: "seller1", role: "seller" });
-  const seller = testEnv.authenticatedContext("seller1").firestore();
-  await assertSucceeds(
-    seller.collection("annonces").doc("a2").set(validAnnonceSeed({ imageUrls: photos(2) }))
-  );
-  await assertFails(
-    seller.collection("annonces").doc("a3").set(validAnnonceSeed({ imageUrls: photos(3) }))
-  );
-});
 
-test("annonce : la formule vendeur permet 5 photos", async () => {
-  await seed("seller1", { id: "seller1", role: "seller" });
-  await seedSubscription("seller1");
-  const seller = testEnv.authenticatedContext("seller1").firestore();
-  await assertSucceeds(
-    seller.collection("annonces").doc("a5").set(validAnnonceSeed({ imageUrls: photos(5) }))
-  );
-});
-
-test("annonce : abonnement expiré — l'annonce à 5 photos reste modifiable (ex. vendue), mais ses photos ne peuvent pas changer au-delà de 2", async () => {
-  await seed("seller1", { id: "seller1", role: "seller" });
-  await seedSubscription("seller1", { daysLeft: -1 });
-  await testEnv.withSecurityRulesDisabled(async (ctx) => {
-    await ctx
-      .firestore()
-      .collection("annonces")
-      .doc("a5")
-      .set(validAnnonceSeed({ imageUrls: photos(5) }));
-  });
-  const seller = testEnv.authenticatedContext("seller1").firestore();
-  const ref = seller.collection("annonces").doc("a5");
-  await assertSucceeds(
-    ref.set(validAnnonceSeed({ imageUrls: photos(5), saleState: "sold" }))
-  );
-  await assertFails(ref.set(validAnnonceSeed({ imageUrls: photos(4) })));
-  await assertSucceeds(ref.set(validAnnonceSeed({ imageUrls: photos(2) })));
-});
 
 // ---------------------------------------------------------------------------
 // Une seule définition d'admin : admins/{uid}
@@ -2270,4 +2231,98 @@ test("collections héritées utilisateurs/signalements : entièrement verrouill�
   await assertFails(
     user.collection("signalements").doc("s1").set({ utilisateurId: "user1" })
   );
+});
+
+// ---------------------------------------------------------------------------
+// Régression : annonce COMPLÈTE telle qu'écrite par l'app (Annonce.toJson,
+// ~36 champs). Avec un document réduit, les tests passaient alors qu'en
+// production la règle dépassait la limite de 1000 expressions évaluées dès
+// qu'il fallait vérifier l'abonnement (plus de 2 photos).
+// ---------------------------------------------------------------------------
+
+function appAnnonce(id, photoCount) {
+  const urls = Array.from(
+    { length: photoCount },
+    (_, i) =>
+      `https://firebasestorage.googleapis.com/v0/b/x/o/annonces%2Fseller1%2F${id}%2F${i}.jpg?alt=media&token=t`
+  );
+  return {
+    id,
+    sellerId: "seller1",
+    title: "Montre",
+    titre: "Montre",
+    description: "Belle montre",
+    price: 60,
+    prix: 60,
+    currency: "USD",
+    devise: "USD",
+    category: "Mode",
+    categorie: "Mode",
+    marque: "",
+    modele: "",
+    annee: 2024,
+    etat: "Bon état",
+    localisation: "Likasi",
+    city: "Likasi",
+    ville: "Likasi",
+    district: "Likasi",
+    quartier: "Likasi",
+    vendeurId: "seller1",
+    telephone: "+243856373707",
+    imageUrls: urls,
+    images: urls,
+    favoris: 0,
+    vues: 0,
+    messagesCount: 0,
+    status: "published",
+    statut: "published",
+    active: true,
+    isPublished: true,
+    saleState: "available",
+    etatVente: "available",
+    dateCreation: serverTimestamp(),
+    dateModification: serverTimestamp(),
+  };
+}
+
+test("régression : un vendeur ABONNÉ publie une annonce complète de l'app avec 2, 3 ou 5 photos", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1");
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  for (const n of [2, 3, 5]) {
+    await assertSucceeds(
+      seller.collection("annonces").doc(`a${n}`).set(appAnnonce(`a${n}`, n))
+    );
+  }
+});
+
+
+test("régression : un vendeur abonné peut passer une annonce complète existante de 2 à 5 photos", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  await seedSubscription("seller1");
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const data = appAnnonce("a", 2);
+    data.dateCreation = new Date();
+    data.dateModification = new Date();
+    await ctx.firestore().collection("annonces").doc("a").set(data);
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(seller.collection("annonces").doc("a").set(appAnnonce("a", 5)));
+});
+
+test("annonce complète de l'app : les règles n'appliquent pas la limite de photos (onAnnonceCreated s'en charge) — jamais de refus par dépassement de limite", async () => {
+  await seed("seller1", { id: "seller1", role: "seller" });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(seller.collection("annonces").doc("a5").set(appAnnonce("a5", 5)));
+});
+
+test("users : un admin lit l'identité d'un utilisateur (paiement manuel), un autre utilisateur jamais", async () => {
+  await seed("seller1", { id: "seller1", name: "Alice", phone: "+243800000000", role: "seller" });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("admins").doc("admin1").set({ since: 1 });
+  });
+  const admin = testEnv.authenticatedContext("admin1").firestore();
+  const other = testEnv.authenticatedContext("user2").firestore();
+  await assertSucceeds(admin.collection("users").doc("seller1").get());
+  await assertFails(other.collection("users").doc("seller1").get());
 });
