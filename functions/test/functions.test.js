@@ -3731,3 +3731,38 @@ test("abonnement expiré : modifier une annonce à 5 photos sans toucher aux pho
 
   assert.equal((await db.collection("annonces").doc("e5").get()).data().imageUrls.length, 5);
 });
+
+// ---------------------------------------------------------------------------
+// Contournements de la formule gratuite (client modifié)
+// ---------------------------------------------------------------------------
+
+test("contournement : une 2e annonce publiée avec active:false (affichée par l'app) est quand même comptée et dépubliée", async () => {
+  await db.collection("annonces").doc("c1").set(liveAnnonce("triche1"));
+  const sneaky = liveAnnonce("triche1", { active: false });
+  await db.collection("annonces").doc("c2").set(sneaky);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => sneaky }, params: { annonceId: "c2" } });
+
+  assert.equal((await db.collection("annonces").doc("c2").get()).data().isPublished, false);
+});
+
+test("contournement : des annonces écrites avec sellerId seul (sans vendeurId) sont bien comptées", async () => {
+  await db.collection("annonces").doc("s1").set({ sellerId: "triche2", isPublished: true, active: true, status: "published" });
+  const second = { sellerId: "triche2", isPublished: true, active: true, status: "published" };
+  await db.collection("annonces").doc("s2").set(second);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => second }, params: { annonceId: "s2" } });
+
+  assert.equal((await db.collection("annonces").doc("s2").get()).data().isPublished, false);
+});
+
+test("contournement : 2 photos dans imageUrls mais 5 dans images (celles affichées par l'app) → les deux listes ramenées à 2", async () => {
+  const annonce = { vendeurId: "triche3", imageUrls: photoUrls(2), images: photoUrls(5), isPublished: false };
+  await db.collection("annonces").doc("ph").set(annonce);
+
+  await functions.onAnnonceCreated.run({ data: { data: () => annonce }, params: { annonceId: "ph" } });
+
+  const data = (await db.collection("annonces").doc("ph").get()).data();
+  assert.deepEqual(data.images, photoUrls(2));
+  assert.deepEqual(data.imageUrls, photoUrls(2));
+});

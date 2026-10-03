@@ -694,10 +694,18 @@ const FREE_PLAN_MAX_ACTIVE_ANNONCES = 1;
 /** = AnnonceRepositoryImpl._freeMaxImages côté app. */
 const FREE_PLAN_MAX_PHOTOS = 2;
 
+/**
+ * L'app affiche `images` en priorité, puis `imageUrls` : les deux listes
+ * comptent, sinon 2 photos dans l'une et 5 dans l'autre passaient.
+ */
 function annoncePhotos(annonce) {
-  if (Array.isArray(annonce?.imageUrls)) return annonce.imageUrls;
-  if (Array.isArray(annonce?.images)) return annonce.images;
-  return [];
+  const images = Array.isArray(annonce?.images) ? annonce.images : [];
+  const imageUrls = Array.isArray(annonce?.imageUrls) ? annonce.imageUrls : [];
+  return images.length >= imageUrls.length ? images : imageUrls;
+}
+
+function annonceOwnerId(annonce) {
+  return annonce?.sellerId ?? annonce?.vendeurId ?? annonce?.userId ?? null;
 }
 
 /**
@@ -711,7 +719,7 @@ function annoncePhotos(annonce) {
 async function enforceFreePlanPhotoLimit(annonceId, annonce) {
   const photos = annoncePhotos(annonce);
   if (photos.length <= FREE_PLAN_MAX_PHOTOS) return false;
-  const sellerId = annonce.vendeurId ?? annonce.sellerId ?? annonce.userId;
+  const sellerId = annonceOwnerId(annonce);
   if (!sellerId) return false;
   const subscriptionSnap = await db.collection("subscriptions").doc(sellerId).get();
   if (isActiveSubscription(subscriptionSnap.data())) return false;
@@ -749,8 +757,13 @@ async function enforceFreePlanPhotoLimit(annonceId, annonce) {
   return true;
 }
 
+/**
+ * Même critère que l'app : le fil, la recherche et les catégories ne
+ * listent que `isPublished == true` (annonce_repository.dart). Exiger aussi
+ * `active` laissait passer une annonce affichée mais jamais comptée.
+ */
 function isLiveAnnonce(annonce) {
-  return annonce?.isPublished === true && annonce?.active === true;
+  return annonce?.isPublished === true;
 }
 
 /**
@@ -761,20 +774,28 @@ function isLiveAnnonce(annonce) {
  * repassée en brouillon.
  */
 async function enforceFreePlanAnnonceLimit(annonceId, annonce) {
-  const sellerId = annonce.vendeurId ?? annonce.sellerId ?? annonce.userId;
+  const sellerId = annonceOwnerId(annonce);
   if (!sellerId) return false;
   const subscriptionSnap = await db.collection("subscriptions").doc(sellerId).get();
   if (isActiveSubscription(subscriptionSnap.data())) return false;
 
-  const liveSnap = await db
-    .collection("annonces")
-    .where("vendeurId", "==", sellerId)
-    .where("isPublished", "==", true)
-    .get();
-  const otherLive = liveSnap.docs.filter(
-    (doc) => doc.id !== annonceId && isLiveAnnonce(doc.data())
-  );
-  if (otherLive.length < FREE_PLAN_MAX_ACTIVE_ANNONCES) return false;
+  // Les règles acceptent le vendeur dans sellerId, vendeurId OU userId :
+  // compter sur un seul champ laissait passer les annonces écrites
+  // autrement.
+  const otherLive = new Set();
+  for (const field of ["sellerId", "vendeurId", "userId"]) {
+    const snap = await db
+      .collection("annonces")
+      .where(field, "==", sellerId)
+      .where("isPublished", "==", true)
+      .get();
+    for (const doc of snap.docs) {
+      if (doc.id !== annonceId && isLiveAnnonce(doc.data())) {
+        otherLive.add(doc.id);
+      }
+    }
+  }
+  if (otherLive.size < FREE_PLAN_MAX_ACTIVE_ANNONCES) return false;
 
   await db.collection("annonces").doc(annonceId).update({
     active: false,
