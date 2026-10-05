@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -63,10 +64,25 @@ class StatusState {
 }
 
 class StatusNotifier extends StateNotifier<StatusState> {
-  StatusNotifier({StatusService? service, Duration? loadTimeout})
-    : _service = service ?? StatusService(),
-      _loadTimeout = loadTimeout ?? const Duration(seconds: 12),
-      super(const StatusState());
+  StatusNotifier({
+    StatusService? service,
+    Duration? loadTimeout,
+    Duration Function(int attempt)? retryDelay,
+  }) : _service = service ?? StatusService(),
+       _loadTimeout = loadTimeout ?? const Duration(seconds: 12),
+       _retryDelay = retryDelay ?? _defaultRetryDelay,
+       super(const StatusState());
+
+  /// 2 s, 4 s, 8 s… plafonné à 60 s.
+  static Duration _defaultRetryDelay(int attempt) =>
+      Duration(seconds: math.min(60, 2 << math.min(attempt, 5)));
+
+  /// Un flux Firestore en erreur est TERMINÉ (ex. déconnexion : la lecture
+  /// des statuts exige d'être connecté). Sans relance, le fil restait vide
+  /// tout le reste de la session — et masqué chez un acheteur.
+  final Duration Function(int attempt) _retryDelay;
+  Timer? _feedRetryTimer;
+  int _feedErrors = 0;
 
   final StatusService _service;
   StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
@@ -118,6 +134,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
       _feedSubscription = _service.feed().listen(
         (docs) {
           _loadTimeoutTimer?.cancel();
+          _feedErrors = 0;
           _lastDoc = docs.isEmpty ? null : docs.last;
           state = state.copyWith(
             statuses: docs.map((doc) {
@@ -147,12 +164,37 @@ class StatusNotifier extends StateNotifier<StatusState> {
         onError: (Object error) {
           _loadTimeoutTimer?.cancel();
           state = state.copyWith(isLoading: false, error: error.toString());
+          _scheduleFeedRetry();
         },
       );
     } catch (error) {
       _loadTimeoutTimer?.cancel();
       state = state.copyWith(isLoading: false, error: error.toString());
+      _scheduleFeedRetry();
     }
+  }
+
+  void _scheduleFeedRetry() {
+    _feedLoaded = false;
+    _feedRetryTimer?.cancel();
+    _feedRetryTimer = Timer(_retryDelay(_feedErrors++), () {
+      if (mounted) loadFeed();
+    });
+  }
+
+  /// Changement de compte (ou déconnexion) : le fil et les marques
+  /// « aimé »/« vu » appartenaient à l'ancien compte. Le prochain affichage
+  /// de l'accueil relance [loadFeed] pour le nouveau.
+  void resetForUserChange() {
+    _feedSubscription?.cancel();
+    _feedSubscription = null;
+    _feedRetryTimer?.cancel();
+    _loadTimeoutTimer?.cancel();
+    _feedLoaded = false;
+    _feedErrors = 0;
+    _lastDoc = null;
+    _pendingLikeToggles.clear();
+    state = const StatusState();
   }
 
   /// Relance le chargement après un échec (bouton "Réessayer") — sans quoi
@@ -367,6 +409,7 @@ class StatusNotifier extends StateNotifier<StatusState> {
   void dispose() {
     _feedSubscription?.cancel();
     _loadTimeoutTimer?.cancel();
+    _feedRetryTimer?.cancel();
     super.dispose();
   }
 }

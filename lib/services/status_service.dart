@@ -88,7 +88,7 @@ class StatusService {
   /// reste en base (aucune suppression : le vendeur le retrouve toujours
   /// dans son propre historique via [sellerStatuses]). Évite que le fil
   /// s'encombre indéfiniment de contenu ancien, indiscernable du récent.
-  static const feedTtl = Duration(hours: 24);
+  static const feedTtl = Duration(hours: 72);
 
   /// `createdAt` est stocké en millisecondes depuis l'epoch (voir
   /// `Status.toMap`/`fromMap`), jamais un `Timestamp` Firestore — le filtre

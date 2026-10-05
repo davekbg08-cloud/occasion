@@ -3766,3 +3766,17 @@ test("contournement : 2 photos dans imageUrls mais 5 dans images (celles affich�
   assert.deepEqual(data.images, photoUrls(2));
   assert.deepEqual(data.imageUrls, photoUrls(2));
 });
+
+test("onNewStatus : garde le statut d'un vendeur dont l'abonnement n'est connu que par la copie users (même critère que les règles)", async () => {
+  await db.collection("users").doc("s-mirror").set({
+    role: "seller",
+    sellerSubscriptionActive: true,
+    sellerSubscriptionExpiresAt: Timestamp.fromMillis(Date.now() + 86400000),
+  });
+  const data = { sellerId: "s-mirror", type: "image", mediaUrl: null, createdAt: 1 };
+  await db.collection("statuses").doc("st-mirror").set(data);
+
+  await functions.onNewStatus.run(statusEvent("st-mirror", data, new Date().toISOString()));
+
+  assert.equal((await db.collection("statuses").doc("st-mirror").get()).exists, true);
+});

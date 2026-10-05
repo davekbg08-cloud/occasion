@@ -10,7 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/occasion_image.dart';
 
 /// Historique complet des statuts d'un vendeur — y compris ceux déjà
-/// expirés du fil public (24h, voir `StatusService.feed`) : le fil est
+/// expirés du fil public (72 h, voir `StatusService.feed`) : le fil est
 /// volontairement temporaire, mais rien n'est jamais supprimé, ce que
 /// cet écran rend visible/consultable (répond à "où se trouve
 /// l'historique une fois le statut sorti du fil ?").
@@ -46,7 +46,7 @@ class MyStatusesScreen extends ConsumerWidget {
                   tr(
                     "Aucun statut publié pour l'instant. Tes statuts restent "
                     "visibles ici même après avoir disparu du fil public "
-                    "(24h).",
+                    "(72 h).",
                   ),
                   textAlign: TextAlign.center,
                 ),

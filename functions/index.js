@@ -1763,6 +1763,23 @@ async function deleteStatusMedia(statusId, mediaUrl) {
   }
 }
 
+/** Même critère que `hasActiveSubscription()` dans firestore.rules. */
+async function sellerHasActiveSubscription(uid, nowMs = Date.now()) {
+  const [subscriptionSnap, userSnap] = await Promise.all([
+    db.collection("subscriptions").doc(uid).get(),
+    db.collection("users").doc(uid).get(),
+  ]);
+  if (isActiveSubscription(subscriptionSnap.data(), nowMs)) return true;
+  const user = userSnap.data();
+  return isActiveSubscription(
+    user && {
+      isActive: user.sellerSubscriptionActive,
+      expiryDate: user.sellerSubscriptionExpiresAt,
+    },
+    nowMs
+  );
+}
+
 function isActiveSubscription(data, nowMs = Date.now()) {
   if (!data || data.isActive !== true) return false;
   const expiry = data.expiryDate;
@@ -1902,12 +1919,10 @@ exports.onNewStatus = onDocumentCreated(
   const statusRef = db.collection("statuses").doc(statusId);
 
   // Même exigence que firestore.rules (défense en profondeur, et abonnement
-  // expiré entre la vérification de l'app et l'écriture).
-  const subscriptionSnap = await db
-    .collection("subscriptions")
-    .doc(status.sellerId ?? "_")
-    .get();
-  if (!status.sellerId || !isActiveSubscription(subscriptionSnap.data())) {
+  // expiré entre la vérification de l'app et l'écriture) — et même source :
+  // `subscriptions/{uid}` OU sa copie `users/{uid}`, sinon un statut
+  // accepté par les règles pouvait être supprimé ici aussitôt publié.
+  if (!status.sellerId || !(await sellerHasActiveSubscription(status.sellerId))) {
     console.warn(`Statut ${statusId} retiré : aucun abonnement vendeur actif.`);
     await statusRef.delete();
     await deleteStatusMedia(statusId, status.mediaUrl);
@@ -1915,7 +1930,7 @@ exports.onNewStatus = onDocumentCreated(
   }
 
   // Heure serveur : `createdAt` (écrit par le téléphone) pilote l'expiration
-  // à 24 h du fil — une horloge fausse ou modifiée ne doit ni raccourcir ni
+  // à 72 h du fil — une horloge fausse ou modifiée ne doit ni raccourcir ni
   // prolonger la durée de vie d'un statut.
   await statusRef.update({ createdAt: Date.parse(event.time) || Date.now() });
 

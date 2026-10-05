@@ -23,6 +23,7 @@ import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
 import 'providers/presence_provider.dart';
+import 'providers/status_provider.dart';
 import 'screens/blocked_users_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_status_screen.dart';
@@ -711,6 +712,7 @@ class _AuthGate extends ConsumerWidget {
       if (previous == null) return;
       if (previous.currentUser?.id != next.currentUser?.id) {
         ref.read(chatNotifierProvider.notifier).resetForUserChange();
+        ref.read(statusNotifierProvider.notifier).resetForUserChange();
         // Déconnexion (ou changement de compte) : bascule tout de suite à
         // "hors ligne" pour l'ancien compte plutôt que d'attendre la
         // détection de coupure réseau (onDisconnect), meilleure UX qu'une
