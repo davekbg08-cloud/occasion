@@ -24,6 +24,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String? selectedPlan = 'seller_monthly';
   bool isProcessing = false;
   final TextEditingController referenceController = TextEditingController();
+  final TextEditingController payerPhoneController = TextEditingController();
+  final TextEditingController payerNameController = TextEditingController();
 
   // Achat intégré Google Play (moyen de paiement principal quand
   // disponible) : Orange Money manuel reste utilisable en secours, en
@@ -134,6 +136,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   @override
   void dispose() {
     referenceController.dispose();
+    payerPhoneController.dispose();
+    payerNameController.dispose();
     _playBilling.dispose();
     super.dispose();
   }
@@ -145,15 +149,26 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       );
       return;
     }
+    final payerPhone = payerPhoneController.text.replaceAll(
+      RegExp(r'[^0-9+]'),
+      '',
+    );
+    final payerName = payerNameController.text.trim();
     final reference = referenceController.text.trim();
-    if (reference.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tr('Colle la référence de transaction reçue par SMS Orange Money.'),
-          ),
-        ),
-      );
+    final problem = payerPhone.replaceAll('+', '').length < 9
+        ? tr('Indique le numéro Orange Money qui a envoyé l’argent.')
+        : payerName.length < 2
+        ? tr('Indique le nom du titulaire de ce numéro Orange Money.')
+        : !_looksLikeReference(reference)
+        ? tr(
+            'Colle la référence de transaction exacte reçue par SMS Orange '
+            'Money (au moins 6 caractères, avec des chiffres).',
+          )
+        : null;
+    if (problem != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(problem)));
       return;
     }
 
@@ -169,6 +184,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             price: (plan['price'] as num).toDouble(),
             currency: plan['currency'] as String? ?? 'USD',
             manualPaymentReference: reference,
+            payerPhone: payerPhone,
+            payerName: payerName,
           );
 
       if (!mounted) return;
@@ -182,6 +199,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         ),
       );
       referenceController.clear();
+      payerPhoneController.clear();
+      payerNameController.clear();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,6 +213,11 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       if (mounted) setState(() => isProcessing = false);
     }
   }
+
+  /// Une vraie référence Orange Money : assez longue et avec des chiffres
+  /// (« xxxx » ou « ok » ne permettent aucune vérification).
+  static bool _looksLikeReference(String value) =>
+      value.length >= 6 && RegExp(r'[0-9]').hasMatch(value);
 
   @override
   Widget build(BuildContext context) {
@@ -371,6 +395,29 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  TextField(
+                    controller: payerPhoneController,
+                    enabled: !formDisabled,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      labelText: tr('Numéro Orange Money qui a payé'),
+                      hintText: '+243 8x xxx xxxx',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.phone_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: payerNameController,
+                    enabled: !formDisabled,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: tr('Nom du titulaire de ce numéro'),
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.badge_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
                     enabled: !formDisabled,

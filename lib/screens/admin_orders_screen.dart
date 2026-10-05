@@ -165,6 +165,8 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
             final reference = data['manualPaymentReference'] as String?;
             final planName = data['planName'] as String?;
             final requesterId = data['userId'] as String?;
+            final payerPhone = data['manualPayerPhone'] as String?;
+            final payerName = data['manualPayerName'] as String?;
             final date = _toDate(data['updatedAt']);
 
             return Card(
@@ -202,7 +204,14 @@ class _PendingVerificationTabState extends State<_PendingVerificationTab> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text('Référence : ${reference ?? "non fournie"}'),
+                    if (payerPhone != null && payerPhone.isNotEmpty) ...[
+                      SelectableText(
+                        'Payé depuis : $payerPhone'
+                        '${payerName != null && payerName.isNotEmpty ? " ($payerName)" : ""}',
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    SelectableText('Référence : ${reference ?? "non fournie"}'),
                     if (date != null) ...[
                       const SizedBox(height: 4),
                       Text(

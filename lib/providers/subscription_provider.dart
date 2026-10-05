@@ -62,6 +62,8 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
     required String planName,
     required double price,
     required String manualPaymentReference,
+    required String payerPhone,
+    required String payerName,
     String currency = 'USD',
     int durationDays = 30,
   }) async {
@@ -101,6 +103,10 @@ class SubscriptionNotifier extends StateNotifier<Subscription?> {
       'status': 'awaiting_manual_verification',
       'manualPaymentMethod': 'orange_money_manual',
       'manualPaymentReference': manualPaymentReference,
+      // Numéro et titulaire qui ont réellement envoyé l'argent : seule façon
+      // pour l'admin de retrouver ce paiement sur son relevé Orange Money.
+      'manualPayerPhone': payerPhone,
+      'manualPayerName': payerName,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 

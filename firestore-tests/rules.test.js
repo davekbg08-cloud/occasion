@@ -2326,3 +2326,60 @@ test("users : un admin lit l'identité d'un utilisateur (paiement manuel), un au
   await assertSucceeds(admin.collection("users").doc("seller1").get());
   await assertFails(other.collection("users").doc("seller1").get());
 });
+
+test("paiement manuel d'abonnement : numéro et titulaire du payeur acceptés, valeurs démesurées refusées", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("paymentIntents").doc("pi1").set({
+      userId: "seller1",
+      type: "subscription",
+      status: "pending",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  const ref = seller.collection("paymentIntents").doc("pi1");
+  await assertFails(
+    ref.set(
+      {
+        status: "awaiting_manual_verification",
+        manualPaymentMethod: "orange_money_manual",
+        manualPaymentReference: "MP241005.1234.A56789",
+        manualPayerPhone: "9".repeat(50),
+        manualPayerName: "Dave",
+      },
+      { merge: true }
+    )
+  );
+  await assertSucceeds(
+    ref.set(
+      {
+        status: "awaiting_manual_verification",
+        manualPaymentMethod: "orange_money_manual",
+        manualPaymentReference: "MP241005.1234.A56789",
+        manualPayerPhone: "+243856373707",
+        manualPayerName: "Dave K.",
+      },
+      { merge: true }
+    )
+  );
+});
+
+test("paiement manuel d'abonnement : une ancienne version de l'app (sans numéro du payeur) fonctionne toujours", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection("paymentIntents").doc("pi2").set({
+      userId: "seller1",
+      type: "subscription",
+      status: "pending",
+    });
+  });
+  const seller = testEnv.authenticatedContext("seller1").firestore();
+  await assertSucceeds(
+    seller.collection("paymentIntents").doc("pi2").set(
+      {
+        status: "awaiting_manual_verification",
+        manualPaymentMethod: "orange_money_manual",
+        manualPaymentReference: "MP241005.1234.A56789",
+      },
+      { merge: true }
+    )
+  );
+});
