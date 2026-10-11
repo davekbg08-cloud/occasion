@@ -3780,3 +3780,41 @@ test("onNewStatus : garde le statut d'un vendeur dont l'abonnement n'est connu q
 
   assert.equal((await db.collection("statuses").doc("st-mirror").get()).exists, true);
 });
+
+// ---------------------------------------------------------------------------
+// Rappel avant expiration de l'abonnement vendeur
+// ---------------------------------------------------------------------------
+
+test("rappel d'expiration : seuls les abonnements actifs expirant sous 3 jours, une seule fois par échéance", async () => {
+  const { sendSubscriptionExpiryReminders } = functions._testables;
+  const now = Date.parse("2026-10-11T08:00:00Z");
+  const day = 86400000;
+  const sub = (uid, inDays, isActive = true) =>
+    db.collection("subscriptions").doc(uid).set({
+      userId: uid,
+      isActive,
+      expiryDate: Timestamp.fromMillis(now + inDays * day),
+    });
+  await sub("expire-2j", 2);
+  await sub("expire-10j", 10);
+  await sub("deja-expire", -1);
+  await sub("desactive", 1, false);
+
+  assert.equal(await sendSubscriptionExpiryReminders(now), 1);
+  const notif = await db
+    .collection("notifications")
+    .doc(`subscriptionExpiry_expire-2j_${now + 2 * day}`)
+    .get();
+  assert.ok(notif.exists);
+  assert.equal(notif.data().recipientId, "expire-2j");
+
+  assert.equal(
+    await sendSubscriptionExpiryReminders(now + 3600000),
+    0,
+    "jamais deux fois pour la même échéance"
+  );
+
+  // Renouvelé puis de nouveau proche de l'échéance : nouveau rappel.
+  await sub("expire-2j", 32);
+  assert.equal(await sendSubscriptionExpiryReminders(now + 30 * day), 1);
+});

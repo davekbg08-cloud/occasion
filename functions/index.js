@@ -3387,6 +3387,72 @@ exports.confirmPlayPurchase = onCall(
  * transaction acceptée par défaut (évite qu'un acheteur de mauvaise foi
  * bloque indéfiniment les fonds d'un vendeur). Tourne une fois par jour.
  */
+/** Délai avant l'échéance à partir duquel le vendeur est prévenu. */
+const SUBSCRIPTION_REMINDER_DAYS = 3;
+
+/**
+ * Prévient chaque vendeur dont l'abonnement expire dans les
+ * SUBSCRIPTION_REMINDER_DAYS prochains jours, UNE fois par échéance :
+ * l'id de notification contient la date d'expiration, donc un
+ * renouvellement (nouvelle échéance) donnera lieu à un nouveau rappel,
+ * jamais un même rappel envoyé deux fois (relance quotidienne, trigger
+ * rejoué). Retourne le nombre de vendeurs prévenus.
+ */
+async function sendSubscriptionExpiryReminders(nowMs = Date.now()) {
+  const horizon = Timestamp.fromMillis(
+    nowMs + SUBSCRIPTION_REMINDER_DAYS * 24 * 60 * 60 * 1000
+  );
+  const snap = await db
+    .collection("subscriptions")
+    .where("expiryDate", ">", Timestamp.fromMillis(nowMs))
+    .where("expiryDate", "<=", horizon)
+    .get();
+
+  let reminded = 0;
+  for (const doc of snap.docs) {
+    const sub = doc.data();
+    if (!isActiveSubscription(sub, nowMs)) continue;
+    const userId = sub.userId ?? doc.id;
+    const expiryMs = sub.expiryDate.toMillis();
+    const notificationId = `subscriptionExpiry_${userId}_${expiryMs}`;
+    const existing = await db
+      .collection(NOTIFICATIONS_COLLECTION)
+      .doc(notificationId)
+      .get();
+    if (existing.exists) continue;
+
+    const date = new Date(expiryMs).toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "long",
+      timeZone: "Africa/Kinshasa",
+    });
+    try {
+      await sendToUser({
+        recipientId: userId,
+        notificationId,
+        type: "subscription",
+        title: "Ton abonnement vendeur expire bientôt",
+        body:
+          `Il prend fin le ${date}. Renouvelle-le pour garder tes statuts, ` +
+          "tes 5 photos par annonce et tes annonces en ligne.",
+        route: "/subscription",
+      });
+      reminded++;
+    } catch (err) {
+      console.error(`Rappel d'expiration non envoyé à ${userId} :`, err);
+    }
+  }
+  return reminded;
+}
+
+exports.remindExpiringSubscriptions = onSchedule(
+  { schedule: "every day 09:00", timeZone: "Africa/Kinshasa" },
+  async () => {
+    const reminded = await sendSubscriptionExpiryReminders();
+    console.log(`Rappels d'expiration d'abonnement envoyés : ${reminded}`);
+  }
+);
+
 exports.autoReleaseEscrow = onSchedule("every 24 hours", async () => {
   const now = new Date();
   const snapshot = await db
@@ -4628,6 +4694,7 @@ exports.reconcilePawapayPayouts = onSchedule(
 );
 
 exports._testables = {
+  sendSubscriptionExpiryReminders,
   accountDeletionBlockers,
   enforceFreePlanAnnonceLimit,
   enforceFreePlanPhotoLimit,
