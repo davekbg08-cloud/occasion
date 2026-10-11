@@ -1930,7 +1930,7 @@ exports.onNewStatus = onDocumentCreated(
   }
 
   // Heure serveur : `createdAt` (écrit par le téléphone) pilote l'expiration
-  // à 72 h du fil — une horloge fausse ou modifiée ne doit ni raccourcir ni
+  // à 5 jours du fil — une horloge fausse ou modifiée ne doit ni raccourcir ni
   // prolonger la durée de vie d'un statut.
   await statusRef.update({ createdAt: Date.parse(event.time) || Date.now() });
 

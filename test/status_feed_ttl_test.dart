@@ -7,7 +7,7 @@ import 'package:occasion/services/status_service.dart';
 class MockFirebaseStorage extends Mock implements FirebaseStorage {}
 
 void main() {
-  group('StatusService.feed — un statut disparaît du fil après 72 h', () {
+  group('StatusService.feed — un statut disparaît du fil après 5 jours', () {
     late FakeFirebaseFirestore firestore;
     late StatusService service;
 
@@ -33,7 +33,7 @@ void main() {
     }
 
     test(
-      'un statut vieux de plus de 72 h n\'apparaît plus dans le fil',
+      'un statut vieux de plus de 5 jours n\'apparaît plus dans le fil',
       () async {
         await seedStatus(
           'recent',
@@ -41,7 +41,7 @@ void main() {
         );
         await seedStatus(
           'ancien',
-          createdAt: DateTime.now().subtract(const Duration(hours: 73)),
+          createdAt: DateTime.now().subtract(const Duration(days: 5, hours: 1)),
         );
 
         final docs = await service.feed().first;
@@ -53,12 +53,12 @@ void main() {
     );
 
     test(
-      'un statut vieux de 71h59 reste visible (pas coupé trop tôt)',
+      'un statut vieux de 4 jours 23h59 reste visible (pas coupé trop tôt)',
       () async {
         await seedStatus(
           'presque-expire',
           createdAt: DateTime.now().subtract(
-            const Duration(hours: 71, minutes: 59),
+            const Duration(days: 4, hours: 23, minutes: 59),
           ),
         );
 
@@ -67,7 +67,7 @@ void main() {
       },
     );
 
-    test('fetchMoreFeed applique le même filtre de 72 h', () async {
+    test('fetchMoreFeed applique le même filtre de 5 jours', () async {
       await seedStatus(
         'recent-1',
         createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
@@ -78,7 +78,7 @@ void main() {
       );
       await seedStatus(
         'ancien',
-        createdAt: DateTime.now().subtract(const Duration(hours: 96)),
+        createdAt: DateTime.now().subtract(const Duration(days: 6)),
       );
 
       final firstPage = await service.feed().first;
