@@ -1982,6 +1982,43 @@ exports.onNewStatus = onDocumentCreated(
   return null;
 });
 
+const STATUS_LIKE_CREDITS_COLLECTION = "statusLikeCredits";
+/** 1 point de popularité pour le vendeur tous les 5 j'aime reçus sur ses
+ * statuts, au plus 5 points par jour (heure de Kinshasa). */
+const POPULARITY_LIKES_PER_POINT = 5;
+const POPULARITY_MAX_POINTS_PER_DAY = 5;
+
+/**
+ * Compteurs de popularité d'un vendeur après un nouveau j'aime (pur,
+ * testable) : `popularityLikesPending` accumule les j'aime pas encore
+ * convertis ; une fois le plafond du jour atteint, les j'aime suivants de
+ * la journée ne s'accumulent plus (pas de rattrapage le lendemain).
+ */
+function popularityAfterLike(stats, dayKey) {
+  const sameDay = stats?.popularityPointsDay === dayKey;
+  const pointsToday = sameDay ? Number(stats?.popularityPointsToday) || 0 : 0;
+  let pending = (Number(stats?.popularityLikesPending) || 0) + 1;
+  let pointsAwarded = 0;
+  if (pointsToday >= POPULARITY_MAX_POINTS_PER_DAY) {
+    pending = Math.min(pending, POPULARITY_LIKES_PER_POINT - 1);
+  } else if (pending >= POPULARITY_LIKES_PER_POINT) {
+    pending -= POPULARITY_LIKES_PER_POINT;
+    pointsAwarded = 1;
+  }
+  return {
+    pointsAwarded,
+    stats: {
+      popularityLikesPending: pending,
+      popularityPointsDay: dayKey,
+      popularityPointsToday: pointsToday + pointsAwarded,
+      popularityPoints:
+        (Number(stats?.popularityPoints) || 0) + pointsAwarded,
+      likesReceived: (Number(stats?.likesReceived) || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+  };
+}
+
 /**
  * Bascule le like d'un statut pour l'utilisateur connecté : transaction sur
  * un document par (statut, utilisateur) `statusLikes/{statusId}_{uid}`,
@@ -2019,12 +2056,48 @@ exports.toggleStatusLike = onCall(async (request) => {
       return false;
     }
 
+    // Points de popularité du vendeur : lus AVANT toute écriture
+    // (contrainte des transactions Firestore).
+    const sellerId = statusSnap.data()?.sellerId;
+    const creditRef = db
+      .collection(STATUS_LIKE_CREDITS_COLLECTION)
+      .doc(`${statusId}_${uid}`);
+    const statsRef =
+      typeof sellerId === "string" && sellerId
+        ? db.collection(SELLER_STATISTICS_COLLECTION).doc(sellerId)
+        : null;
+    const countsForPoints = statsRef !== null && sellerId !== uid;
+    const [creditSnap, statsSnap] = countsForPoints
+      ? await Promise.all([tx.get(creditRef), tx.get(statsRef)])
+      : [null, null];
+
     tx.set(likeRef, {
       statusId,
       userId: uid,
       createdAt: FieldValue.serverTimestamp(),
     });
     tx.update(statusRef, { likesCount: FieldValue.increment(1) });
+
+    // Un j'aime ne rapporte qu'une fois par (statut, personne) : retirer
+    // puis remettre son j'aime ne compte pas à nouveau (marqueur conservé
+    // même après le retrait).
+    if (countsForPoints && !creditSnap.exists) {
+      tx.set(creditRef, {
+        statusId,
+        userId: uid,
+        sellerId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      const award = popularityAfterLike(statsSnap.data(), statusDayKey());
+      tx.set(statsRef, award.stats, { merge: true });
+      if (award.pointsAwarded > 0) {
+        tx.set(
+          db.collection("publicProfiles").doc(sellerId),
+          { popularityPoints: FieldValue.increment(award.pointsAwarded) },
+          { merge: true }
+        );
+      }
+    }
     return true;
   });
 
@@ -2272,6 +2345,8 @@ async function deleteUserData(
     ["loyaltyPoints", "buyerId"],
     ["loyaltyPoints", "sellerId"],
     ["giftCatalogItems", "sellerId"],
+    [STATUS_LIKE_CREDITS_COLLECTION, "userId"],
+    [STATUS_LIKE_CREDITS_COLLECTION, "sellerId"],
   ];
   for (const [collection, field] of ownedDocs) {
     for (const ref of await queryRefs(collection, field, "==", uid)) {
@@ -4721,6 +4796,7 @@ exports.reconcilePawapayPayouts = onSchedule(
 );
 
 exports._testables = {
+  popularityAfterLike,
   sendSubscriptionExpiryReminders,
   accountDeletionBlockers,
   enforceFreePlanAnnonceLimit,

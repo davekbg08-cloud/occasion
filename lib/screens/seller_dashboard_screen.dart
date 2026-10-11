@@ -8,6 +8,7 @@ import '../annonce/providers/annonce_provider.dart';
 import '../l10n/app_language.dart';
 import '../models/annonce.dart';
 import '../providers/auth_provider.dart';
+import '../providers/popularity_provider.dart';
 import '../providers/seller_statistics_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -110,6 +111,13 @@ class _DashboardContent extends ConsumerWidget {
                 // commandes en attente.
                 label: tr('Annonces inactives'),
                 value: '$pending',
+              ),
+              _MetricCard(
+                icon: Icons.star_rounded,
+                label: tr("Points (j'aime)"),
+                value:
+                    '${ref.watch(sellerPopularityPointsProvider(sellerId)).valueOrNull ?? 0}',
+                onTap: () => _showPopularityInfo(context),
               ),
               _MetricCard(
                 icon: Icons.query_stats,
@@ -258,4 +266,44 @@ class _DashboardError extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Explique au vendeur comment il gagne ses points et ce que voient les
+/// clients.
+void _showPopularityInfo(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr("Points (j'aime)"),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              tr(
+                "Tu gagnes 1 point tous les 5 j'aime reçus sur tes statuts, "
+                "jusqu'à 5 points par jour. Chaque personne ne compte "
+                "qu'une fois par statut.",
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tr(
+                'Les clients voient tes points sur ta bulle de statut et '
+                'en regardant tes statuts : plus tu en as, plus ta boutique '
+                'inspire confiance.',
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

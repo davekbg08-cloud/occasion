@@ -578,6 +578,54 @@ test("toggleStatusLike : bascule aimer/ne plus aimer sans double comptage", asyn
   assert.equal(likeSnap.exists, false);
 });
 
+test("toggleStatusLike : 1 point de popularité au vendeur tous les 5 j'aime, sans double comptage", async () => {
+  await db.collection("statuses").doc("status-pop").set({ sellerId: "seller-pop", likesCount: 0 });
+  const like = (uid) =>
+    functions.toggleStatusLike.run({ data: { statusId: "status-pop" }, auth: { uid } });
+  const points = async () =>
+    (await db.collection("publicProfiles").doc("seller-pop").get()).data()?.popularityPoints ?? 0;
+
+  for (const uid of ["b1", "b2", "b3", "b4"]) await like(uid);
+  assert.equal(await points(), 0, "4 j'aime : pas encore de point");
+
+  // Retirer puis remettre son j'aime ne compte pas une deuxième fois.
+  await like("b1");
+  await like("b1");
+  assert.equal(await points(), 0);
+
+  // Le vendeur qui aime son propre statut ne compte pas.
+  await like("seller-pop");
+  assert.equal(await points(), 0);
+
+  await like("b5");
+  assert.equal(await points(), 1, "5e j'aime d'une personne différente : 1 point");
+  const stats = (await db.collection("sellerStatistics").doc("seller-pop").get()).data();
+  assert.equal(stats.popularityPoints, 1);
+  assert.equal(stats.popularityLikesPending, 0);
+});
+
+test("popularityAfterLike : au plus 5 points par jour, compteur remis à zéro le lendemain", () => {
+  const { popularityAfterLike } = functions._testables;
+  let stats = {};
+  let total = 0;
+  for (let i = 0; i < 40; i++) {
+    const r = popularityAfterLike(stats, "2026-10-11");
+    total += r.pointsAwarded;
+    stats = r.stats;
+  }
+  assert.equal(total, 5, "40 j'aime le même jour : plafonné à 5 points");
+  assert.ok(stats.popularityLikesPending < 5, "pas de réserve accumulée au-delà du plafond");
+
+  let nextDay = 0;
+  for (let i = 0; i < 5; i++) {
+    const r = popularityAfterLike(stats, "2026-10-12");
+    nextDay += r.pointsAwarded;
+    stats = r.stats;
+  }
+  assert.equal(nextDay, 1, "le lendemain, de nouveau 1 point tous les 5 j'aime");
+  assert.equal(stats.popularityPoints, 6);
+});
+
 test("deleteStatus : supprime un statut avec plus de 400 likes sans dépasser la limite de batch", async () => {
   const statusId = "status-many-likes";
   // Pas de mediaUrl valide : storagePathFromDownloadUrl renvoie null, la

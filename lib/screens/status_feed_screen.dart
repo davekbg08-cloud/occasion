@@ -15,6 +15,7 @@ import '../providers/moderation_provider.dart';
 import '../providers/status_provider.dart';
 import '../services/seller_subscription_guard.dart';
 import '../widgets/occasion_image.dart';
+import '../widgets/popularity_badge.dart';
 import '../widgets/report_block_sheet.dart';
 
 class StatusFeedScreen extends ConsumerStatefulWidget {
@@ -475,15 +476,29 @@ class _SellerInfo extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                status.sellerName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  shadows: [Shadow(blurRadius: 6)],
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    status.sellerName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      shadows: [Shadow(blurRadius: 6)],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Points gagnés grâce aux j'aime sur ses statuts.
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: PopularityBadge(
+                      sellerId: status.sellerId,
+                      showLabel: true,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),

@@ -99,6 +99,13 @@ const _english = <String, String>{
   "Achats": "Purchases",
   "Acheter": "Buy",
   "Acheteur": "Buyer",
+  "Points (j'aime)": "Points (likes)",
+  "points de popularité": "popularity points",
+  "points": "points",
+  "Tu gagnes 1 point tous les 5 j'aime reçus sur tes statuts, jusqu'à 5 points par jour. Chaque personne ne compte qu'une fois par statut.":
+      "You earn 1 point for every 5 likes on your statuses, up to 5 points a day. Each person counts once per status.",
+  "Les clients voient tes points sur ta bulle de statut et en regardant tes statuts : plus tu en as, plus ta boutique inspire confiance.":
+      "Customers see your points on your status bubble and while watching your statuses: the more you have, the more your shop inspires trust.",
   "Vues de l'annonce": "Listing views",
   "Impossible de charger les vues pour le moment.":
       "Unable to load views right now.",

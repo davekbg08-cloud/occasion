@@ -434,6 +434,8 @@ service cloud.firestore {
 
     match /publicProfiles/{userId} {
       allow read: if signedIn();
+      // `popularityPoints` (j'aime reçus sur les statuts, toggleStatusLike)
+      // suit la même logique.
       // `ratingSum`/`ratingCount`/`averageRating`/`totalSales` sont écrits
       // uniquement par les Cloud Functions via l'Admin SDK (qui contourne ces
       // règles) — ils doivent rester dans `hasOnly` pour que les écritures
@@ -466,10 +468,12 @@ service cloud.firestore {
         && hasOnly(request.resource.data, [
           'id', 'name', 'role', 'profileImageUrl', 'identityStatus',
           'sellerStatus', 'phoneVerified', 'createdAt', 'updatedAt',
-          'ratingSum', 'ratingCount', 'averageRating', 'totalSales'
+          'ratingSum', 'ratingCount', 'averageRating', 'totalSales',
+          'popularityPoints'
         ])
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'ratingSum', 'ratingCount', 'averageRating', 'totalSales'
+          'ratingSum', 'ratingCount', 'averageRating', 'totalSales',
+          'popularityPoints'
         ])
         && request.resource.data.id == userId
         && optionalString(request.resource.data, 'name', 160)

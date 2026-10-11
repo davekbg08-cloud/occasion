@@ -7,6 +7,7 @@ import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
 import 'occasion_image.dart';
+import 'popularity_badge.dart';
 import '../theme/motion.dart';
 
 /// Bandeau horizontal des statuts (façon « stories ») affiché en haut de
@@ -69,7 +70,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
     if (!isSeller && sellers.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 108,
+      height: 124,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -84,6 +85,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
             _StatusBubble(
               label: status.sellerName,
               highlighted: hasUnseen[status.sellerId] ?? false,
+              badge: PopularityBadge(sellerId: status.sellerId, dense: true),
               onTap: () => context.push('/statuts', extra: status.sellerId),
               child: _Avatar(
                 url: status.sellerProfileImageUrl,
@@ -102,12 +104,16 @@ class _StatusBubble extends StatelessWidget {
     required this.onTap,
     required this.child,
     this.highlighted = false,
+    this.badge,
   });
 
   final String label;
   final VoidCallback onTap;
   final Widget child;
   final bool highlighted;
+
+  /// Points de popularité du vendeur, à cheval sur le bas du cercle.
+  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -119,28 +125,35 @@ class _StatusBubble extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(40),
           child: SizedBox(
-            width: 74,
+            width: 82,
             child: Column(
               children: [
-                Container(
-                  width: 66,
-                  height: 66,
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: highlighted ? color : Colors.grey.shade600,
-                      width: 2,
+                Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.bottomCenter,
+                  children: [
+                    Container(
+                      width: 74,
+                      height: 74,
+                      padding: const EdgeInsets.all(2.5),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: highlighted ? color : Colors.grey.shade600,
+                          width: 2.5,
+                        ),
+                      ),
+                      child: ClipOval(child: Center(child: child)),
                     ),
-                  ),
-                  child: ClipOval(child: Center(child: child)),
+                    if (badge != null) Positioned(bottom: -6, child: badge!),
+                  ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11),
+                  style: const TextStyle(fontSize: 12),
                 ),
               ],
             ),
@@ -164,15 +177,15 @@ class _Avatar extends StatelessWidget {
       final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
       return Text(
         initial,
-        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
       );
     }
     return OccasionImage.thumbnail(
       imageUrl,
-      width: 62,
-      height: 62,
-      cacheWidth: 124,
-      cacheHeight: 124,
+      width: 70,
+      height: 70,
+      cacheWidth: 140,
+      cacheHeight: 140,
     );
   }
 }

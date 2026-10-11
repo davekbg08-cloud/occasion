@@ -1846,6 +1846,9 @@ test("publicProfiles : le propriétaire ne peut jamais s'attribuer lui-même une
     seller.collection("publicProfiles").doc("seller1").update({ ratingSum: 999 })
   );
   await assertFails(
+    seller.collection("publicProfiles").doc("seller1").update({ popularityPoints: 999 })
+  );
+  await assertFails(
     seller.collection("publicProfiles").doc("seller1").update({ ratingCount: 999 })
   );
   await assertFails(
