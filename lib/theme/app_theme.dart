@@ -1,5 +1,8 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'motion.dart';
 
 /// Palette de la refonte : bleu nuit, turquoise (marque) et orange (prix).
 class AppColors {
@@ -46,6 +49,17 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: OccasionPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: OccasionPageTransitionsBuilder(),
+          TargetPlatform.linux: OccasionPageTransitionsBuilder(),
+          TargetPlatform.windows: OccasionPageTransitionsBuilder(),
+          // Balayage retour natif conservé.
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.background,
       canvasColor: AppColors.background,

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../theme/motion.dart';
 
 /// Widget image unique pour toute l'app : gère les URL null/vides, les
 /// erreurs réseau, un placeholder de chargement, et met en cache via
@@ -90,7 +91,7 @@ class OccasionImage extends StatelessWidget {
             fit: fit,
             memCacheWidth: cacheWidth,
             memCacheHeight: cacheHeight,
-            fadeInDuration: const Duration(milliseconds: 150),
+            fadeInDuration: const Duration(milliseconds: 250),
             placeholder: (context, url) => _placeholder(loading: true),
             errorWidget: (context, url, error) =>
                 _placeholder(icon: Icons.broken_image_outlined),
@@ -120,19 +121,18 @@ class OccasionImage extends StatelessWidget {
     IconData icon = Icons.image_outlined,
     bool loading = false,
   }) {
+    if (loading) {
+      return SkeletonPulse(
+        width: width,
+        height: height,
+        color: Colors.grey[300],
+      );
+    }
     return Container(
       width: width,
       height: height,
       color: Colors.grey[300],
-      child: Center(
-        child: loading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(icon, size: 40, color: Colors.grey[600]),
-      ),
+      child: Center(child: Icon(icon, size: 40, color: Colors.grey[600])),
     );
   }
 }

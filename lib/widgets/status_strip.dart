@@ -7,6 +7,7 @@ import '../models/status.dart';
 import '../providers/auth_provider.dart';
 import '../providers/status_provider.dart';
 import 'occasion_image.dart';
+import '../theme/motion.dart';
 
 /// Bandeau horizontal des statuts (façon « stories ») affiché en haut de
 /// l'accueil. Remplace l'ancien onglet « Feed » : un appui ouvre le fil
@@ -113,34 +114,36 @@ class _StatusBubble extends StatelessWidget {
     final color = Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.only(right: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(40),
-        child: SizedBox(
-          width: 74,
-          child: Column(
-            children: [
-              Container(
-                width: 66,
-                height: 66,
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: highlighted ? color : Colors.grey.shade600,
-                    width: 2,
+      child: PressableScale(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(40),
+          child: SizedBox(
+            width: 74,
+            child: Column(
+              children: [
+                Container(
+                  width: 66,
+                  height: 66,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: highlighted ? color : Colors.grey.shade600,
+                      width: 2,
+                    ),
                   ),
+                  child: ClipOval(child: Center(child: child)),
                 ),
-                child: ClipOval(child: Center(child: child)),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ],
+            ),
           ),
         ),
       ),

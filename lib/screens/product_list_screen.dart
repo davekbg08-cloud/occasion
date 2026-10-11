@@ -12,6 +12,7 @@ import '../providers/product_provider.dart';
 import '../widgets/occasion_logo.dart';
 import '../widgets/product_card.dart';
 import '../widgets/status_strip.dart';
+import '../theme/motion.dart';
 
 class ProductListScreen extends ConsumerWidget {
   const ProductListScreen({super.key});
@@ -119,7 +120,7 @@ class ProductListScreen extends ConsumerWidget {
           child: _ResponsiveProductGrid(products: visibleProducts),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const _ProductListSkeleton(),
       error: (error, stack) => Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -158,7 +159,11 @@ class _ResponsiveProductGrid extends StatelessWidget {
       mainAxisSpacing: 4,
       crossAxisSpacing: 4,
       itemCount: products.length,
-      itemBuilder: (context, index) => ProductCard(product: products[index]),
+      itemBuilder: (context, index) => AppearOnce(
+        key: ValueKey(products[index].id),
+        order: index,
+        child: ProductCard(product: products[index]),
+      ),
     );
 
     if (crossAxisCount == 1) return grid;
@@ -167,6 +172,33 @@ class _ResponsiveProductGrid extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _maxContentWidth),
         child: grid,
+      ),
+    );
+  }
+}
+
+/// Squelette de la liste pendant le premier chargement : la forme des
+/// cartes est déjà là, au lieu d'une roue au milieu d'un écran vide.
+class _ProductListSkeleton extends StatelessWidget {
+  const _ProductListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = BorderRadius.all(Radius.circular(16));
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(12),
+      itemCount: 3,
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (context, _) => const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SkeletonPulse(height: 220, borderRadius: radius),
+          SizedBox(height: 12),
+          SkeletonPulse(width: 90, height: 18, borderRadius: radius),
+          SizedBox(height: 8),
+          SkeletonPulse(width: 200, height: 16, borderRadius: radius),
+        ],
       ),
     );
   }

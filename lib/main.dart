@@ -16,6 +16,7 @@ import 'l10n/app_language.dart';
 import 'screens/account_settings_screen.dart';
 import 'screens/payout_account_screen.dart';
 import 'theme/app_theme.dart';
+import 'theme/motion.dart';
 import 'models/annonce.dart';
 import 'models/chat.dart';
 import 'providers/admin_provider.dart';
@@ -590,11 +591,19 @@ class OccasionApp extends StatelessWidget {
             child: _AuthGuard(child: ChatScreen(chat: chat)),
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
+                  if (OccasionMotion.reduced(context)) return child;
                   return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(1, 0),
-                      end: Offset.zero,
-                    ).animate(animation),
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(1, 0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: OccasionMotion.enter,
+                            reverseCurve: Curves.easeInCubic,
+                          ),
+                        ),
                     child: child,
                   );
                 },
@@ -955,7 +964,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final index = _index.clamp(0, pages.length - 1);
 
     return Scaffold(
-      body: IndexedStack(index: index, children: pages),
+      body: FadeIndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
         onDestinationSelected: (value) => setState(() => _index = value),
