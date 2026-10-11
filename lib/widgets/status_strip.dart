@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../l10n/app_language.dart';
 import '../models/status.dart';
 import '../providers/auth_provider.dart';
+import '../providers/popularity_provider.dart';
 import '../providers/status_provider.dart';
 import 'occasion_image.dart';
 import 'popularity_badge.dart';
@@ -25,6 +26,27 @@ class StatusStrip extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<StatusStrip> createState() => _StatusStripState();
+}
+
+/// Bulles affichées au plus, choisies parmi [_candidateSellers] vendeurs
+/// du fil une fois triés par popularité.
+const _maxBubbles = 12;
+const _candidateSellers = 30;
+
+/// Trie les vendeurs par points de popularité décroissants, en gardant
+/// l'ordre d'origine (fil, plus récent d'abord) à égalité.
+List<Status> orderSellersByPopularity(
+  List<Status> sellers,
+  Map<String, int> points,
+) {
+  final indexed = sellers.indexed.toList()
+    ..sort((a, b) {
+      final byPoints = (points[b.$2.sellerId] ?? 0).compareTo(
+        points[a.$2.sellerId] ?? 0,
+      );
+      return byPoints != 0 ? byPoints : a.$1.compareTo(b.$1);
+    });
+  return [for (final (_, status) in indexed) status];
 }
 
 class _StatusStripState extends ConsumerState<StatusStrip> {
@@ -64,8 +86,18 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
           (hasUnseen[status.sellerId] ?? false) ||
           !viewedIds.contains(status.id);
       if (seen.add(status.sellerId)) sellers.add(status);
-      if (sellers.length >= 12) break;
+      if (sellers.length >= _candidateSellers) break;
     }
+    // Les vendeurs les plus populaires (points gagnés grâce aux j'aime) en
+    // premier ; à égalité, l'ordre du fil (statut le plus récent d'abord).
+    final ordered = orderSellersByPopularity(sellers, {
+      for (final status in sellers)
+        status.sellerId:
+            ref
+                .watch(sellerPopularityPointsProvider(status.sellerId))
+                .valueOrNull ??
+            0,
+    }).take(_maxBubbles).toList();
 
     if (!isSeller && sellers.isEmpty) return const SizedBox.shrink();
 
@@ -81,7 +113,7 @@ class _StatusStripState extends ConsumerState<StatusStrip> {
               onTap: () => context.push('/add-status'),
               child: const Icon(Icons.add, size: 30),
             ),
-          for (final status in sellers)
+          for (final status in ordered)
             _StatusBubble(
               label: status.sellerName,
               highlighted: hasUnseen[status.sellerId] ?? false,
