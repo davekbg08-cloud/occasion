@@ -99,6 +99,7 @@ const _english = <String, String>{
   "Achats": "Purchases",
   "Acheter": "Buy",
   "Acheteur": "Buyer",
+  "Écrire": "Message",
   "Actif (visible des acheteurs)": "Active (visible to buyers)",
   "Actions conversation": "Conversation actions",
   "Administration": "Administration",

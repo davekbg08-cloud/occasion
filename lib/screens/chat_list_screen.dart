@@ -9,9 +9,11 @@ import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import '../utils/user_display.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
+import '../widgets/tappable_card.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({
@@ -150,18 +152,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ? const _MessageLoadError()
           : visibleChats.isEmpty
           ? _EmptyChats(subtitle: widget.emptySubtitle)
-          : ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+          : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
               itemCount: visibleChats.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final chat = visibleChats[index];
-                return _ChatTile(
-                  chat: chat,
-                  currentUserId: me?.id ?? '',
-                  onOpen: () => context.push('/chat-room', extra: chat),
-                  onDelete: (forEveryone) =>
-                      _confirmDelete(chat, forEveryone: forEveryone),
-                  onShareInfo: () => _shareInfo(chat),
+                return AppearOnce(
+                  key: ValueKey(chat.id),
+                  order: index,
+                  child: _ChatTile(
+                    chat: chat,
+                    currentUserId: me?.id ?? '',
+                    onOpen: () => context.push('/chat-room', extra: chat),
+                    onDelete: (forEveryone) =>
+                        _confirmDelete(chat, forEveryone: forEveryone),
+                    onShareInfo: () => _shareInfo(chat),
+                  ),
                 );
               },
             ),
@@ -253,145 +260,150 @@ class _ChatTile extends StatelessWidget {
     final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
     final listingTitle = chat.listingTitle?.trim();
 
-    return InkWell(
+    // Chaque conversation est une carte distincte et visiblement
+    // cliquable (fond, bordure, chevron « › ») : sans ça, les lignes se
+    // succédaient sans aucune limite visible. Non lue : fond plus marqué,
+    // barre et bordure turquoise.
+    return TappableCard(
       onTap: onOpen,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            _ChatAvatar(
-              image: image,
-              initial: initial,
-              name: name,
-              highlighted: unread,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+      highlighted: unread,
+      padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+      child: Row(
+        children: [
+          _ChatAvatar(
+            image: image,
+            initial: initial,
+            name: name,
+            highlighted: unread,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: unread
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (chat.lastMessageAt != null)
+                      Text(
+                        _formatDate(chat.lastMessageAt!),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: unread
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                          fontWeight: unread
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                  ],
+                ),
+                if (listingTitle != null && listingTitle.isNotEmpty) ...[
+                  const SizedBox(height: 3),
                   Row(
                     children: [
+                      const Icon(
+                        Icons.sell_outlined,
+                        size: 13,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          displayName,
+                          listingTitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 16,
-                            fontWeight: unread
-                                ? FontWeight.w700
-                                : FontWeight.w500,
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
                           ),
                         ),
                       ),
-                      if (chat.lastMessageAt != null)
-                        Text(
-                          _formatDate(chat.lastMessageAt!),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: unread
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
-                            fontWeight: unread
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                          ),
-                        ),
                     ],
                   ),
-                  if (listingTitle != null && listingTitle.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.sell_outlined,
-                          size: 13,
-                          color: AppColors.primary,
+                ],
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        chat.lastMessage ?? 'Dites bonjour 👋',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: unread
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontWeight: unread
+                              ? FontWeight.w500
+                              : FontWeight.w400,
                         ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            listingTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 12,
+                      ),
+                    ),
+                    _UnreadBadge(count: unreadCount),
+                    PopupMenuButton<String>(
+                      tooltip: tr('Actions conversation'),
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(
+                        Icons.more_horiz,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
+                      onSelected: (value) => switch (value) {
+                        'delete_for_me' => onDelete(false),
+                        'delete_for_everyone' => onDelete(true),
+                        'share' => onShareInfo(),
+                        _ => null,
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'share',
+                          child: ListTile(
+                            leading: Icon(Icons.ios_share_outlined),
+                            title: Text(tr('Partager infos utiles')),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete_for_me',
+                          child: ListTile(
+                            leading: Icon(Icons.delete_outline),
+                            title: Text(tr('Supprimer pour moi')),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete_for_everyone',
+                          child: ListTile(
+                            leading: Icon(
+                              Icons.delete_forever,
+                              color: Colors.red,
                             ),
+                            title: Text(tr('Supprimer pour tout le monde')),
                           ),
                         ),
                       ],
                     ),
                   ],
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          chat.lastMessage ?? 'Dites bonjour 👋',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: unread
-                                ? AppColors.textPrimary
-                                : AppColors.textSecondary,
-                            fontWeight: unread
-                                ? FontWeight.w500
-                                : FontWeight.w400,
-                          ),
-                        ),
-                      ),
-                      _UnreadBadge(count: unreadCount),
-                      PopupMenuButton<String>(
-                        tooltip: tr('Actions conversation'),
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(
-                          Icons.more_horiz,
-                          size: 20,
-                          color: AppColors.textSecondary,
-                        ),
-                        onSelected: (value) {
-                          if (value == 'delete_for_me') onDelete(false);
-                          if (value == 'delete_for_everyone') onDelete(true);
-                          if (value == 'share') onShareInfo();
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'share',
-                            child: ListTile(
-                              leading: Icon(Icons.ios_share_outlined),
-                              title: Text(tr('Partager infos utiles')),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete_for_me',
-                            child: ListTile(
-                              leading: Icon(Icons.delete_outline),
-                              title: Text(tr('Supprimer pour moi')),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete_for_everyone',
-                            child: ListTile(
-                              leading: Icon(
-                                Icons.delete_forever,
-                                color: Colors.red,
-                              ),
-                              title: Text(tr('Supprimer pour tout le monde')),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const OpenChevron(),
+        ],
       ),
     );
   }
@@ -468,7 +480,7 @@ class _ChatAvatar extends StatelessWidget {
     final Widget content = (url == null || url.isEmpty)
         ? CircleAvatar(
             radius: 26,
-            backgroundColor: AppColors.surfaceHigh,
+            backgroundColor: AppColors.primary.withValues(alpha: 0.14),
             child: Text(
               initial,
               style: const TextStyle(

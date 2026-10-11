@@ -12,6 +12,7 @@ import '../utils/user_display.dart';
 import '../widgets/fullscreen_image_viewer.dart';
 import '../widgets/occasion_image.dart';
 import '../widgets/report_block_sheet.dart';
+import '../widgets/tappable_card.dart';
 
 /// Répertoire de tous les utilisateurs (acheteurs et vendeurs confondus) :
 /// nom, photo, rôle et badge vérifié — jamais de numéro de téléphone.
@@ -123,8 +124,10 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
                     ),
                   );
                 }
-                return ListView.builder(
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   itemCount: users.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final user = users[index];
                     return _DirectoryTile(
@@ -163,71 +166,132 @@ class _DirectoryTile extends StatelessWidget {
     final hasPhoto =
         user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty;
 
-    return ListTile(
+    // Carte distincte et visiblement cliquable (fond, bordure, bouton
+    // « Écrire ») : tapoter n'importe où ouvre la conversation.
+    return TappableCard(
       onTap: onOpen,
-      // Distinct du tap sur le reste de la fiche (onOpen, ouvre la
-      // conversation) : tapoter précisément la photo l'agrandit plutôt,
-      // même geste que sur un profil (voir `profile_screen.dart`/
-      // `seller_public_profile_screen.dart`).
-      leading: GestureDetector(
-        onTap: hasPhoto
-            ? () => FullscreenImageViewer.open(
-                context,
-                imageUrls: [user.profileImageUrl!],
-              )
-            : null,
-        child: ClipOval(
-          child: !hasPhoto
-              ? CircleAvatar(
-                  radius: 24,
-                  backgroundColor: AppColors.surfaceHigh,
-                  child: Text(
-                    initial,
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
-              : OccasionImage.thumbnail(
-                  user.profileImageUrl,
-                  width: 48,
-                  height: 48,
-                ),
-        ),
-      ),
-      title: Row(
+      padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
+      child: Row(
         children: [
-          Flexible(
-            child: Text(
-              displayNameWithTag(user.name, user.id),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
+          // Distinct du tap sur le reste de la fiche (onOpen, ouvre la
+          // conversation) : tapoter précisément la photo l'agrandit plutôt,
+          // même geste que sur un profil (voir `profile_screen.dart`/
+          // `seller_public_profile_screen.dart`).
+          GestureDetector(
+            onTap: hasPhoto
+                ? () => FullscreenImageViewer.open(
+                    context,
+                    imageUrls: [user.profileImageUrl!],
+                  )
+                : null,
+            child: ClipOval(
+              child: !hasPhoto
+                  ? CircleAvatar(
+                      radius: 24,
+                      backgroundColor: AppColors.primary.withValues(
+                        alpha: 0.14,
+                      ),
+                      child: Text(
+                        initial,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : OccasionImage.thumbnail(
+                      user.profileImageUrl,
+                      width: 48,
+                      height: 48,
+                    ),
             ),
           ),
-          if (user.isVerifiedSeller) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.verified, size: 16, color: AppColors.primary),
-          ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        displayNameWithTag(user.name, user.id),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (user.isVerifiedSeller) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.verified,
+                        size: 16,
+                        color: AppColors.primary,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  user.isSeller ? tr('Vendeur') : tr('Acheteur'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: user.isSeller
+                        ? AppColors.price
+                        : AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Rend l'action explicite : la fiche sert à écrire à la personne.
+          ExcludeSemantics(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.chat_bubble_outline,
+                    size: 15,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    tr('Écrire'),
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: tr('Bloquer ou signaler'),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
+            onPressed: () => showReportOrBlockSheet(
+              context,
+              currentUserId: currentUserId,
+              targetUserId: user.id,
+              targetUserName: user.name,
+              targetType: ReportTargetType.user,
+            ),
+          ),
         ],
-      ),
-      subtitle: Text(
-        user.isSeller ? tr('Vendeur') : tr('Acheteur'),
-        style: TextStyle(color: Colors.grey[500]),
-      ),
-      trailing: IconButton(
-        tooltip: tr('Bloquer ou signaler'),
-        icon: const Icon(Icons.more_vert, color: Colors.white70),
-        onPressed: () => showReportOrBlockSheet(
-          context,
-          currentUserId: currentUserId,
-          targetUserId: user.id,
-          targetUserName: user.name,
-          targetType: ReportTargetType.user,
-        ),
       ),
     );
   }
