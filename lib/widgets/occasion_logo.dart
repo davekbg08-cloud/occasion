@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../theme/app_theme.dart';
 
 import '../theme/motion.dart';
 
 /// Logo Occasion, jamais posé comme une image à fond blanc découpée :
 /// - sur fond sombre (par défaut) : version sans fond, bleu marine passé en
 ///   blanc pour rester lisible (`occasion_logo_dark.png`) ;
-/// - sur une page blanche ([onLight]) : logo d'origine, dont le fond blanc
-///   se fond dans celui de la page.
+/// - sur fond clair ([onLight]) : logo d'origine, sans fond.
 class OccasionLogo extends StatelessWidget {
   const OccasionLogo({
     super.key,
@@ -53,12 +55,46 @@ class OccasionEmblem extends StatelessWidget {
   }
 }
 
-/// Fond des écrans de démarrage : celui du logo, pour une suite continue
-/// avec l'écran de démarrage natif (Android) et la page d'attente web.
-const occasionSplashBackground = Colors.white;
+/// Les écrans de démarrage suivent le mode du téléphone : page blanche et
+/// logo d'origine en mode clair, fond sombre de l'app et logo clair en
+/// mode sombre — même rendu que l'écran natif Android
+/// (`values[-night]-v31/styles.xml`) et la page d'attente web
+/// (`web/index.html`) qui les précèdent.
+bool occasionSplashIsLight(BuildContext context) =>
+    MediaQuery.platformBrightnessOf(context) == Brightness.light;
 
-/// Logo des écrans de démarrage/chargement (page blanche) : apparaît en
-/// douceur (fondu + léger agrandissement).
+Color occasionSplashBackground(BuildContext context) =>
+    occasionSplashIsLight(context) ? Colors.white : AppColors.background;
+
+/// Couleur des textes posés sur un écran de démarrage.
+Color occasionSplashHintColor(BuildContext context) =>
+    occasionSplashIsLight(context)
+    ? const Color(0xFF5B6B7C)
+    : AppColors.textSecondary;
+
+/// Page d'écran de démarrage (fond et icônes de la barre d'état adaptés au
+/// mode clair/sombre), [child] centré.
+class OccasionSplashScaffold extends StatelessWidget {
+  const OccasionSplashScaffold({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = occasionSplashIsLight(context);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (light ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light)
+          .copyWith(statusBarColor: Colors.transparent),
+      child: Scaffold(
+        backgroundColor: occasionSplashBackground(context),
+        body: Center(child: child),
+      ),
+    );
+  }
+}
+
+/// Logo des écrans de démarrage/chargement : version adaptée au mode
+/// clair/sombre, apparaît en douceur (fondu + léger agrandissement).
 class OccasionSplashLogo extends StatelessWidget {
   const OccasionSplashLogo({super.key, this.size = 160});
 
@@ -66,7 +102,10 @@ class OccasionSplashLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final logo = OccasionLogo(size: size, onLight: true);
+    final logo = OccasionLogo(
+      size: size,
+      onLight: occasionSplashIsLight(context),
+    );
     if (OccasionMotion.reduced(context)) return logo;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
