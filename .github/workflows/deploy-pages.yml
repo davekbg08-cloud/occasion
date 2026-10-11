@@ -72,6 +72,13 @@ jobs:
         # Cache-Control personnalisé pour compenser autrement.
         run: flutter build web --release --base-href /occasion/ --pwa-strategy=none
 
+      - name: Identifiant de version (détection des mises à jour)
+        # Voir le script « Mise à jour de la PWA » dans web/index.html.
+        run: |
+          sed -i "s/__OCCASION_BUILD__/${GITHUB_SHA}/" build/web/index.html
+          printf '%s' "$GITHUB_SHA" > build/web/build-id.txt
+          grep -q "$GITHUB_SHA" build/web/index.html
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
 
