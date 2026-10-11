@@ -251,6 +251,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
               children: [
                 TextFormField(
                   controller: _titleController,
+                  maxLength: Annonce.maxTitleLength,
                   decoration: InputDecoration(
                     labelText: tr('Titre'),
                     border: OutlineInputBorder(),
@@ -263,6 +264,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 4,
+                  maxLength: Annonce.maxDescriptionLength,
                   decoration: InputDecoration(
                     labelText: tr('Description'),
                     border: OutlineInputBorder(),
@@ -389,6 +391,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _cityController,
+                  maxLength: Annonce.maxPlaceLength,
                   decoration: InputDecoration(
                     labelText: tr('Ville'),
                     border: OutlineInputBorder(),
@@ -400,6 +403,7 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _districtController,
+                  maxLength: Annonce.maxPlaceLength,
                   decoration: InputDecoration(
                     labelText: tr('Quartier'),
                     border: OutlineInputBorder(),
@@ -519,17 +523,41 @@ class _CreateAnnonceScreenState extends ConsumerState<CreateAnnonceScreen> {
     return hasActiveSubscription ? 5 : 2;
   }
 
-  String _friendlyError(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '').trim();
-    if (message.contains('permission-denied')) {
-      return "Action refusée. Vérifiez que vous êtes connecté avec le compte vendeur propriétaire.";
-    }
-    if (message.contains('network')) {
-      return 'Connexion réseau indisponible. Réessayez dans un instant.';
-    }
-    if (message.isNotEmpty) return message;
-    return "L'annonce n'a pas pu être enregistrée. Réessayez.";
+  String _friendlyError(Object error) => friendlyAnnonceError(error);
+}
+
+/// Message d'erreur de publication/modification d'annonce compréhensible
+/// par le vendeur. Les limites (longueurs, photos) sont déjà vérifiées
+/// avant l'envoi : un refus serveur restant vient du compte ou de la
+/// session, jamais du contenu.
+String friendlyAnnonceError(Object error) {
+  var message = error
+      .toString()
+      .replaceFirst('Exception: ', '')
+      .replaceFirst('Invalid argument(s): ', '')
+      .trim();
+  if (message.contains('permission-denied')) {
+    return tr(
+      'Publication refusée par le serveur : ta session a peut-être expiré, '
+      'ou ce compte n’est pas un compte vendeur. Déconnecte-toi, '
+      'reconnecte-toi avec ton compte vendeur, puis réessaie.',
+    );
   }
+  if (message.contains('unauthorized') || message.contains('storage/')) {
+    return tr(
+      'Une photo n’a pas pu être envoyée (format ou taille non acceptés : '
+      'image de 5 Mo maximum). Change de photo et réessaie.',
+    );
+  }
+  if (message.contains('network') ||
+      message.contains('unavailable') ||
+      message.contains('deadline-exceeded')) {
+    return tr('Connexion réseau indisponible. Réessaie dans un instant.');
+  }
+  if (message.isEmpty) {
+    return tr("L'annonce n'a pas pu être enregistrée. Réessaie.");
+  }
+  return message[0].toUpperCase() + message.substring(1);
 }
 
 class _Section extends StatelessWidget {

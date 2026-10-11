@@ -122,7 +122,10 @@ class _AddStatusScreenState extends ConsumerState<AddStatusScreen> {
     final message = error ?? '';
     if (message.contains('permission-denied') ||
         message.contains('unauthorized')) {
-      return 'Publication refusée. Vérifiez votre session vendeur.';
+      // Le serveur exige un compte vendeur connecté ET un abonnement actif.
+      return 'Publication refusée par le serveur : un abonnement vendeur '
+          'actif est nécessaire. S’il est actif, ta session a peut-être '
+          'expiré — reconnecte-toi puis réessaie.';
     }
     if (message.contains('network')) {
       return 'Connexion réseau indisponible. Réessayez.';

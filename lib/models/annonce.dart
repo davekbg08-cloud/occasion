@@ -175,10 +175,35 @@ class Annonce {
     };
   }
 
+  /// Mêmes plafonds que `validAnnonce` dans firestore.rules : vérifiés ici
+  /// pour expliquer le problème au vendeur, au lieu d'un refus serveur
+  /// incompréhensible (« permission-denied »).
+  static const maxTitleLength = 160;
+  static const maxDescriptionLength = 4000;
+  static const maxPlaceLength = 120;
+  static const maxPhotos = 5;
+
   void validate() {
     final errors = <String>[];
     if (title.trim().isEmpty) errors.add('titre obligatoire');
+    if (title.trim().length > maxTitleLength) {
+      errors.add('titre trop long ($maxTitleLength caractères maximum)');
+    }
     if (description.trim().isEmpty) errors.add('description obligatoire');
+    if (description.trim().length > maxDescriptionLength) {
+      errors.add(
+        'description trop longue ($maxDescriptionLength caractères maximum)',
+      );
+    }
+    if (city.trim().length > maxPlaceLength ||
+        district.trim().length > maxPlaceLength) {
+      errors.add(
+        'ville ou quartier trop long ($maxPlaceLength caractères max)',
+      );
+    }
+    if (imageUrls.length > maxPhotos) {
+      errors.add('$maxPhotos photos maximum');
+    }
     if (price < 0) errors.add('prix invalide');
     if (currency.trim().isEmpty) errors.add('devise obligatoire');
     if (category.trim().isEmpty) errors.add('categorie obligatoire');
