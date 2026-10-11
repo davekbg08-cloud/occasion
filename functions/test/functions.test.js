@@ -1899,6 +1899,40 @@ test("recordAnnonceView : refuse l'auto-vue du propriétaire et les annonces ina
   assert.equal(snap.data().vues, 1, "une vraie vue d'un tiers doit compter");
 });
 
+test("recordAnnonceView : une nouvelle visite met à jour la date sans compter une deuxième vue", async () => {
+  await db.collection("annonces").doc("annonce-revisit").set({
+    sellerId: "seller1",
+    isPublished: true,
+    vues: 0,
+  });
+  const viewerRef = db
+    .collection("annonces")
+    .doc("annonce-revisit")
+    .collection("viewers")
+    .doc("buyer1");
+
+  await functions.recordAnnonceView.run({
+    data: { annonceId: "annonce-revisit" },
+    auth: { uid: "buyer1" },
+  });
+  const first = (await viewerRef.get()).data();
+  assert.equal(first.viewerId, "buyer1");
+  assert.equal(first.visits, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await functions.recordAnnonceView.run({
+    data: { annonceId: "annonce-revisit" },
+    auth: { uid: "buyer1" },
+  });
+  const second = (await viewerRef.get()).data();
+  assert.equal(second.visits, 2);
+  assert.ok(second.viewedAt.toMillis() >= first.viewedAt.toMillis());
+  assert.equal(second.firstViewedAt.toMillis(), first.firstViewedAt.toMillis());
+
+  const annonce = (await db.collection("annonces").doc("annonce-revisit").get()).data();
+  assert.equal(annonce.vues, 1, "le même visiteur ne compte qu'une vue");
+});
+
 test("onAnnonceUpdated : une baisse de prix historise l'entrée et notifie les favoris (pas le vendeur)", async () => {
   await db.collection("annonces").doc("annonce-price-drop-1").set({
     sellerId: "seller1",
@@ -3392,6 +3426,8 @@ test("deleteUserData : efface ou anonymise toutes les données de la personne, j
   await db.collection("annonces").doc("a-partant").set({ vendeurId: uid, titre: "Vélo" });
   await db.collection("annonces").doc("a-partant").collection("viewers").doc("v").set({ at: 1 });
   await db.collection("annonces").doc("a-autre").set({ vendeurId: other, titre: "Table" });
+  await db.collection("annonces").doc("a-autre").collection("viewers").doc(uid).set({ viewerId: uid, viewedAt: 1 });
+  await db.collection("annonces").doc("a-autre").collection("viewers").doc("tiers").set({ viewerId: "tiers", viewedAt: 1 });
   await db.collection("statuses").doc("s-partant").set({ sellerId: uid, likesCount: 1 });
   await db.collection("statusLikes").doc(`s-partant_${other}`).set({ statusId: "s-partant", userId: other });
   await db.collection("statuses").doc("s-autre").set({ sellerId: other, likesCount: 1 });
@@ -3443,6 +3479,15 @@ test("deleteUserData : efface ou anonymise toutes les données de la personne, j
   assert.equal((await db.collection("annonces").doc("a-partant").get()).exists, false);
   assert.equal((await db.collection("annonces").doc("a-partant").collection("viewers").get()).size, 0);
   assert.equal((await db.collection("annonces").doc("a-autre").get()).exists, true);
+  assert.equal(
+    (await db.collection("annonces").doc("a-autre").collection("viewers").doc(uid).get()).exists,
+    false,
+    "son passage sur l'annonce d'un autre doit disparaître"
+  );
+  assert.equal(
+    (await db.collection("annonces").doc("a-autre").collection("viewers").doc("tiers").get()).exists,
+    true
+  );
 
   assert.equal((await db.collection("statuses").doc("s-partant").get()).exists, false);
   assert.equal((await db.collection("statusLikes").doc(`s-partant_${other}`).get()).exists, false);

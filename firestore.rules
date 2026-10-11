@@ -20,6 +20,12 @@ service cloud.firestore {
       return hasUserRole('seller');
     }
 
+    function ownsAnnonce(data) {
+      return data.get('sellerId', '') == request.auth.uid
+        || data.get('vendeurId', '') == request.auth.uid
+        || data.get('userId', '') == request.auth.uid;
+    }
+
     function isAdmin() {
       return signedIn()
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
@@ -334,9 +340,15 @@ service cloud.firestore {
       // Comptage des vues uniquement côté serveur (Cloud Function
       // recordAnnonceView, dédupliquée par visiteur), jamais par le client
       // directement — évite qu'un utilisateur écrive n'importe quelle valeur
-      // dans `vues`.
+      // dans `vues`. Lecture : le vendeur de l'annonce (liste « Vues de
+      // l'annonce » : qui l'a ouverte, et quand) et l'admin uniquement.
       match /viewers/{viewerId} {
-        allow read, write: if false;
+        allow read: if signedIn()
+          && (
+            ownsAnnonce(get(/databases/$(database)/documents/annonces/$(annonceId)).data)
+            || isAdmin()
+          );
+        allow write: if false;
       }
 
       // Historique des changements de prix, écrit uniquement par la Cloud

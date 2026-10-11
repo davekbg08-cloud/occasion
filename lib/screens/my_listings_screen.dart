@@ -148,9 +148,18 @@ class _ListingCard extends ConsumerWidget {
                   spacing: 12,
                   runSpacing: 8,
                   children: [
-                    _InfoPill(
-                      icon: Icons.visibility_outlined,
-                      label: '${annonce.views} vues',
+                    // Ouvre « Vues de l'annonce » : qui l'a regardée.
+                    InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () => context.push(
+                        '/annonce/${annonce.id}/viewers',
+                        extra: annonce,
+                      ),
+                      child: _InfoPill(
+                        icon: Icons.visibility_outlined,
+                        label: '${annonce.views} vues  ›',
+                        highlighted: true,
+                      ),
                     ),
                     _InfoPill(
                       icon: Icons.mark_unread_chat_alt_outlined,
@@ -385,25 +394,43 @@ class _SaleStateChip extends StatelessWidget {
 }
 
 class _InfoPill extends StatelessWidget {
-  const _InfoPill({required this.icon, required this.label});
+  const _InfoPill({
+    required this.icon,
+    required this.label,
+    this.highlighted = false,
+  });
 
   final IconData icon;
   final String label;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey[850],
+        color: highlighted
+            ? AppColors.primary.withValues(alpha: 0.14)
+            : Colors.grey[850],
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: Colors.grey[300]),
+          Icon(
+            icon,
+            size: 15,
+            color: highlighted ? AppColors.primary : Colors.grey[300],
+          ),
           const SizedBox(width: 6),
-          Text(label, style: TextStyle(color: Colors.grey[300], fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(
+              color: highlighted ? AppColors.primary : Colors.grey[300],
+              fontSize: 12,
+              fontWeight: highlighted ? FontWeight.w600 : null,
+            ),
+          ),
         ],
       ),
     );

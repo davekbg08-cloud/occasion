@@ -99,6 +99,18 @@ const _english = <String, String>{
   "Achats": "Purchases",
   "Acheter": "Buy",
   "Acheteur": "Buyer",
+  "Vues de l'annonce": "Listing views",
+  "Impossible de charger les vues pour le moment.":
+      "Unable to load views right now.",
+  "Personne n'a encore ouvert cette annonce. Les visiteurs apparaîtront ici.":
+      "Nobody has opened this listing yet. Visitors will appear here.",
+  "personnes": "people",
+  "personne": "person",
+  "à l’instant": "just now",
+  "hier": "yesterday",
+  "jours": "days",
+  "Vue": "Viewed",
+  "visites": "visits",
   "depuis": "since",
   "Ajouter au panier": "Add to cart",
   "Écrire": "Message",

@@ -8,12 +8,14 @@ import '../l10n/app_language.dart';
 import '../models/annonce.dart';
 import '../models/report.dart';
 import '../models/product_model.dart';
+import '../providers/annonce_viewers_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/product_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/currencies.dart';
 import '../utils/loyalty_points_estimate.dart';
+import '../widgets/occasion_image.dart';
 import '../widgets/photo_carousel.dart';
 import '../widgets/report_block_sheet.dart';
 
@@ -113,6 +115,17 @@ class _AnnonceDetailScreenState extends ConsumerState<AnnonceDetailScreen> {
               context.canPop() ? context.pop() : context.go('/home'),
         ),
         title: Text(tr('Annonce')),
+        actions: [
+          if (isOwnListing && loadedAnnonce != null)
+            _ViewersButton(
+              annonce: loadedAnnonce,
+              onTap: () => context.push(
+                '/annonce/${loadedAnnonce.id}/viewers',
+                extra: loadedAnnonce,
+              ),
+            ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: annonceAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -488,6 +501,87 @@ class _SaleStateBanner extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+/// Sur sa propre annonce : photo du dernier visiteur + nombre de vues
+/// (comme « Vues du profil ») ; ouvre la liste de qui l'a regardée.
+class _ViewersButton extends ConsumerWidget {
+  const _ViewersButton({required this.annonce, required this.onTap});
+
+  final Annonce annonce;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final viewers =
+        ref.watch(annonceViewersProvider(annonce.id)).valueOrNull ?? const [];
+    final latestPhoto = viewers.isEmpty ? null : viewers.first.profileImageUrl;
+    final count = annonce.views > viewers.length
+        ? annonce.views
+        : viewers.length;
+    return Tooltip(
+      message: tr("Vues de l'annonce"),
+      child: InkResponse(
+        onTap: onTap,
+        radius: 26,
+        child: SizedBox(
+          width: 52,
+          height: 44,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              ClipOval(
+                child: latestPhoto == null
+                    ? Container(
+                        width: 34,
+                        height: 34,
+                        color: AppColors.surfaceHigh,
+                        child: const Icon(
+                          Icons.visibility_outlined,
+                          size: 18,
+                          color: AppColors.textPrimary,
+                        ),
+                      )
+                    : OccasionImage.thumbnail(
+                        latestPhoto,
+                        width: 34,
+                        height: 34,
+                        cacheWidth: 68,
+                        cacheHeight: 68,
+                      ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.outline),
+                  ),
+                  child: Text(
+                    count > 999 ? '999+' : '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'annonce/providers/annonce_provider.dart' show annonceByIdProvider;
 import 'annonce/screens/create_annonce_screen.dart';
 import 'l10n/app_language.dart';
 import 'screens/account_settings_screen.dart';
@@ -32,6 +33,7 @@ import 'screens/admin_loyalty_screen.dart';
 import 'screens/admin_orders_screen.dart';
 import 'screens/admin_reports_screen.dart';
 import 'screens/annonce_detail_screen.dart';
+import 'screens/annonce_viewers_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/delete_account_screen.dart';
@@ -650,6 +652,15 @@ class OccasionApp extends StatelessWidget {
             AnnonceDetailScreen(annonceId: state.pathParameters['id']!),
       ),
       GoRoute(
+        path: '/annonce/:id/viewers',
+        builder: (context, state) => _AuthGuard(
+          child: _AnnonceViewersRoute(
+            annonceId: state.pathParameters['id']!,
+            annonce: state.extra is Annonce ? state.extra as Annonce : null,
+          ),
+        ),
+      ),
+      GoRoute(
         path: '/seller/:id',
         builder: (context, state) => _AuthGuard(
           child: SellerPublicProfileScreen(
@@ -896,6 +907,41 @@ class BuyerNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const AppShell();
+}
+
+/// Ouvre « Vues de l'annonce » même sans l'annonce en paramètre (lien
+/// direct) : elle est alors chargée par son id.
+class _AnnonceViewersRoute extends ConsumerWidget {
+  const _AnnonceViewersRoute({required this.annonceId, this.annonce});
+
+  final String annonceId;
+  final Annonce? annonce;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final known = annonce;
+    if (known != null) return AnnonceViewersScreen(annonce: known);
+    return ref
+        .watch(annonceByIdProvider(annonceId))
+        .when(
+          data: (loaded) => loaded == null
+              ? Scaffold(
+                  appBar: AppBar(),
+                  body: Center(
+                    child: Text(tr('Cette annonce est introuvable.')),
+                  ),
+                )
+              : AnnonceViewersScreen(annonce: loaded),
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (error, stackTrace) => Scaffold(
+            appBar: AppBar(),
+            body: Center(
+              child: Text(tr('Impossible de charger cette annonce.')),
+            ),
+          ),
+        );
+  }
 }
 
 class SellerNav extends StatelessWidget {

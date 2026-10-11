@@ -2253,6 +2253,16 @@ async function deleteUserData(
     await db.recursiveDelete(ref, writer);
   }
 
+  // Ses passages sur les annonces des autres (liste « Vues de
+  // l'annonce » des vendeurs).
+  const viewsSnap = await db
+    .collectionGroup("viewers")
+    .where("viewerId", "==", uid)
+    .get();
+  for (const doc of viewsSnap.docs) {
+    track(writer.delete(doc.ref));
+  }
+
   const ownedDocs = [
     ["statusViews", "userId"],
     ["statusDailyCounters", "sellerId"],
@@ -2876,8 +2886,6 @@ exports.recordAnnonceView = onCall(async (request) => {
 
   await db.runTransaction(async (tx) => {
     const viewerSnap = await tx.get(viewerRef);
-    if (viewerSnap.exists) return;
-
     const annonceSnap = await tx.get(annonceRef);
     if (!annonceSnap.exists) return;
 
@@ -2891,7 +2899,26 @@ exports.recordAnnonceView = onCall(async (request) => {
     // statistiques en rouvrant ses annonces.
     if (sellerId === uid) return;
 
-    tx.set(viewerRef, { viewedAt: FieldValue.serverTimestamp() });
+    // Visiteur déjà compté : seule la date de sa dernière visite avance
+    // (liste « Vues de l'annonce » du vendeur, la plus récente en haut) —
+    // jamais une deuxième vue dans les compteurs.
+    if (viewerSnap.exists) {
+      tx.update(viewerRef, {
+        viewerId: uid,
+        viewedAt: FieldValue.serverTimestamp(),
+        visits: FieldValue.increment(1),
+      });
+      return;
+    }
+
+    // `viewerId` : retrouver (et effacer) les vues d'un compte supprimé,
+    // voir deleteUserData.
+    tx.set(viewerRef, {
+      viewerId: uid,
+      viewedAt: FieldValue.serverTimestamp(),
+      firstViewedAt: FieldValue.serverTimestamp(),
+      visits: 1,
+    });
     tx.update(annonceRef, { vues: FieldValue.increment(1) });
 
     if (sellerId) {

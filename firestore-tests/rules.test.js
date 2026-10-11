@@ -1220,6 +1220,26 @@ test("un client ne peut pas écrire dans la sous-collection viewers d'une annonc
   );
 });
 
+test("seul le vendeur de l'annonce (et l'admin) peut lire qui l'a regardée", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const ref = ctx.firestore().collection("annonces").doc("annonce1");
+    await ref.set(validAnnonceSeed());
+    await ref.collection("viewers").doc("buyer1").set({ viewerId: "buyer1", viewedAt: new Date() });
+    await ctx.firestore().collection("admins").doc("admin1").set({ since: 1 });
+  });
+  const viewers = (db) =>
+    db.collection("annonces").doc("annonce1").collection("viewers");
+  await assertSucceeds(
+    viewers(testEnv.authenticatedContext("seller1").firestore())
+      .orderBy("viewedAt", "desc")
+      .get()
+  );
+  await assertSucceeds(viewers(testEnv.authenticatedContext("admin1").firestore()).get());
+  await assertFails(viewers(testEnv.authenticatedContext("buyer1").firestore()).get());
+  await assertFails(viewers(testEnv.authenticatedContext("buyer2").firestore()).doc("buyer1").get());
+  await assertFails(viewers(testEnv.unauthenticatedContext().firestore()).get());
+});
+
 test("un vendeur peut lire ses propres statistiques", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await ctx.firestore().collection("sellerStatistics").doc("seller1").set({
