@@ -84,4 +84,45 @@ void main() {
     // pumpAndSettle échouerait (délai dépassé) si l’animation tournait.
     await tester.pumpAndSettle();
   });
+
+  testWidgets('RollingSwitcher passe à l’élément suivant après l’intervalle, '
+      'puis revient au premier', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: RollingSwitcher(
+          interval: Duration(seconds: 3),
+          items: [Text('batterie'), Text('iphone')],
+        ),
+      ),
+    );
+    expect(find.text('batterie'), findsOneWidget);
+    expect(find.text('iphone'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('iphone'), findsOneWidget);
+    expect(find.text('batterie'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('batterie'), findsOneWidget);
+  });
+
+  testWidgets('RollingSwitcher reste sur le premier élément quand les '
+      'animations sont réduites', (tester) async {
+    await tester.pumpWidget(
+      const MediaQuery(
+        data: MediaQueryData(disableAnimations: true),
+        child: MaterialApp(
+          home: RollingSwitcher(
+            interval: Duration(seconds: 3),
+            items: [Text('batterie'), Text('iphone')],
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 10));
+    expect(find.text('batterie'), findsOneWidget);
+    expect(find.text('iphone'), findsNothing);
+  });
 }

@@ -99,6 +99,8 @@ const _english = <String, String>{
   "Achats": "Purchases",
   "Acheter": "Buy",
   "Acheteur": "Buyer",
+  "depuis": "since",
+  "Ajouter au panier": "Add to cart",
   "Écrire": "Message",
   "Actif (visible des acheteurs)": "Active (visible to buyers)",
   "Actions conversation": "Conversation actions",

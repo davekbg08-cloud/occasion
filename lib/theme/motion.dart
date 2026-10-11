@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Animations de l'app : courtes, discrètes, et désactivées quand le
@@ -219,6 +221,107 @@ class _SkeletonPulseState extends State<SkeletonPulse>
           color: base,
           borderRadius: widget.borderRadius,
         ),
+      ),
+    );
+  }
+}
+
+/// Fait défiler [items] l'un après l'autre, chacun glissant vers le haut
+/// pour laisser monter le suivant (texte d'aide de la barre de recherche,
+/// ligne d'infos des cartes annonce). [initialDelay] décale le premier
+/// changement pour que les cartes voisines ne bougent pas toutes en même
+/// temps. Animations réduites : seul le premier élément est affiché.
+class RollingSwitcher extends StatefulWidget {
+  const RollingSwitcher({
+    super.key,
+    required this.items,
+    this.interval = const Duration(seconds: 3),
+    this.initialDelay = Duration.zero,
+    this.onChanged,
+    this.alignment = Alignment.centerLeft,
+  });
+
+  final List<Widget> items;
+  final Duration interval;
+  final Duration initialDelay;
+  final ValueChanged<int>? onChanged;
+  final AlignmentGeometry alignment;
+
+  @override
+  State<RollingSwitcher> createState() => _RollingSwitcherState();
+}
+
+class _RollingSwitcherState extends State<RollingSwitcher> {
+  Timer? _timer;
+  int _index = 0;
+  bool _reduced = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduced = OccasionMotion.reduced(context);
+    _schedule(widget.initialDelay + widget.interval);
+  }
+
+  @override
+  void didUpdateWidget(RollingSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_index >= widget.items.length) _index = 0;
+    if (oldWidget.items.length != widget.items.length) {
+      _schedule(widget.interval);
+    }
+  }
+
+  void _schedule(Duration delay) {
+    _timer?.cancel();
+    _timer = null;
+    if (_reduced || widget.items.length < 2) return;
+    _timer = Timer(delay, _next);
+  }
+
+  void _next() {
+    if (!mounted || widget.items.length < 2) return;
+    setState(() => _index = (_index + 1) % widget.items.length);
+    widget.onChanged?.call(_index);
+    _schedule(widget.interval);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+    final current = KeyedSubtree(
+      key: ValueKey(_index),
+      child: widget.items[_index],
+    );
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 380),
+        switchInCurve: OccasionMotion.enter,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          alignment: widget.alignment,
+          children: [...previousChildren, ?currentChild],
+        ),
+        transitionBuilder: (child, animation) {
+          // Entrant : monte depuis le bas. Sortant (animation inversée) :
+          // continue vers le haut.
+          final incoming = child.key == current.key;
+          final offset = Tween<Offset>(
+            begin: incoming ? const Offset(0, 1) : const Offset(0, -1),
+            end: Offset.zero,
+          ).animate(animation);
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: offset, child: child),
+          );
+        },
+        child: current,
       ),
     );
   }

@@ -9,6 +9,8 @@ import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../providers/product_provider.dart';
+import '../search/providers/search_provider.dart';
+import '../theme/app_theme.dart';
 import '../widgets/occasion_logo.dart';
 import '../widgets/product_card.dart';
 import '../widgets/status_strip.dart';
@@ -89,6 +91,12 @@ class ProductListScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
+          _HomeSearchBar(
+            suggestions: productsAsync.maybeWhen(
+              data: (products) => products.map((p) => p.name),
+              orElse: () => const <String>[],
+            ),
+          ),
           StatusStrip(blockedIds: blockedIds),
           Expanded(child: _productsBody(ref, productsAsync, blockedIds)),
         ],
@@ -134,11 +142,11 @@ class ProductListScreen extends ConsumerWidget {
   }
 }
 
-/// Grille responsive : 1 colonne sous 600px, 2 colonnes entre 600 et 999px,
-/// 3 colonnes à partir de 1000px (largeur max, contenu centré). Utilise
+/// Grille responsive : 2 colonnes sur téléphone, 3 entre 600 et 999px,
+/// 4 à partir de 1000px (largeur max, contenu centré). Utilise
 /// [MasonryGridView] plutôt qu'un `GridView` à ratio fixe car la hauteur des
-/// cartes varie (badges vendeur optionnels, description sur 1 ou 2 lignes) —
-/// un ratio fixe couperait ou laisserait déborder certaines cartes.
+/// cartes varie (titre sur 1 ou 2 lignes) — un ratio fixe couperait ou
+/// laisserait déborder certaines cartes.
 class _ResponsiveProductGrid extends StatelessWidget {
   const _ResponsiveProductGrid({required this.products});
 
@@ -149,55 +157,175 @@ class _ResponsiveProductGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final crossAxisCount = width >= 1000 ? 3 : (width >= 600 ? 2 : 1);
+    final crossAxisCount = width >= 1000 ? 4 : (width >= 600 ? 3 : 2);
     final bottomSafePadding =
         MediaQuery.paddingOf(context).bottom + kBottomNavigationBarHeight;
-
-    final grid = MasonryGridView.count(
-      padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + bottomSafePadding),
-      crossAxisCount: crossAxisCount,
-      mainAxisSpacing: 4,
-      crossAxisSpacing: 4,
-      itemCount: products.length,
-      itemBuilder: (context, index) => AppearOnce(
-        key: ValueKey(products[index].id),
-        order: index,
-        child: ProductCard(product: products[index]),
-      ),
-    );
-
-    if (crossAxisCount == 1) return grid;
 
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-        child: grid,
+        child: MasonryGridView.count(
+          padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + bottomSafePadding),
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          itemCount: products.length,
+          itemBuilder: (context, index) => AppearOnce(
+            key: ValueKey(products[index].id),
+            order: index,
+            child: ProductCard(product: products[index]),
+          ),
+        ),
       ),
     );
   }
 }
 
-/// Squelette de la liste pendant le premier chargement : la forme des
+/// Barre de recherche de l'accueil : le texte d'aide fait défiler des
+/// titres d'annonces réelles (glissement vers le haut). Tapoter la barre
+/// ouvre la recherche ; le bouton loupe cherche directement le titre
+/// affiché.
+class _HomeSearchBar extends ConsumerStatefulWidget {
+  const _HomeSearchBar({required this.suggestions});
+
+  final Iterable<String> suggestions;
+
+  @override
+  ConsumerState<_HomeSearchBar> createState() => _HomeSearchBarState();
+}
+
+class _HomeSearchBarState extends ConsumerState<_HomeSearchBar> {
+  static const _fallback = ['téléphone', 'chaussures', 'ordinateur'];
+
+  int _shown = 0;
+
+  List<String> get _hints {
+    final seen = <String>{};
+    final hints = <String>[];
+    for (final name in widget.suggestions) {
+      final trimmed = name.trim();
+      if (trimmed.isEmpty || !seen.add(trimmed.toLowerCase())) continue;
+      hints.add(trimmed);
+      if (hints.length == 8) break;
+    }
+    return hints.isEmpty ? _fallback : hints;
+  }
+
+  Future<void> _openSearch(String query) async {
+    ref.read(searchQueryProvider.notifier).state = query;
+    await context.push('/search');
+    if (!mounted) return;
+    ref.read(searchQueryProvider.notifier).state = '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hints = _hints;
+    final shown = hints[_shown.clamp(0, hints.length - 1)];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Material(
+        color: AppColors.surface,
+        shape: const StadiumBorder(
+          side: BorderSide(color: AppColors.price, width: 1.5),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openSearch(''),
+          child: SizedBox(
+            height: 46,
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                const Icon(
+                  Icons.search,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Semantics(
+                    label: tr('Rechercher une annonce...'),
+                    child: ExcludeSemantics(
+                      child: RollingSwitcher(
+                        key: ValueKey(hints.length),
+                        onChanged: (index) => _shown = index,
+                        items: [
+                          for (final hint in hints)
+                            Text(
+                              hint,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 15,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Material(
+                    color: AppColors.price,
+                    shape: const StadiumBorder(),
+                    child: InkWell(
+                      customBorder: const StadiumBorder(),
+                      onTap: () => _openSearch(shown),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Center(
+                          widthFactor: 1,
+                          child: Icon(
+                            Icons.search,
+                            color: Colors.white,
+                            semanticLabel: tr('Rechercher'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Squelette de la grille pendant le premier chargement : la forme des
 /// cartes est déjà là, au lieu d'une roue au milieu d'un écran vide.
 class _ProductListSkeleton extends StatelessWidget {
   const _ProductListSkeleton();
 
   @override
   Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(16));
-    return ListView.separated(
+    const radius = BorderRadius.all(Radius.circular(12));
+    return GridView.builder(
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
-      itemCount: 3,
-      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      padding: const EdgeInsets.all(8),
+      itemCount: 4,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.68,
+      ),
       itemBuilder: (context, _) => const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SkeletonPulse(height: 220, borderRadius: radius),
-          SizedBox(height: 12),
-          SkeletonPulse(width: 90, height: 18, borderRadius: radius),
+          AspectRatio(
+            aspectRatio: 1,
+            child: SkeletonPulse(borderRadius: radius),
+          ),
+          SizedBox(height: 10),
+          SkeletonPulse(height: 14, borderRadius: radius),
           SizedBox(height: 8),
-          SkeletonPulse(width: 200, height: 16, borderRadius: radius),
+          SkeletonPulse(width: 80, height: 18, borderRadius: radius),
         ],
       ),
     );

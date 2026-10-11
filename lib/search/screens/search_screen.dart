@@ -93,7 +93,10 @@ class SearchScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(8),
             child: Column(
               children: [
-                TextField(
+                // Pré-rempli quand on arrive depuis la barre de recherche
+                // de l'accueil (bouton loupe sur un titre suggéré).
+                TextFormField(
+                  initialValue: ref.read(searchQueryProvider),
                   decoration: InputDecoration(
                     hintText: tr('Rechercher une annonce...'),
                     prefixIcon: Icon(Icons.search),
