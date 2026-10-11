@@ -243,36 +243,45 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.dark(),
-            home: Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const OccasionSplashLogo(),
-                    const SizedBox(height: 28),
-                    const SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    ),
-                    if (_showSlowHint) ...[
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          tr(
-                            'Ça prend plus de temps que prévu — vérifie ta '
-                            'connexion internet.',
-                          ),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
+            home: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: SystemUiOverlayStyle.dark.copyWith(
+                statusBarColor: Colors.transparent,
+              ),
+              child: Scaffold(
+                backgroundColor: occasionSplashBackground,
+                body: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const OccasionSplashLogo(),
+                      const SizedBox(height: 28),
+                      const SizedBox(
+                        width: 26,
+                        height: 26,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: AppColors.price,
                         ),
                       ),
+                      if (_showSlowHint) ...[
+                        const SizedBox(height: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            tr(
+                              'Ça prend plus de temps que prévu — vérifie ta '
+                              'connexion internet.',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Color(0xFF5B6B7C),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -737,7 +746,13 @@ class _AuthGate extends ConsumerWidget {
     final currentUser = authState.currentUser;
 
     if (authState.isLoading) {
-      return const Scaffold(body: Center(child: OccasionSplashLogo()));
+      return const AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark,
+        child: Scaffold(
+          backgroundColor: occasionSplashBackground,
+          body: Center(child: OccasionSplashLogo()),
+        ),
+      );
     }
 
     if (currentUser == null) {

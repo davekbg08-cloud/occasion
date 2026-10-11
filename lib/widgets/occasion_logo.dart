@@ -2,66 +2,71 @@ import 'package:flutter/material.dart';
 
 import '../theme/motion.dart';
 
-/// Logo Occasion présenté comme une icône d'app : tuile blanche aux coins
-/// arrondis. Le fichier a un fond blanc opaque (pas de transparence) ;
-/// posé tel quel sur le fond sombre, il apparaissait comme un carré blanc
-/// découpé.
+/// Logo Occasion, jamais posé comme une image à fond blanc découpée :
+/// - sur fond sombre (par défaut) : version sans fond, bleu marine passé en
+///   blanc pour rester lisible (`occasion_logo_dark.png`) ;
+/// - sur une page blanche ([onLight]) : logo d'origine, dont le fond blanc
+///   se fond dans celui de la page.
 class OccasionLogo extends StatelessWidget {
-  const OccasionLogo({super.key, this.size = 96, this.fit = BoxFit.contain});
+  const OccasionLogo({
+    super.key,
+    this.size = 96,
+    this.fit = BoxFit.contain,
+    this.onLight = false,
+  });
 
   final double size;
   final BoxFit fit;
+  final bool onLight;
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(size * 0.22);
-    // Centré dans l'espace reçu : une colonne `stretch` étirerait sinon la
-    // tuile sur toute la largeur.
-    return Center(
-      widthFactor: 1,
-      heightFactor: 1,
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: radius,
-          boxShadow: size >= 64
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: size * 0.18,
-                    offset: Offset(0, size * 0.05),
-                  ),
-                ]
-              : null,
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Image.asset(
-            'assets/branding/occasion_logo.png',
-            width: size,
-            height: size,
-            fit: fit,
-            semanticLabel: 'Occasion',
-          ),
-        ),
-      ),
+    return Image.asset(
+      onLight
+          ? 'assets/branding/occasion_logo.png'
+          : 'assets/branding/occasion_logo_dark.png',
+      width: size,
+      height: size,
+      fit: fit,
+      semanticLabel: 'Occasion',
     );
   }
 }
 
-/// Logo des écrans de démarrage/chargement : apparaît en douceur (fondu +
-/// léger agrandissement), dans la continuité de l'écran de démarrage
-/// natif et de la page web qui l'affichent déjà à la même place.
-class OccasionSplashLogo extends StatelessWidget {
-  const OccasionSplashLogo({super.key, this.size = 132});
+/// Emblème seul (O, sac, téléphone), sans le mot « Occasion » ni le
+/// slogan, illisibles en petit : pour l'en-tête, où le nom est déjà écrit
+/// à côté. Version pour fond sombre.
+class OccasionEmblem extends StatelessWidget {
+  const OccasionEmblem({super.key, this.size = 32});
 
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final logo = OccasionLogo(size: size);
+    return Image.asset(
+      'assets/branding/occasion_emblem_dark.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      semanticLabel: 'Occasion',
+    );
+  }
+}
+
+/// Fond des écrans de démarrage : celui du logo, pour une suite continue
+/// avec l'écran de démarrage natif (Android) et la page d'attente web.
+const occasionSplashBackground = Colors.white;
+
+/// Logo des écrans de démarrage/chargement (page blanche) : apparaît en
+/// douceur (fondu + léger agrandissement).
+class OccasionSplashLogo extends StatelessWidget {
+  const OccasionSplashLogo({super.key, this.size = 160});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final logo = OccasionLogo(size: size, onLight: true);
     if (OccasionMotion.reduced(context)) return logo;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -69,7 +74,7 @@ class OccasionSplashLogo extends StatelessWidget {
       curve: OccasionMotion.enter,
       builder: (context, t, child) => Opacity(
         opacity: t,
-        child: Transform.scale(scale: 0.92 + 0.08 * t, child: child),
+        child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
       ),
       child: logo,
     );

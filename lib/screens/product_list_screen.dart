@@ -39,8 +39,8 @@ class ProductListScreen extends ConsumerWidget {
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            OccasionLogo(size: 34),
-            SizedBox(width: 8),
+            OccasionEmblem(size: 32),
+            SizedBox(width: 10),
             Text('Occasion'),
           ],
         ),

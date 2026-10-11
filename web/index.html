@@ -41,19 +41,19 @@
   <title>Occasion</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Écran d'attente pendant le chargement de l'app (fond de l'app + logo
-       en tuile arrondie, comme dans l'app elle-même), retiré dès la
-       première image Flutter. Sans lui : page vide le temps du chargement. -->
+  <!-- Écran d'attente pendant le chargement de l'app : page blanche (le
+       fond du logo s'y fond, sans cadre), identique au premier écran de
+       chargement de l'app, retirée dès la première image Flutter. Sans
+       lui : page vide le temps du chargement. -->
   <style>
-    html, body { margin: 0; background: #0F1720; }
+    html, body { margin: 0; background: #fff; }
     #occasion-splash {
       position: fixed; inset: 0; display: flex;
       align-items: center; justify-content: center;
-      background: #0F1720; transition: opacity 250ms ease-out;
+      background: #fff; transition: opacity 250ms ease-out;
     }
     #occasion-splash img {
-      width: 132px; height: 132px; border-radius: 29px;
-      background: #fff; box-shadow: 0 7px 24px rgba(0, 0, 0, 0.35);
+      width: 160px; height: 160px;
       animation: occasion-splash-in 450ms cubic-bezier(0.33, 1, 0.68, 1);
     }
     @keyframes occasion-splash-in {
@@ -67,7 +67,7 @@
 </head>
 <body>
   <div id="occasion-splash" aria-hidden="true">
-    <img src="icons/Icon-512.png" alt="">
+    <img src="branding/occasion_logo.png" alt="">
   </div>
   <script>
     window.addEventListener('flutter-first-frame', function () {

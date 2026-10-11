@@ -63,3 +63,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/occasion_logo.png
+    - assets/branding/occasion_logo_dark.png
+    - assets/branding/occasion_emblem_dark.png
