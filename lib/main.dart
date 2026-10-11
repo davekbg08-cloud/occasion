@@ -248,7 +248,7 @@ class _FirebaseBootstrapState extends State<FirebaseBootstrap> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const OccasionLogo(size: 132),
+                    const OccasionSplashLogo(),
                     const SizedBox(height: 28),
                     const SizedBox(
                       width: 26,
@@ -737,7 +737,7 @@ class _AuthGate extends ConsumerWidget {
     final currentUser = authState.currentUser;
 
     if (authState.isLoading) {
-      return const Scaffold(body: Center(child: OccasionLogo(size: 132)));
+      return const Scaffold(body: Center(child: OccasionSplashLogo()));
     }
 
     if (currentUser == null) {

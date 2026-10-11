@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône de l'écran de démarrage Android 12+ : le système la découpe en
+     cercle (diamètre = 2/3 de la zone). Le logo, carré avec du texte, est
+     réduit de 26 % de chaque côté pour tenir ENTIER dans ce cercle — sans
+     quoi le texte « Occasion » et les bords étaient rognés. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_logo"
+    android:inset="26%" />
