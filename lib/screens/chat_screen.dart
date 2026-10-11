@@ -547,20 +547,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      // En-tête façon messagerie : bouton retour en pastille avec le
+      // nombre de messages non lus des AUTRES conversations, photo, nom en
+      // gras et statut/annonce en dessous.
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leadingWidth: 30,
+        automaticallyImplyLeading: false,
+        toolbarHeight: 64,
+        titleSpacing: 0,
+        shape: const Border(
+          bottom: BorderSide(color: AppColors.outline, width: 0.5),
+        ),
         title: Row(
           children: [
+            const SizedBox(width: 8),
+            _BackPill(
+              unreadElsewhere: ref.watch(
+                chatNotifierProvider.select(
+                  (state) => state.chats
+                      .where((item) => item.id != widget.chat.id)
+                      .fold<int>(
+                        0,
+                        (total, item) => total + item.unreadCountFor(myId),
+                      ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
             (otherImage == null || otherImage.isEmpty)
                 ? CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppColors.surfaceHigh,
+                    radius: 21,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.14),
                     child: Text(
                       initial,
                       style: const TextStyle(
                         color: AppColors.primary,
-                        fontSize: 14,
+                        fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -576,15 +598,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     child: ClipOval(
                       child: OccasionImage.thumbnail(
                         otherImage,
-                        width: 36,
-                        height: 36,
-                        cacheWidth: 72,
-                        cacheHeight: 72,
+                        width: 42,
+                        height: 42,
+                        cacheWidth: 84,
+                        cacheHeight: 84,
                         semanticsLabel: 'Photo de profil de $otherName',
                       ),
                     ),
                   ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -594,24 +616,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     displayNameWithTag(otherName, otherId),
                     style: const TextStyle(
                       color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
                     ),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
                   if (statusText != null)
                     Text(
                       statusText,
-                      style: TextStyle(color: statusColor, fontSize: 12),
+                      style: TextStyle(color: statusColor, fontSize: 13),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )
                   else if (listingTitle != null && listingTitle.isNotEmpty)
                     Text(
                       listingTitle,
                       style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
                       ),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                 ],
@@ -745,6 +771,59 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 }
+
+/// Bouton retour en pastille (« ‹ 39 ») : le nombre indique les messages
+/// non lus dans les autres conversations, masqué à 0.
+class _BackPill extends StatelessWidget {
+  const _BackPill({required this.unreadElsewhere});
+
+  final int unreadElsewhere;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCount = unreadElsewhere > 0;
+    return Semantics(
+      button: true,
+      label: hasCount
+          ? '${tr('Retour')}, $unreadElsewhere ${tr('non lus')}'
+          : tr('Retour'),
+      excludeSemantics: true,
+      child: Material(
+        color: AppColors.surfaceHigh,
+        shape: const StadiumBorder(side: BorderSide(color: AppColors.outline)),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: () => Navigator.of(context).maybePop(),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(6, 6, hasCount ? 12 : 8, 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chevron_left,
+                  size: 28,
+                  color: AppColors.textPrimary,
+                ),
+                if (hasCount)
+                  Text(
+                    formatUnreadCount(unreadElsewhere),
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compte affiché dans la pastille retour : exact jusqu'à 99, `99+` au-delà.
+String formatUnreadCount(int count) => count > 99 ? '99+' : '$count';
 
 class _Bubble extends StatelessWidget {
   const _Bubble({

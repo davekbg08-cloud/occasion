@@ -347,6 +347,7 @@ const _english = <String, String>{
   "Renouvellement vendeur": "Seller renewal",
   "Retirer le filtre ville": "Remove city filter",
   "Retour": "Back",
+  "non lus": "unread",
   "Retour à l'accueil": "Back to home",
   "Revenu": "Income",
   "Revenus": "Income",
