@@ -8,65 +8,79 @@ import '../../annonce/presentation/widgets/annonce_card.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/search_alert_provider.dart';
 
+/// Enregistre la recherche en cours (mot-clé/ville) comme alerte : partagé
+/// par la recherche de l'accueil.
+Future<void> saveCurrentSearch(BuildContext context, WidgetRef ref) async {
+  final userId = ref.read(authNotifierProvider).currentUser?.id;
+  if (userId == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(tr('Connecte-toi pour enregistrer une recherche.')),
+      ),
+    );
+    return;
+  }
+  final query = ref.read(searchQueryProvider);
+  final filters = ref.read(searchFiltersProvider);
+  final hasActiveSearch =
+      query.trim().isNotEmpty || (filters['city'] as String? ?? '').isNotEmpty;
+  // Bouton toujours actif (voir plus bas) : explique pourquoi rien ne se
+  // passe plutôt qu'un simple bouton grisé et muet — ça ressemblait à un
+  // bug ("j'appuie et il ne se passe rien") alors que c'était voulu.
+  if (!hasActiveSearch) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          tr(
+            "Tape d'abord un mot-clé ou une ville avant d'enregistrer une recherche.",
+          ),
+        ),
+      ),
+    );
+    return;
+  }
+  try {
+    await ref
+        .read(searchAlertServiceProvider)
+        .create(
+          userId: userId,
+          keyword: query,
+          city: filters['city'] as String? ?? '',
+          category: filters['category'] as String? ?? '',
+        );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          tr(
+            'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
+          ),
+        ),
+      ),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tr("Échec de l'enregistrement. Réessaie."))),
+    );
+  }
+}
+
+/// Filtre ville/quartier de la recherche (vide : retiré).
+void setCityFilter(WidgetRef ref, String value) {
+  ref.read(searchFiltersProvider.notifier).update((state) {
+    final next = {...state};
+    if (value.trim().isEmpty) {
+      next.remove('city');
+    } else {
+      next['city'] = value.trim();
+    }
+    return next;
+  });
+}
+
 class SearchScreen extends ConsumerWidget {
   const SearchScreen({super.key});
-
-  Future<void> _saveSearch(BuildContext context, WidgetRef ref) async {
-    final userId = ref.read(authNotifierProvider).currentUser?.id;
-    if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr('Connecte-toi pour enregistrer une recherche.')),
-        ),
-      );
-      return;
-    }
-    final query = ref.read(searchQueryProvider);
-    final filters = ref.read(searchFiltersProvider);
-    final hasActiveSearch =
-        query.trim().isNotEmpty ||
-        (filters['city'] as String? ?? '').isNotEmpty;
-    // Bouton toujours actif (voir plus bas) : explique pourquoi rien ne se
-    // passe plutôt qu'un simple bouton grisé et muet — ça ressemblait à un
-    // bug ("j'appuie et il ne se passe rien") alors que c'était voulu.
-    if (!hasActiveSearch) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tr(
-              "Tape d'abord un mot-clé ou une ville avant d'enregistrer une recherche.",
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    try {
-      await ref
-          .read(searchAlertServiceProvider)
-          .create(
-            userId: userId,
-            keyword: query,
-            city: filters['city'] as String? ?? '',
-            category: filters['category'] as String? ?? '',
-          );
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tr(
-              'Recherche enregistrée. Tu seras notifié des nouvelles annonces correspondantes.',
-            ),
-          ),
-        ),
-      );
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("Échec de l'enregistrement. Réessaie."))),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -79,7 +93,7 @@ class SearchScreen extends ConsumerWidget {
           IconButton(
             tooltip: tr('Enregistrer cette recherche'),
             icon: const Icon(Icons.bookmark_add_outlined),
-            onPressed: () => _saveSearch(context, ref),
+            onPressed: () => saveCurrentSearch(context, ref),
           ),
           IconButton(
             tooltip: tr('Mes alertes de recherche'),
@@ -107,18 +121,8 @@ class SearchScreen extends ConsumerWidget {
                   },
                 ),
                 const SizedBox(height: 8),
-                _CityFilterField(
-                  onChanged: (value) {
-                    ref.read(searchFiltersProvider.notifier).update((state) {
-                      final next = {...state};
-                      if (value.trim().isEmpty) {
-                        next.remove('city');
-                      } else {
-                        next['city'] = value.trim();
-                      }
-                      return next;
-                    });
-                  },
+                CityFilterField(
+                  onChanged: (value) => setCityFilter(ref, value),
                 ),
               ],
             ),
@@ -155,16 +159,23 @@ class SearchScreen extends ConsumerWidget {
   }
 }
 
-class _CityFilterField extends StatefulWidget {
-  const _CityFilterField({required this.onChanged});
+class CityFilterField extends StatefulWidget {
+  const CityFilterField({
+    super.key,
+    required this.onChanged,
+    this.dense = false,
+  });
 
   final ValueChanged<String> onChanged;
 
+  /// Version compacte (sous la barre de recherche de l'accueil).
+  final bool dense;
+
   @override
-  State<_CityFilterField> createState() => _CityFilterFieldState();
+  State<CityFilterField> createState() => _CityFilterFieldState();
 }
 
-class _CityFilterFieldState extends State<_CityFilterField> {
+class _CityFilterFieldState extends State<CityFilterField> {
   final _controller = TextEditingController();
 
   @override
@@ -181,6 +192,7 @@ class _CityFilterFieldState extends State<_CityFilterField> {
         hintText: tr('Filtrer par ville/quartier...'),
         prefixIcon: const Icon(Icons.place_outlined),
         border: const OutlineInputBorder(),
+        isDense: widget.dense,
         suffixIcon: _controller.text.isEmpty
             ? null
             : IconButton(

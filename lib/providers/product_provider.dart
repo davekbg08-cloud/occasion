@@ -5,6 +5,7 @@ import '../annonce/providers/annonce_provider.dart';
 import '../models/annonce.dart';
 import '../models/user.dart';
 import '../models/product_model.dart';
+import '../search/providers/search_provider.dart';
 
 Future<UserModel?> _fetchSellerProfile(
   FirebaseFirestore firestore,
@@ -95,3 +96,27 @@ final productFromAnnonceProvider = FutureProvider.autoDispose
           : await ref.watch(sellerProfileProvider(annonce.userId).future);
       return annonceToProductModel(annonce, seller);
     });
+
+/// Résultats de la recherche de l'accueil (mot-clé + ville), convertis
+/// comme le marketplace pour s'afficher dans la même grille.
+final searchProductsProvider = FutureProvider.autoDispose<List<ProductModel>>((
+  ref,
+) async {
+  final annonces = await ref.watch(searchResultsProvider.future);
+  final sellerIds = annonces
+      .map((annonce) => annonce.userId)
+      .where((sellerId) => sellerId.trim().isNotEmpty)
+      .toSet();
+  final entries = await Future.wait(
+    sellerIds.map(
+      (sellerId) async => MapEntry(
+        sellerId,
+        await ref.watch(sellerProfileProvider(sellerId).future),
+      ),
+    ),
+  );
+  final sellers = Map<String, UserModel?>.fromEntries(entries);
+  return annonces
+      .map((annonce) => annonceToProductModel(annonce, sellers[annonce.userId]))
+      .toList();
+});

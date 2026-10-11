@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -10,6 +12,8 @@ import '../providers/cart_provider.dart';
 import '../providers/moderation_provider.dart';
 import '../providers/product_provider.dart';
 import '../search/providers/search_provider.dart';
+import '../search/screens/search_screen.dart'
+    show CityFilterField, saveCurrentSearch, setCityFilter;
 import '../theme/app_theme.dart';
 import '../widgets/occasion_logo.dart';
 import '../widgets/product_card.dart';
@@ -30,6 +34,7 @@ class ProductListScreen extends ConsumerWidget {
         : ref
               .watch(blockedUserIdsProvider(currentUser.id))
               .maybeWhen(data: (ids) => ids, orElse: () => const <String>{});
+    final searching = ref.watch(homeSearchActiveProvider);
     final cartCount = ref.watch(
       cartNotifierProvider.select(
         (items) => items.fold(0, (sum, item) => sum + item.quantity),
@@ -97,8 +102,12 @@ class ProductListScreen extends ConsumerWidget {
               orElse: () => const <String>[],
             ),
           ),
-          StatusStrip(blockedIds: blockedIds),
-          Expanded(child: _productsBody(ref, productsAsync, blockedIds)),
+          if (searching)
+            Expanded(child: _HomeSearchResults(blockedIds: blockedIds))
+          else ...[
+            StatusStrip(blockedIds: blockedIds),
+            Expanded(child: _productsBody(ref, productsAsync, blockedIds)),
+          ],
         ],
       ),
     );
@@ -181,10 +190,32 @@ class _ResponsiveProductGrid extends StatelessWidget {
   }
 }
 
-/// Barre de recherche de l'accueil : le texte d'aide fait défiler des
-/// titres d'annonces réelles (glissement vers le haut). Tapoter la barre
-/// ouvre la recherche ; le bouton loupe cherche directement le titre
-/// affiché.
+/// Mode recherche de l'accueil : la barre du haut est la recherche (plus
+/// d'onglet « Chercher » séparé) ; les résultats remplacent les statuts et
+/// la grille tant qu'il est actif.
+final homeSearchActiveProvider = StateProvider<bool>((ref) => false);
+
+/// Titres d'annonces réelles proposés dans la barre (défilement) et en
+/// suggestions, sans doublons.
+List<String> homeSearchSuggestions(Iterable<String> names, {int max = 8}) {
+  final seen = <String>{};
+  final hints = <String>[];
+  for (final name in names) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || !seen.add(trimmed.toLowerCase())) continue;
+    hints.add(trimmed);
+    if (hints.length == max) break;
+  }
+  return hints.isEmpty
+      ? const ['téléphone', 'chaussures', 'ordinateur']
+      : hints;
+}
+
+/// Barre de recherche de l'accueil. Tant qu'elle est vide, le texte d'aide
+/// fait défiler des titres d'annonces réelles (glissement vers le haut) ;
+/// on tape directement dedans, les résultats s'affichent dessous. La loupe
+/// orange lance la recherche (le titre affiché si rien n'est tapé), la
+/// flèche retour quitte la recherche.
 class _HomeSearchBar extends ConsumerStatefulWidget {
   const _HomeSearchBar({required this.suggestions});
 
@@ -195,77 +226,172 @@ class _HomeSearchBar extends ConsumerStatefulWidget {
 }
 
 class _HomeSearchBarState extends ConsumerState<_HomeSearchBar> {
-  static const _fallback = ['téléphone', 'chaussures', 'ordinateur'];
-
+  final _controller = TextEditingController();
+  final _focus = FocusNode();
+  Timer? _debounce;
   int _shown = 0;
 
-  List<String> get _hints {
-    final seen = <String>{};
-    final hints = <String>[];
-    for (final name in widget.suggestions) {
-      final trimmed = name.trim();
-      if (trimmed.isEmpty || !seen.add(trimmed.toLowerCase())) continue;
-      hints.add(trimmed);
-      if (hints.length == 8) break;
-    }
-    return hints.isEmpty ? _fallback : hints;
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (_focus.hasFocus) _setActive(true);
+      setState(() {});
+    });
   }
 
-  Future<void> _openSearch(String query) async {
-    ref.read(searchQueryProvider.notifier).state = query;
-    await context.push('/search');
-    if (!mounted) return;
-    ref.read(searchQueryProvider.notifier).state = '';
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _setActive(bool active) {
+    final notifier = ref.read(homeSearchActiveProvider.notifier);
+    if (notifier.state != active) notifier.state = active;
+  }
+
+  void _setQuery(String query) {
+    _debounce?.cancel();
+    ref.read(searchQueryProvider.notifier).state = query.trim();
+  }
+
+  void _onChanged(String value) {
+    setState(() {});
+    _debounce?.cancel();
+    // Pas une requête par touche : on attend une courte pause de frappe.
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _setQuery(value),
+    );
+  }
+
+  /// Recherche [text], ou le titre affiché dans la barre si rien n'est tapé.
+  void _submit([String? text]) {
+    final hints = homeSearchSuggestions(widget.suggestions);
+    var query = (text ?? _controller.text).trim();
+    if (query.isEmpty) query = hints[_shown.clamp(0, hints.length - 1)];
+    _controller.value = TextEditingValue(
+      text: query,
+      selection: TextSelection.collapsed(offset: query.length),
+    );
+    _setQuery(query);
+    _setActive(true);
+    _focus.unfocus();
+    setState(() {});
+  }
+
+  void _exit() {
+    _controller.clear();
+    _setQuery('');
+    setCityFilter(ref, '');
+    _setActive(false);
+    _focus.unfocus();
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final hints = _hints;
-    final shown = hints[_shown.clamp(0, hints.length - 1)];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Material(
-        color: AppColors.surface,
-        shape: const StadiumBorder(
-          side: BorderSide(color: AppColors.price, width: 1.5),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _openSearch(''),
+    // Une suggestion touchée sous la barre remplit le champ.
+    ref.listen<String?>(_pickedSuggestionProvider, (previous, next) {
+      if (next == null) return;
+      ref.read(_pickedSuggestionProvider.notifier).state = null;
+      _submit(next);
+    });
+    final active = ref.watch(homeSearchActiveProvider);
+    final hints = homeSearchSuggestions(widget.suggestions);
+    final empty = _controller.text.isEmpty;
+    return PopScope(
+      canPop: !active,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _exit();
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Material(
+          color: AppColors.surface,
+          shape: const StadiumBorder(
+            side: BorderSide(color: AppColors.price, width: 1.5),
+          ),
+          clipBehavior: Clip.antiAlias,
           child: SizedBox(
             height: 46,
             child: Row(
               children: [
-                const SizedBox(width: 14),
-                const Icon(
-                  Icons.search,
-                  size: 20,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 8),
+                if (active)
+                  IconButton(
+                    tooltip: tr('Retour'),
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: _exit,
+                  )
+                else ...[
+                  const SizedBox(width: 14),
+                  const Icon(
+                    Icons.search,
+                    size: 20,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
-                  child: Semantics(
-                    label: tr('Rechercher une annonce...'),
-                    child: ExcludeSemantics(
-                      child: RollingSwitcher(
-                        key: ValueKey(hints.length),
-                        onChanged: (index) => _shown = index,
-                        items: [
-                          for (final hint in hints)
-                            Text(
-                              hint,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 15,
-                              ),
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      if (empty)
+                        IgnorePointer(
+                          child: ExcludeSemantics(
+                            child: RollingSwitcher(
+                              key: ValueKey(hints.length),
+                              onChanged: (index) => _shown = index,
+                              items: [
+                                for (final hint in hints)
+                                  Text(
+                                    hint,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                              ],
                             ),
-                        ],
+                          ),
+                        ),
+                      Semantics(
+                        label: tr('Rechercher une annonce...'),
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focus,
+                          textInputAction: TextInputAction.search,
+                          onChanged: _onChanged,
+                          onSubmitted: (_) => _submit(),
+                          style: const TextStyle(fontSize: 15),
+                          decoration: const InputDecoration(
+                            isCollapsed: true,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
+                if (!empty)
+                  IconButton(
+                    tooltip: tr('Effacer'),
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () {
+                      _controller.clear();
+                      _setQuery('');
+                      _focus.requestFocus();
+                      setState(() {});
+                    },
+                  ),
                 Padding(
                   padding: const EdgeInsets.all(4),
                   child: Material(
@@ -273,7 +399,7 @@ class _HomeSearchBarState extends ConsumerState<_HomeSearchBar> {
                     shape: const StadiumBorder(),
                     child: InkWell(
                       customBorder: const StadiumBorder(),
-                      onTap: () => _openSearch(shown),
+                      onTap: () => _submit(),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 18),
                         child: Center(
@@ -293,6 +419,135 @@ class _HomeSearchBarState extends ConsumerState<_HomeSearchBar> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Suggestion touchée dans les résultats, transmise à la barre.
+final _pickedSuggestionProvider = StateProvider<String?>((ref) => null);
+
+/// Résultats de la recherche de l'accueil : filtre ville, enregistrer la
+/// recherche (alerte), mes alertes, puis la même grille que l'accueil.
+class _HomeSearchResults extends ConsumerWidget {
+  const _HomeSearchResults({required this.blockedIds});
+
+  final Set<String> blockedIds;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final query = ref.watch(searchQueryProvider);
+    final city = ref.watch(searchFiltersProvider)['city'] as String? ?? '';
+    final idle = query.trim().isEmpty && city.trim().isEmpty;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: CityFilterField(
+                  dense: true,
+                  onChanged: (value) => setCityFilter(ref, value),
+                ),
+              ),
+              IconButton(
+                tooltip: tr('Enregistrer cette recherche'),
+                icon: const Icon(Icons.bookmark_add_outlined),
+                onPressed: () => saveCurrentSearch(context, ref),
+              ),
+              IconButton(
+                tooltip: tr('Mes alertes de recherche'),
+                icon: const Icon(Icons.notifications_active_outlined),
+                onPressed: () => context.push('/search-alerts'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: idle
+              ? _SearchSuggestions(
+                  suggestions: homeSearchSuggestions(
+                    ref
+                            .watch(productNotifierProvider)
+                            .valueOrNull
+                            ?.map((p) => p.name) ??
+                        const <String>[],
+                  ),
+                )
+              : ref
+                    .watch(searchProductsProvider)
+                    .when(
+                      data: (products) {
+                        final visible = products
+                            .where(
+                              (p) =>
+                                  p.sellerId == null ||
+                                  !blockedIds.contains(p.sellerId),
+                            )
+                            .toList();
+                        if (visible.isEmpty) {
+                          return Center(
+                            child: Text(tr('Aucune annonce trouvée')),
+                          );
+                        }
+                        return RefreshIndicator(
+                          onRefresh: () =>
+                              ref.refresh(searchResultsProvider.future),
+                          child: _ResponsiveProductGrid(products: visible),
+                        );
+                      },
+                      loading: () => const _ProductListSkeleton(),
+                      error: (error, stackTrace) => Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            tr(
+                              'Impossible de charger les annonces pour le moment.',
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SearchSuggestions extends ConsumerWidget {
+  const _SearchSuggestions({required this.suggestions});
+
+  final List<String> suggestions;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      children: [
+        Text(
+          tr('Suggestions'),
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final suggestion in suggestions)
+              ActionChip(
+                avatar: const Icon(Icons.search, size: 16),
+                label: Text(suggestion),
+                onPressed: () =>
+                    ref.read(_pickedSuggestionProvider.notifier).state =
+                        suggestion,
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

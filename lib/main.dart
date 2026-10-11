@@ -951,10 +951,11 @@ class SellerNav extends StatelessWidget {
   Widget build(BuildContext context) => const AppShell();
 }
 
-/// Navigation unique (refonte) : Accueil, Chercher, Vendre (vendeurs
-/// uniquement), Messages, Profil — au lieu de deux applications séparées
-/// acheteur/vendeur avec des menus en double. Aucune fonction n'est
-/// retirée : les écrans secondaires sont rangés dans Vendre et Profil.
+/// Navigation unique (refonte) : Accueil (recherche comprise, dans la
+/// barre du haut), Vendre (vendeurs uniquement), Échanges, Profil — au lieu
+/// de deux applications séparées acheteur/vendeur avec des menus en double.
+/// Aucune fonction n'est retirée : les écrans secondaires sont rangés dans
+/// Vendre et Profil.
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
@@ -977,7 +978,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     final isSeller = user.isSeller;
     final pages = <Widget>[
       const ProductListScreen(),
-      const SearchScreen(),
       if (isSeller) const SellerDashboardScreen(),
       const ChatListScreen(),
       const ProfileScreen(),
@@ -987,11 +987,6 @@ class _AppShellState extends ConsumerState<AppShell> {
         icon: Icon(Icons.home_outlined),
         selectedIcon: Icon(Icons.home),
         label: tr('Accueil'),
-      ),
-      NavigationDestination(
-        icon: Icon(Icons.search),
-        selectedIcon: Icon(Icons.manage_search),
-        label: tr('Chercher'),
       ),
       if (isSeller)
         NavigationDestination(

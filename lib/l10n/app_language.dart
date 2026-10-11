@@ -99,6 +99,8 @@ const _english = <String, String>{
   "Achats": "Purchases",
   "Acheter": "Buy",
   "Acheteur": "Buyer",
+  "Effacer": "Clear",
+  "Suggestions": "Suggestions",
   "Points (j'aime)": "Points (likes)",
   "points de popularité": "popularity points",
   "points": "points",
